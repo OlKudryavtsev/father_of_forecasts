@@ -9,7 +9,11 @@ from aiogram.types import Message
 from app.db import SessionLocal
 from app.models import Match, Prediction, User
 
+from zoneinfo import ZoneInfo
+
+
 TOKEN = os.getenv("BOT_TOKEN")
+APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
 
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
@@ -54,13 +58,19 @@ def parse_score(score_text: str):
 
 
 def format_match(match: Match):
-    start_text = match.starts_at.strftime("%d.%m.%Y %H:%M")
+    start_text = format_datetime(match.starts_at)
     return (
         f"#{match.id} {match.home_team} — {match.away_team}\n"
         f"Стадия: {match.stage}\n"
         f"Старт: {start_text}"
     )
 
+def format_datetime(dt):
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    local_dt = dt.astimezone(APP_TIMEZONE)
+    return local_dt.strftime("%d.%m.%Y %H:%M")
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -281,7 +291,7 @@ async def predictions_handler(message: Message):
             for prediction in predictions
         }
 
-        start_text = match.starts_at.strftime("%d.%m.%Y %H:%M")
+        start_text = format_datetime(match.starts_at)
 
         lines = [
             f"🔮 Прогнозы на матч #{match.id}",
