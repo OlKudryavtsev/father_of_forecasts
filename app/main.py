@@ -168,6 +168,72 @@ def set_match_result(match_id: int, payload: MatchResultUpdate):
     finally:
         db.close()
 
+@app.post("/admin/recalculate")
+def recalculate_all_finished_matches():
+    db = SessionLocal()
+
+    try:
+        finished_matches = db.query(Match).filter(
+            Match.is_finished == True
+        ).all()
+
+        recalculated_matches = []
+
+        for match in finished_matches:
+            if match.score_home is None or match.score_away is None:
+                continue
+
+            predictions = db.query(Prediction).filter(
+                Prediction.match_id == match.id
+            ).all()
+
+            recalculated_predictions = []
+
+            for prediction in predictions:
+                result = score_match_prediction(
+                    pred_home=prediction.pred_home,
+                    pred_away=prediction.pred_away,
+                    actual_home=match.score_home,
+                    actual_away=match.score_away,
+                    advancement_bet_enabled=prediction.advancement_bet_enabled,
+                    predicted_advancing_side=prediction.predicted_advancing_side,
+                    actual_winner_side=match.winner_side,
+                )
+
+                prediction.score_points = result["score_points"]
+                prediction.advancement_points = result["advancement_points"]
+                prediction.points = result["total_points"]
+
+                recalculated_predictions.append(
+                    {
+                        "user": prediction.user.display_name,
+                        "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
+                        "score_points": prediction.score_points,
+                        "advancement_points": prediction.advancement_points,
+                        "total_points": prediction.points,
+                    }
+                )
+
+            recalculated_matches.append(
+                {
+                    "match_id": match.id,
+                    "match": f"{match.home_team} — {match.away_team}",
+                    "result": f"{match.score_home}:{match.score_away}",
+                    "winner_side": match.winner_side,
+                    "predictions": recalculated_predictions,
+                }
+            )
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "recalculated_matches_count": len(recalculated_matches),
+            "matches": recalculated_matches,
+        }
+
+    finally:
+        db.close()
 
 @app.get("/predictions")
 def get_predictions():
