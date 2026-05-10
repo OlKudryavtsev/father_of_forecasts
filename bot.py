@@ -100,7 +100,11 @@ async def matches_handler(message: Message):
             "\n\nЧтобы сделать прогноз, напиши:\n"
             "/predict ID СЧЕТ\n\n"
             "Например:\n"
-            "/predict 1 2:1"
+            "/predict 1 2:1\n\n"
+            "Чтобы посмотреть прогнозы по матчу:\n"
+            "/predictions ID\n\n"
+            "Например:\n"
+            "/predictions 1"
         )
 
         await message.answer(text)
@@ -228,6 +232,96 @@ async def mybets_handler(message: Message):
     finally:
         db.close()
 
+@dp.message(Command("predictions"))
+async def predictions_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split()
+
+        if len(parts) != 2:
+            await message.answer(
+                "Формат команды:\n"
+                "/predictions ID_МАТЧА\n\n"
+                "Например:\n"
+                "/predictions 1"
+            )
+            return
+
+        _, match_id_raw = parts
+
+        if not match_id_raw.isdigit():
+            await message.answer("ID матча должен быть числом.")
+            return
+
+        match_id = int(match_id_raw)
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        is_revealed = now >= match_start
+
+        users = db.query(User).order_by(User.display_name).all()
+
+        predictions = db.query(Prediction).filter(
+            Prediction.match_id == match.id
+        ).all()
+
+        predictions_by_user_id = {
+            prediction.user_id: prediction
+            for prediction in predictions
+        }
+
+        start_text = match.starts_at.strftime("%d.%m.%Y %H:%M")
+
+        lines = [
+            f"🔮 Прогнозы на матч #{match.id}",
+            f"{match.home_team} — {match.away_team}",
+            f"Старт: {start_text}",
+            "",
+        ]
+
+        if is_revealed:
+            lines.append("Матч уже начался — прогнозы открыты:")
+            lines.append("")
+
+            for user in users:
+                prediction = predictions_by_user_id.get(user.id)
+
+                if prediction:
+                    lines.append(
+                        f"{user.display_name}: "
+                        f"{prediction.pred_home}:{prediction.pred_away}"
+                    )
+                else:
+                    lines.append(f"{user.display_name}: прогноза нет")
+
+        else:
+            lines.append("До старта матча прогнозы скрыты.")
+            lines.append("Видно только, кто уже сделал прогноз:")
+            lines.append("")
+
+            for user in users:
+                prediction = predictions_by_user_id.get(user.id)
+
+                if prediction:
+                    lines.append(f"{user.display_name}: ✅ прогноз сделан")
+                else:
+                    lines.append(f"{user.display_name}: ❌ прогноза нет")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
 
 async def main():
     await dp.start_polling(bot)
