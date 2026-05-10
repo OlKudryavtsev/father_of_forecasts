@@ -42,6 +42,49 @@ def get_or_create_user(db, telegram_user):
 
     return new_user, True
 
+PLAYOFF_STAGES = {
+    "round_of_32",
+    "round_of_16",
+    "quarterfinal",
+    "semifinal",
+    "third_place",
+    "final",
+}
+
+
+def is_playoff_match(match: Match) -> bool:
+    return match.stage in PLAYOFF_STAGES
+
+
+def parse_advancement_choice(choice: str | None):
+    if choice is None:
+        return False, None
+
+    normalized = choice.lower().strip()
+
+    if normalized in ("none", "no", "нет", "не"):
+        return False, None
+
+    if normalized in ("home", "1", "хозяин", "хозяева"):
+        return True, "home"
+
+    if normalized in ("away", "2", "гость", "гости"):
+        return True, "away"
+
+    raise ValueError("Invalid advancement choice")
+
+
+def format_advancement_prediction(prediction: Prediction, match: Match) -> str:
+    if not prediction.advancement_bet_enabled:
+        return "проход: не ставил"
+
+    if prediction.predicted_advancing_side == "home":
+        return f"проход: {match.home_team}"
+
+    if prediction.predicted_advancing_side == "away":
+        return f"проход: {match.away_team}"
+
+    return "проход: не указан"
 
 def parse_score(score_text: str):
     normalized = score_text.replace("-", ":").replace(" ", "")
@@ -107,14 +150,19 @@ async def matches_handler(message: Message):
         text += "\n\n".join(format_match(match) for match in matches)
 
         text += (
-            "\n\nЧтобы сделать прогноз, напиши:\n"
+            "\n\nЧтобы сделать прогноз:\n"
             "/predict ID СЧЕТ\n\n"
             "Например:\n"
             "/predict 1 2:1\n\n"
+            "Для плей-офф можно добавить ставку на проход:\n"
+            "/predict ID СЧЕТ home\n"
+            "/predict ID СЧЕТ away\n"
+            "/predict ID СЧЕТ none\n\n"
+            "home — пройдет первая команда\n"
+            "away — пройдет вторая команда\n"
+            "none — не рисковать ставкой на проход\n\n"
             "Чтобы посмотреть прогнозы по матчу:\n"
-            "/predictions ID\n\n"
-            "Например:\n"
-            "/predictions 1"
+            "/predictions ID"
         )
 
         await message.answer(text)
@@ -132,16 +180,20 @@ async def predict_handler(message: Message):
 
         parts = message.text.split()
 
-        if len(parts) != 3:
+        if len(parts) not in (3, 4):
             await message.answer(
                 "Формат прогноза:\n"
                 "/predict ID СЧЕТ\n\n"
                 "Например:\n"
-                "/predict 1 2:1"
+                "/predict 1 2:1\n\n"
+                "Для плей-офф:\n"
+                "/predict ID СЧЕТ home\n"
+                "/predict ID СЧЕТ away\n"
+                "/predict ID СЧЕТ none"
             )
             return
 
-        _, match_id_raw, score_raw = parts
+        _, match_id_raw, score_raw, *advancement_raw = parts
 
         if not match_id_raw.isdigit():
             await message.answer("ID матча должен быть числом.")
@@ -176,6 +228,35 @@ async def predict_handler(message: Message):
             )
             return
 
+        advancement_bet_enabled = False
+        predicted_advancing_side = None
+
+        if is_playoff_match(match):
+            choice = advancement_raw[0] if advancement_raw else "none"
+
+            try:
+                advancement_bet_enabled, predicted_advancing_side = (
+                    parse_advancement_choice(choice)
+                )
+            except ValueError:
+                await message.answer(
+                    "Не понял ставку на проход.\n\n"
+                    "Используй:\n"
+                    "home — пройдет первая команда\n"
+                    "away — пройдет вторая команда\n"
+                    "none — не ставить на проход\n\n"
+                    "Пример:\n"
+                    "/predict 5 1:1 home"
+                )
+                return
+        else:
+            if advancement_raw:
+                await message.answer(
+                    "Это не матч плей-офф. "
+                    "Ставка на проход доступна только в матчах на вылет."
+                )
+                return
+
         existing_prediction = db.query(Prediction).filter(
             Prediction.user_id == user.id,
             Prediction.match_id == match.id,
@@ -184,13 +265,20 @@ async def predict_handler(message: Message):
         if existing_prediction:
             existing_prediction.pred_home = pred_home
             existing_prediction.pred_away = pred_away
+            existing_prediction.advancement_bet_enabled = advancement_bet_enabled
+            existing_prediction.predicted_advancing_side = predicted_advancing_side
             db.commit()
 
-            await message.answer(
+            text = (
                 f"Прогноз обновлен:\n"
                 f"{match.home_team} — {match.away_team}: "
                 f"{pred_home}:{pred_away}"
             )
+
+            if is_playoff_match(match):
+                text += f"\n{format_advancement_prediction(existing_prediction, match)}"
+
+            await message.answer(text)
             return
 
         prediction = Prediction(
@@ -198,16 +286,24 @@ async def predict_handler(message: Message):
             match_id=match.id,
             pred_home=pred_home,
             pred_away=pred_away,
+            advancement_bet_enabled=advancement_bet_enabled,
+            predicted_advancing_side=predicted_advancing_side,
         )
 
         db.add(prediction)
         db.commit()
+        db.refresh(prediction)
 
-        await message.answer(
+        text = (
             f"Прогноз принят:\n"
             f"{match.home_team} — {match.away_team}: "
             f"{pred_home}:{pred_away}"
         )
+
+        if is_playoff_match(match):
+            text += f"\n{format_advancement_prediction(prediction, match)}"
+
+        await message.answer(text)
 
     finally:
         db.close()
@@ -232,10 +328,16 @@ async def mybets_handler(message: Message):
 
         for prediction in predictions:
             match = prediction.match
-            lines.append(
+
+            line = (
                 f"{match.home_team} — {match.away_team}: "
                 f"{prediction.pred_home}:{prediction.pred_away}"
             )
+
+            if is_playoff_match(match):
+                line += f" ({format_advancement_prediction(prediction, match)})"
+
+            lines.append(line)
 
         await message.answer("\n".join(lines))
 
@@ -308,10 +410,15 @@ async def predictions_handler(message: Message):
                 prediction = predictions_by_user_id.get(user.id)
 
                 if prediction:
-                    lines.append(
+                    line = (
                         f"{user.display_name}: "
                         f"{prediction.pred_home}:{prediction.pred_away}"
                     )
+
+                    if is_playoff_match(match):
+                        line += f" ({format_advancement_prediction(prediction, match)})"
+
+                    lines.append(line)
                 else:
                     lines.append(f"{user.display_name}: прогноза нет")
 
@@ -356,13 +463,25 @@ async def table_handler(message: Message):
             exact_scores = sum(
                 1
                 for prediction in predictions
-                if prediction.points == 3
+                if prediction.score_points == 3
             )
 
             outcomes = sum(
                 1
                 for prediction in predictions
-                if prediction.points == 1
+                if prediction.score_points == 1
+            )
+
+            advancement_plus = sum(
+                1
+                for prediction in predictions
+                if prediction.advancement_points == 1
+            )
+
+            advancement_minus = sum(
+                1
+                for prediction in predictions
+                if prediction.advancement_points == -1
             )
 
             rows.append(
@@ -372,6 +491,8 @@ async def table_handler(message: Message):
                     "exact_scores": exact_scores,
                     "outcomes": outcomes,
                     "predictions_count": len(predictions),
+                    "advancement_plus": advancement_plus,
+                    "advancement_minus": advancement_minus,
                 }
             )
 
@@ -390,12 +511,15 @@ async def table_handler(message: Message):
             lines.append(
                 f"{index}. {row['name']} — {row['points']} очк. "
                 f"🎯 {row['exact_scores']} | ✅ {row['outcomes']} | "
+                f"🟢 {row['advancement_plus']} | 🔴 {row['advancement_minus']} | "
                 f"📋 {row['predictions_count']}"
             )
 
         lines.append("")
         lines.append("🎯 точные счета")
         lines.append("✅ угаданные исходы")
+        lines.append("🟢 угаданные проходы")
+        lines.append("🔴 неугаданные проходы")
         lines.append("📋 всего прогнозов")
 
         await message.answer("\n".join(lines))
@@ -411,11 +535,16 @@ async def rules_handler(message: Message):
         "🎯 3 очка — точный счет\n"
         "✅ 1 очко — угаданный исход\n"
         "❌ 0 очков — если не угадан ни счет, ни исход\n\n"
-        "Пример:\n"
-        "Прогноз: Мексика — ЮАР 2:1\n\n"
-        "Если матч закончился 2:1 — 3 очка.\n"
-        "Если матч закончился 3:1 — 1 очко.\n"
-        "Если матч закончился 2:2 или 0:1 — 0 очков.\n\n"
+        "В матчах плей-офф можно дополнительно рискнуть "
+        "и поставить, кто пройдет дальше:\n"
+        "🟢 +1 очко — если проход угадан\n"
+        "🔴 -1 очко — если проход не угадан\n"
+        "⚪ 0 очков — если участник решил не ставить на проход\n\n"
+        "Пример плей-офф:\n"
+        "/predict 5 1:1 home\n"
+        "Это значит: счет 1:1, дальше пройдет первая команда.\n\n"
+        "Можно не рисковать:\n"
+        "/predict 5 1:1 none\n\n"
         "Прогноз можно менять только до стартового свистка."
     )
 

@@ -23,6 +23,7 @@ class MatchCreate(BaseModel):
 class MatchResultUpdate(BaseModel):
     score_home: int
     score_away: int
+    winner_side: str | None = None
 
 
 @app.get("/")
@@ -111,8 +112,15 @@ def set_match_result(match_id: int, payload: MatchResultUpdate):
         if not match:
             raise HTTPException(status_code=404, detail="Match not found")
 
+        if payload.winner_side not in (None, "home", "away"):
+            raise HTTPException(
+                status_code=400,
+                detail="winner_side must be 'home', 'away' or null",
+            )
+
         match.score_home = payload.score_home
         match.score_away = payload.score_away
+        match.winner_side = payload.winner_side
         match.is_finished = True
 
         predictions = db.query(Prediction).filter(
@@ -122,20 +130,29 @@ def set_match_result(match_id: int, payload: MatchResultUpdate):
         recalculated = []
 
         for prediction in predictions:
-            points = score_match_prediction(
+            result = score_match_prediction(
                 pred_home=prediction.pred_home,
                 pred_away=prediction.pred_away,
                 actual_home=payload.score_home,
                 actual_away=payload.score_away,
+                advancement_bet_enabled=prediction.advancement_bet_enabled,
+                predicted_advancing_side=prediction.predicted_advancing_side,
+                actual_winner_side=payload.winner_side,
             )
 
-            prediction.points = points
+            prediction.score_points = result["score_points"]
+            prediction.advancement_points = result["advancement_points"]
+            prediction.points = result["total_points"]
 
             recalculated.append(
                 {
                     "user": prediction.user.display_name,
                     "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
-                    "points": points,
+                    "advancement_bet_enabled": prediction.advancement_bet_enabled,
+                    "predicted_advancing_side": prediction.predicted_advancing_side,
+                    "score_points": prediction.score_points,
+                    "advancement_points": prediction.advancement_points,
+                    "total_points": prediction.points,
                 }
             )
 
@@ -144,6 +161,7 @@ def set_match_result(match_id: int, payload: MatchResultUpdate):
         return {
             "match": f"{match.home_team} — {match.away_team}",
             "result": f"{payload.score_home}:{payload.score_away}",
+            "winner_side": payload.winner_side,
             "recalculated_predictions": recalculated,
         }
 

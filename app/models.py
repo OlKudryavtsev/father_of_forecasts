@@ -47,6 +47,8 @@ class Match(Base):
     score_home = Column(Integer, nullable=True)
     score_away = Column(Integer, nullable=True)
 
+    winner_side = Column(String, nullable=True)
+
     is_finished = Column(Boolean, default=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -64,6 +66,12 @@ class Prediction(Base):
 
     pred_home = Column(Integer, nullable=False)
     pred_away = Column(Integer, nullable=False)
+
+    advancement_bet_enabled = Column(Boolean, default=False)
+    predicted_advancing_side = Column(String, nullable=True)
+
+    score_points = Column(Integer, default=0)
+    advancement_points = Column(Integer, default=0)
 
     points = Column(Integer, default=0)
 
