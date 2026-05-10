@@ -1,0 +1,5 @@
+fastapi
+univcorn
+sqlalchemy
+psycopg2-binary
+aiogram
