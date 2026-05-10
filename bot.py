@@ -1,12 +1,13 @@
 import asyncio
 import os
+from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.db import SessionLocal
-from app.models import User
+from app.models import Match, Prediction, User
 
 TOKEN = os.getenv("BOT_TOKEN")
 
@@ -17,35 +18,65 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
+def get_or_create_user(db, telegram_user):
+    existing_user = db.query(User).filter(
+        User.telegram_id == telegram_user.id
+    ).first()
+
+    if existing_user:
+        return existing_user, False
+
+    new_user = User(
+        telegram_id=telegram_user.id,
+        username=telegram_user.username,
+        display_name=telegram_user.full_name,
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return new_user, True
+
+
+def parse_score(score_text: str):
+    normalized = score_text.replace("-", ":").replace(" ", "")
+
+    if ":" not in normalized:
+        raise ValueError("Score must contain ':'")
+
+    home_raw, away_raw = normalized.split(":", 1)
+
+    if not home_raw.isdigit() or not away_raw.isdigit():
+        raise ValueError("Score must contain numbers")
+
+    return int(home_raw), int(away_raw)
+
+
+def format_match(match: Match):
+    start_text = match.starts_at.strftime("%d.%m.%Y %H:%M")
+    return (
+        f"#{match.id} {match.home_team} — {match.away_team}\n"
+        f"Стадия: {match.stage}\n"
+        f"Старт: {start_text}"
+    )
+
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
 
     try:
-        telegram_user = message.from_user
+        user, created = get_or_create_user(db, message.from_user)
 
-        existing_user = db.query(User).filter(
-            User.telegram_id == telegram_user.id
-        ).first()
-
-        if existing_user:
+        if created:
             await message.answer(
-                f"С возвращением, {existing_user.display_name} ⚽"
+                f"Добро пожаловать в Отец прогнозов, {user.display_name} 🏆"
             )
-            return
-
-        new_user = User(
-            telegram_id=telegram_user.id,
-            username=telegram_user.username,
-            display_name=telegram_user.full_name
-        )
-
-        db.add(new_user)
-        db.commit()
-
-        await message.answer(
-            f"Добро пожаловать в Отец прогнозов, {telegram_user.full_name} 🏆"
-        )
+        else:
+            await message.answer(
+                f"С возвращением, {user.display_name} ⚽"
+            )
 
     finally:
         db.close()
@@ -53,9 +84,149 @@ async def start_handler(message: Message):
 
 @dp.message(Command("matches"))
 async def matches_handler(message: Message):
-    await message.answer(
-        "Пока матчей нет. Скоро добавим календарь ЧМ-2026 ⚽"
-    )
+    db = SessionLocal()
+
+    try:
+        matches = db.query(Match).order_by(Match.starts_at).all()
+
+        if not matches:
+            await message.answer("Пока матчей нет.")
+            return
+
+        text = "📅 Матчи:\n\n"
+        text += "\n\n".join(format_match(match) for match in matches)
+
+        text += (
+            "\n\nЧтобы сделать прогноз, напиши:\n"
+            "/predict ID СЧЕТ\n\n"
+            "Например:\n"
+            "/predict 1 2:1"
+        )
+
+        await message.answer(text)
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("predict"))
+async def predict_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        parts = message.text.split()
+
+        if len(parts) != 3:
+            await message.answer(
+                "Формат прогноза:\n"
+                "/predict ID СЧЕТ\n\n"
+                "Например:\n"
+                "/predict 1 2:1"
+            )
+            return
+
+        _, match_id_raw, score_raw = parts
+
+        if not match_id_raw.isdigit():
+            await message.answer("ID матча должен быть числом.")
+            return
+
+        match_id = int(match_id_raw)
+
+        try:
+            pred_home, pred_away = parse_score(score_raw)
+        except ValueError:
+            await message.answer(
+                "Не понял счет. Используй формат 2:1 или 2-1."
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        if now >= match_start:
+            await message.answer(
+                "Ставки на этот матч уже закрыты. "
+                "Отец прогнозов суров, но справедлив."
+            )
+            return
+
+        existing_prediction = db.query(Prediction).filter(
+            Prediction.user_id == user.id,
+            Prediction.match_id == match.id,
+        ).first()
+
+        if existing_prediction:
+            existing_prediction.pred_home = pred_home
+            existing_prediction.pred_away = pred_away
+            db.commit()
+
+            await message.answer(
+                f"Прогноз обновлен:\n"
+                f"{match.home_team} — {match.away_team}: "
+                f"{pred_home}:{pred_away}"
+            )
+            return
+
+        prediction = Prediction(
+            user_id=user.id,
+            match_id=match.id,
+            pred_home=pred_home,
+            pred_away=pred_away,
+        )
+
+        db.add(prediction)
+        db.commit()
+
+        await message.answer(
+            f"Прогноз принят:\n"
+            f"{match.home_team} — {match.away_team}: "
+            f"{pred_home}:{pred_away}"
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("mybets"))
+async def mybets_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        predictions = db.query(Prediction).filter(
+            Prediction.user_id == user.id
+        ).all()
+
+        if not predictions:
+            await message.answer("У тебя пока нет прогнозов.")
+            return
+
+        lines = ["🎯 Мои прогнозы:\n"]
+
+        for prediction in predictions:
+            match = prediction.match
+            lines.append(
+                f"{match.home_team} — {match.away_team}: "
+                f"{prediction.pred_home}:{prediction.pred_away}"
+            )
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
 
 
 async def main():
