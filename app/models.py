@@ -55,6 +55,14 @@ class Match(Base):
 
     predictions = relationship("Prediction", back_populates="match")
 
+    fifa_match_no = Column(Integer, nullable=True)
+
+    match_round = Column(String, nullable=True)
+    group_code = Column(String, nullable=True)
+
+    venue = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+
 
 class Prediction(Base):
     __tablename__ = "predictions"

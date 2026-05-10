@@ -1,5 +1,7 @@
 import asyncio
 import os
+import csv
+import io
 from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher
@@ -157,9 +159,18 @@ def parse_score(score_text: str):
 
 def format_match(match: Match):
     start_text = format_datetime(match.starts_at)
+
+    round_text = match.match_round or get_default_match_round(match.stage)
+
+    group_text = ""
+    if match.group_code:
+        group_text = f"\nГруппа: {match.group_code}"
+
     return (
         f"#{match.id} {match.home_team} — {match.away_team}\n"
         f"Стадия: {match.stage}\n"
+        f"Тур/стадия: {round_text}"
+        f"{group_text}\n"
         f"Старт: {start_text}"
     )
 
@@ -181,14 +192,15 @@ def parse_admin_match_payload(text: str):
     payload = text.replace("/admin_add_match", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
 
-    if len(parts) not in (4, 5):
+    if len(parts) not in (4, 5, 6):
         raise ValueError("Invalid admin match format")
 
     home_team = parts[0]
     away_team = parts[1]
     starts_at_raw = parts[2]
     stage = parts[3]
-    tournament_code = parts[4] if len(parts) == 5 else TOURNAMENT_CODE
+    match_round = parts[4] if len(parts) >= 5 else get_default_match_round(stage)
+    tournament_code = parts[5] if len(parts) == 6 else TOURNAMENT_CODE
 
     starts_at = datetime.fromisoformat(
         starts_at_raw.replace("Z", "+00:00")
@@ -199,13 +211,13 @@ def parse_admin_match_payload(text: str):
 
     starts_at = starts_at.astimezone(timezone.utc)
 
-    return home_team, away_team, starts_at, stage, tournament_code
+    return home_team, away_team, starts_at, stage, match_round, tournament_code
 
 def parse_admin_edit_match_payload(text: str):
     payload = text.replace("/admin_edit_match", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
 
-    if len(parts) not in (5, 6):
+    if len(parts) not in (5, 6, 7):
         raise ValueError("Invalid admin edit match format")
 
     match_id_raw = parts[0]
@@ -218,7 +230,8 @@ def parse_admin_edit_match_payload(text: str):
     away_team = parts[2]
     starts_at_raw = parts[3]
     stage = parts[4]
-    tournament_code = parts[5] if len(parts) == 6 else TOURNAMENT_CODE
+    match_round = parts[5] if len(parts) >= 6 else get_default_match_round(stage)
+    tournament_code = parts[6] if len(parts) == 7 else TOURNAMENT_CODE
 
     starts_at = datetime.fromisoformat(
         starts_at_raw.replace("Z", "+00:00")
@@ -229,7 +242,7 @@ def parse_admin_edit_match_payload(text: str):
 
     starts_at = starts_at.astimezone(timezone.utc)
 
-    return match_id, home_team, away_team, starts_at, stage, tournament_code
+    return match_id, home_team, away_team, starts_at, stage, match_round, tournament_code
 
 
 def parse_match_id_command(text: str, command: str) -> int:
@@ -517,9 +530,11 @@ def format_matches_list(matches: list[Match], title: str) -> str:
 
     current_date = None
 
+
     for match in matches:
         local_dt = match.starts_at.astimezone(APP_TIMEZONE)
         local_date = local_dt.date()
+        round_text = match.match_round or get_default_match_round(match.stage)
 
         if current_date != local_date:
             current_date = local_date
@@ -534,7 +549,7 @@ def format_matches_list(matches: list[Match], title: str) -> str:
         lines.append(
             f"#{match.id} {match.home_team} — {match.away_team}\n"
             f"Старт: {format_datetime(match.starts_at)}\n"
-            f"Стадия: {match.stage} | {status}"
+            f"Стадия: {match.stage} | Тур: {round_text} | {status}"
         )
         lines.append("")
 
@@ -544,6 +559,169 @@ def format_matches_list(matches: list[Match], title: str) -> str:
     )
 
     return "\n".join(lines)
+
+def get_default_match_round(stage: str) -> str:
+    mapping = {
+        "group": "1",
+        "round_of_32": "1/16",
+        "round_of_16": "1/8",
+        "quarterfinal": "1/4",
+        "semifinal": "1/2",
+        "third_place": "матч за 3 место",
+        "final": "финал",
+    }
+
+    return mapping.get(stage, stage)
+
+def parse_csv_matches(csv_text: str) -> list[dict]:
+    csv_text = csv_text.replace("\ufeff", "").strip()
+
+    if not csv_text:
+        raise ValueError("CSV is empty")
+
+    first_line = csv_text.splitlines()[0]
+
+    delimiter = ";" if ";" in first_line else ","
+
+    reader = csv.DictReader(
+        io.StringIO(csv_text),
+        delimiter=delimiter,
+    )
+
+    required_columns = {
+        "home_team",
+        "away_team",
+        "starts_at",
+        "stage",
+    }
+
+    if not reader.fieldnames:
+        raise ValueError("CSV has no header")
+
+    fieldnames = {name.strip() for name in reader.fieldnames}
+
+    missing = required_columns - fieldnames
+
+    if missing:
+        raise ValueError(
+            "Missing required columns: " + ", ".join(sorted(missing))
+        )
+
+    rows = []
+
+    for index, row in enumerate(reader, start=2):
+        cleaned = {
+            key.strip(): (value.strip() if value else "")
+            for key, value in row.items()
+            if key
+        }
+
+        if not cleaned.get("home_team") and not cleaned.get("away_team"):
+            continue
+
+        try:
+            starts_at = datetime.fromisoformat(
+                cleaned["starts_at"].replace("Z", "+00:00")
+            )
+        except ValueError:
+            raise ValueError(
+                f"Invalid starts_at at CSV line {index}: {cleaned.get('starts_at')}"
+            )
+
+        if starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=APP_TIMEZONE)
+
+        starts_at = starts_at.astimezone(timezone.utc)
+
+        fifa_match_no_raw = cleaned.get("fifa_match_no") or ""
+        fifa_match_no = int(fifa_match_no_raw) if fifa_match_no_raw.isdigit() else None
+
+        stage = cleaned.get("stage") or "group"
+
+        rows.append(
+            {
+                "fifa_match_no": fifa_match_no,
+                "home_team": cleaned["home_team"],
+                "away_team": cleaned["away_team"],
+                "starts_at": starts_at,
+                "stage": stage,
+                "match_round": cleaned.get("match_round") or get_default_match_round(stage),
+                "tournament_code": cleaned.get("tournament_code") or TOURNAMENT_CODE,
+                "group_code": cleaned.get("group_code") or None,
+                "venue": cleaned.get("venue") or None,
+                "city": cleaned.get("city") or None,
+            }
+        )
+
+    return rows
+
+
+def import_matches_from_rows(db, rows: list[dict]) -> dict:
+    created = 0
+    updated = 0
+    skipped = 0
+    imported_matches = []
+
+    for row in rows:
+        existing_match = None
+
+        if row["fifa_match_no"] is not None:
+            existing_match = db.query(Match).filter(
+                Match.tournament_code == row["tournament_code"],
+                Match.fifa_match_no == row["fifa_match_no"],
+            ).first()
+
+        if existing_match is None:
+            existing_match = db.query(Match).filter(
+                Match.tournament_code == row["tournament_code"],
+                Match.home_team == row["home_team"],
+                Match.away_team == row["away_team"],
+                Match.starts_at == row["starts_at"],
+            ).first()
+
+        if existing_match:
+            existing_match.home_team = row["home_team"]
+            existing_match.away_team = row["away_team"]
+            existing_match.starts_at = row["starts_at"]
+            existing_match.stage = row["stage"]
+            existing_match.match_round = row["match_round"]
+            existing_match.group_code = row["group_code"]
+            existing_match.venue = row["venue"]
+            existing_match.city = row["city"]
+
+            if row["fifa_match_no"] is not None:
+                existing_match.fifa_match_no = row["fifa_match_no"]
+
+            updated += 1
+            match = existing_match
+        else:
+            match = Match(
+                fifa_match_no=row["fifa_match_no"],
+                home_team=row["home_team"],
+                away_team=row["away_team"],
+                starts_at=row["starts_at"],
+                stage=row["stage"],
+                match_round=row["match_round"],
+                tournament_code=row["tournament_code"],
+                group_code=row["group_code"],
+                venue=row["venue"],
+                city=row["city"],
+            )
+
+            db.add(match)
+            created += 1
+
+        imported_matches.append(row)
+
+    db.commit()
+
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "total": len(imported_matches),
+    }
+
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -1212,6 +1390,8 @@ async def admin_handler(message: Message):
             "🛠 Админ-панель\n\n"
             "Список матчей:\n"
             "/admin_matches\n\n"
+             "Импорт матчей из CSV:\n"
+            "/admin_import_matches\n\n"
             "Добавить матч:\n"
             "/admin_add_match Мексика; ЮАР; 2026-06-11T21:00:00+03:00; group\n\n"
             "Редактировать матч:\n"
@@ -1253,7 +1433,7 @@ async def admin_add_match_handler(message: Message):
             return
 
         try:
-            home_team, away_team, starts_at, stage, tournament_code = (
+            home_team, away_team, starts_at, stage, match_round, tournament_code = (
                 parse_admin_match_payload(message.text)
             )
         except ValueError:
@@ -1273,6 +1453,7 @@ async def admin_add_match_handler(message: Message):
             away_team=away_team,
             starts_at=starts_at,
             stage=stage,
+            match_round=match_round,
             tournament_code=tournament_code,
         )
 
@@ -1284,6 +1465,7 @@ async def admin_add_match_handler(message: Message):
             "Матч добавлен ✅\n\n"
             f"#{match.id} {match.home_team} — {match.away_team}\n"
             f"Старт: {format_datetime(match.starts_at)}\n"
+            f"Тур/стадия: {match.match_round}\n"
             f"Стадия: {match.stage}"
         )
 
@@ -1712,6 +1894,7 @@ async def admin_edit_match_handler(message: Message):
                 away_team,
                 starts_at,
                 stage,
+                match_round,
                 tournament_code,
             ) = parse_admin_edit_match_payload(message.text)
         except ValueError:
@@ -1745,6 +1928,7 @@ async def admin_edit_match_handler(message: Message):
         match.starts_at = starts_at
         match.stage = stage
         match.tournament_code = tournament_code
+        match.match_round = match_round
 
         db.commit()
         db.refresh(match)
@@ -2304,6 +2488,76 @@ async def predict_all_handler(message: Message):
         await message.answer(
             "Выбери матч для прогноза:",
             reply_markup=build_matches_keyboard(matches),
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_import_matches"))
+async def admin_import_matches_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        csv_text = None
+
+        if message.document:
+            if not message.document.file_name.lower().endswith(".csv"):
+                await message.answer("Пришли CSV-файл.")
+                return
+
+            downloaded = await bot.download(message.document)
+
+            if downloaded is None:
+                await message.answer("Не удалось скачать файл.")
+                return
+
+            content = downloaded.read()
+            csv_text = content.decode("utf-8-sig")
+
+        else:
+            csv_text = message.text.replace("/admin_import_matches", "", 1).strip()
+
+            if not csv_text:
+                await message.answer(
+                    "Импорт матчей из CSV.\n\n"
+                    "Вариант 1: отправь CSV-файл с подписью:\n"
+                    "/admin_import_matches\n\n"
+                    "Вариант 2: вставь CSV текстом после команды.\n\n"
+                    "Обязательные колонки:\n"
+                    "home_team;away_team;starts_at;stage\n\n"
+                    "Рекомендуемые колонки:\n"
+                    "fifa_match_no;home_team;away_team;starts_at;stage;"
+                    "match_round;tournament_code;group_code;venue;city\n\n"
+                    "Пример строки:\n"
+                    "1;Mexico;South Africa;2026-06-11T22:00:00+03:00;"
+                    "group;1;wc2026;A;Estadio Azteca;Mexico City"
+                )
+                return
+
+        try:
+            rows = parse_csv_matches(csv_text)
+        except ValueError as error:
+            await message.answer(
+                f"CSV не импортирован.\n\nОшибка:\n{error}"
+            )
+            return
+
+        result = import_matches_from_rows(db, rows)
+
+        await message.answer(
+            "Импорт матчей завершен ✅\n\n"
+            f"Всего строк: {result['total']}\n"
+            f"Создано: {result['created']}\n"
+            f"Обновлено: {result['updated']}\n"
+            f"Пропущено: {result['skipped']}\n\n"
+            "Проверить:\n"
+            "/admin_matches"
         )
 
     finally:
