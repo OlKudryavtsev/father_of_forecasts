@@ -7,13 +7,33 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.db import SessionLocal
-from app.models import Match, Prediction, User
+from app.models import Match, Prediction, TournamentPrediction, User
 
 from zoneinfo import ZoneInfo
 
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
+TOURNAMENT_CODE = os.getenv("TOURNAMENT_CODE", "wc2026")
+TOURNAMENT_STARTS_AT_RAW = os.getenv(
+    "TOURNAMENT_STARTS_AT",
+    "2026-06-11T21:00:00+03:00",
+)
+
+
+def get_tournament_starts_at():
+    dt = datetime.fromisoformat(
+        TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
+    )
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=APP_TIMEZONE)
+
+    return dt.astimezone(timezone.utc)
+
+
+def is_tournament_started() -> bool:
+    return datetime.now(timezone.utc) >= get_tournament_starts_at()
 
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
@@ -458,7 +478,20 @@ async def table_handler(message: Message):
                 Prediction.user_id == user.id
             ).all()
 
-            total_points = sum(prediction.points or 0 for prediction in predictions)
+            match_points = sum(prediction.points or 0 for prediction in predictions)
+
+            tournament_prediction = db.query(TournamentPrediction).filter(
+                TournamentPrediction.user_id == user.id,
+                TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+            ).first()
+
+            tournament_points = (
+                tournament_prediction.points
+                if tournament_prediction
+                else 0
+            )
+
+            total_points = match_points + tournament_points
 
             exact_scores = sum(
                 1
@@ -493,6 +526,8 @@ async def table_handler(message: Message):
                     "predictions_count": len(predictions),
                     "advancement_plus": advancement_plus,
                     "advancement_minus": advancement_minus,
+                    "match_points": match_points,
+                    "tournament_points": tournament_points,
                 }
             )
 
@@ -512,6 +547,7 @@ async def table_handler(message: Message):
                 f"{index}. {row['name']} — {row['points']} очк. "
                 f"🎯 {row['exact_scores']} | ✅ {row['outcomes']} | "
                 f"🟢 {row['advancement_plus']} | 🔴 {row['advancement_minus']} | "
+                f"🏆 {row['tournament_points']} | "
                 f"📋 {row['predictions_count']}"
             )
 
@@ -521,6 +557,7 @@ async def table_handler(message: Message):
         lines.append("🟢 угаданные проходы")
         lines.append("🔴 неугаданные проходы")
         lines.append("📋 всего прогнозов")
+        lines.append("🏆 очки за прогноз на турнир")
 
         await message.answer("\n".join(lines))
 
@@ -540,13 +577,204 @@ async def rules_handler(message: Message):
         "🟢 +1 очко — если проход угадан\n"
         "🔴 -1 очко — если проход не угадан\n"
         "⚪ 0 очков — если участник решил не ставить на проход\n\n"
-        "Пример плей-офф:\n"
-        "/predict 5 1:1 home\n"
-        "Это значит: счет 1:1, дальше пройдет первая команда.\n\n"
-        "Можно не рисковать:\n"
-        "/predict 5 1:1 none\n\n"
-        "Прогноз можно менять только до стартового свистка."
+        "Прогноз на итоги турнира:\n"
+        "🏆 Чемпион — 15 очков\n"
+        "🥈 Финалист — 10 очков\n"
+        "🥉 3 место — 5 очков\n"
+        "⚽ Бомбардир — 15 очков\n\n"
+        "Формат прогноза на турнир:\n"
+        "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
+        "Пример:\n"
+        "/tournament_set Аргентина; Франция; Бразилия; Мбаппе\n\n"
+        "Прогнозы можно менять только до стартового свистка."
     )
+
+def parse_tournament_prediction_payload(text: str):
+    payload = text.replace("/tournament_set", "", 1).strip()
+    parts = [part.strip() for part in payload.split(";")]
+
+    if len(parts) != 4 or any(not part for part in parts):
+        raise ValueError("Invalid tournament prediction format")
+
+    champion, runner_up, third_place, top_scorer = parts
+
+    return champion, runner_up, third_place, top_scorer
+
+@dp.message(Command("tournament_set"))
+async def tournament_set_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if is_tournament_started():
+            await message.answer(
+                "Прогнозы на итоги турнира уже закрыты. "
+                "Турнир стартовал."
+            )
+            return
+
+        try:
+            champion, runner_up, third_place, top_scorer = (
+                parse_tournament_prediction_payload(message.text)
+            )
+        except ValueError:
+            await message.answer(
+                "Формат прогноза на турнир:\n\n"
+                "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
+                "Пример:\n"
+                "/tournament_set Аргентина; Франция; Бразилия; Мбаппе"
+            )
+            return
+
+        existing_prediction = db.query(TournamentPrediction).filter(
+            TournamentPrediction.user_id == user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        ).first()
+
+        if existing_prediction:
+            existing_prediction.champion = champion
+            existing_prediction.runner_up = runner_up
+            existing_prediction.third_place = third_place
+            existing_prediction.top_scorer = top_scorer
+            existing_prediction.champion_points = 0
+            existing_prediction.runner_up_points = 0
+            existing_prediction.third_place_points = 0
+            existing_prediction.top_scorer_points = 0
+            existing_prediction.points = 0
+
+            db.commit()
+
+            await message.answer(
+                "Турнирный прогноз обновлен 🏆\n\n"
+                f"1 место: {champion}\n"
+                f"2 место: {runner_up}\n"
+                f"3 место: {third_place}\n"
+                f"Бомбардир: {top_scorer}"
+            )
+            return
+
+        prediction = TournamentPrediction(
+            user_id=user.id,
+            tournament_code=TOURNAMENT_CODE,
+            champion=champion,
+            runner_up=runner_up,
+            third_place=third_place,
+            top_scorer=top_scorer,
+        )
+
+        db.add(prediction)
+        db.commit()
+
+        await message.answer(
+            "Турнирный прогноз принят 🏆\n\n"
+            f"1 место: {champion}\n"
+            f"2 место: {runner_up}\n"
+            f"3 место: {third_place}\n"
+            f"Бомбардир: {top_scorer}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("tournament"))
+async def tournament_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        prediction = db.query(TournamentPrediction).filter(
+            TournamentPrediction.user_id == user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        ).first()
+
+        if not prediction:
+            await message.answer(
+                "У тебя пока нет прогноза на итоги турнира.\n\n"
+                "Создать прогноз:\n"
+                "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
+                "Пример:\n"
+                "/tournament_set Аргентина; Франция; Бразилия; Мбаппе"
+            )
+            return
+
+        await message.answer(
+            "🏆 Твой прогноз на итоги турнира:\n\n"
+            f"1 место: {prediction.champion}\n"
+            f"2 место: {prediction.runner_up}\n"
+            f"3 место: {prediction.third_place}\n"
+            f"Бомбардир: {prediction.top_scorer}\n\n"
+            f"Очки за турнир: {prediction.points}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("tournament_predictions"))
+async def tournament_predictions_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        users = db.query(User).order_by(User.display_name).all()
+
+        predictions = db.query(TournamentPrediction).filter(
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE
+        ).all()
+
+        predictions_by_user_id = {
+            prediction.user_id: prediction
+            for prediction in predictions
+        }
+
+        tournament_started = is_tournament_started()
+
+        start_text = format_datetime(get_tournament_starts_at())
+
+        lines = [
+            "🏆 Прогнозы на итоги турнира",
+            f"Старт турнира: {start_text}",
+            "",
+        ]
+
+        if tournament_started:
+            lines.append("Турнир уже стартовал — прогнозы открыты:")
+            lines.append("")
+
+            for user in users:
+                prediction = predictions_by_user_id.get(user.id)
+
+                if not prediction:
+                    lines.append(f"{user.display_name}: прогноза нет")
+                    continue
+
+                lines.append(
+                    f"{user.display_name}:\n"
+                    f"1 место: {prediction.champion}\n"
+                    f"2 место: {prediction.runner_up}\n"
+                    f"3 место: {prediction.third_place}\n"
+                    f"Бомбардир: {prediction.top_scorer}\n"
+                    f"Очки: {prediction.points}"
+                )
+                lines.append("")
+
+        else:
+            lines.append("До старта турнира прогнозы скрыты.")
+            lines.append("Видно только, кто уже сделал прогноз:")
+            lines.append("")
+
+            for user in users:
+                prediction = predictions_by_user_id.get(user.id)
+
+                if prediction:
+                    lines.append(f"{user.display_name}: ✅ прогноз сделан")
+                else:
+                    lines.append(f"{user.display_name}: ❌ прогноза нет")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
 
 async def main():
     await dp.start_polling(bot)

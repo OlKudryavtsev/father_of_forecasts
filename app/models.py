@@ -84,3 +84,36 @@ class Prediction(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "match_id", name="uq_user_match_prediction"),
     )
+
+class TournamentPrediction(Base):
+    __tablename__ = "tournament_predictions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    tournament_code = Column(String, nullable=False, default="wc2026")
+
+    champion = Column(String, nullable=False)
+    runner_up = Column(String, nullable=False)
+    third_place = Column(String, nullable=False)
+    top_scorer = Column(String, nullable=False)
+
+    champion_points = Column(Integer, default=0)
+    runner_up_points = Column(Integer, default=0)
+    third_place_points = Column(Integer, default=0)
+    top_scorer_points = Column(Integer, default=0)
+    points = Column(Integer, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "tournament_code",
+            name="uq_user_tournament_prediction",
+        ),
+    )

@@ -4,8 +4,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.db import Base, SessionLocal, engine
-from app.models import Match, Prediction, User
-from app.scoring import score_match_prediction
+from app.models import Match, Prediction, TournamentPrediction, User
+from app.scoring import score_match_prediction, score_tournament_prediction
 
 app = FastAPI(title="Отец прогнозов")
 
@@ -25,6 +25,12 @@ class MatchResultUpdate(BaseModel):
     score_away: int
     winner_side: str | None = None
 
+class TournamentResultUpdate(BaseModel):
+    champion: str
+    runner_up: str
+    third_place: str
+    top_scorer: str
+    tournament_code: str = "wc2026"
 
 @app.get("/")
 def root():
@@ -269,7 +275,20 @@ def get_table():
                 Prediction.user_id == user.id
             ).all()
 
-            total_points = sum(prediction.points or 0 for prediction in predictions)
+            match_points = sum(prediction.points or 0 for prediction in predictions)
+
+            tournament_prediction = db.query(TournamentPrediction).filter(
+                TournamentPrediction.user_id == user.id,
+                TournamentPrediction.tournament_code == "wc2026",
+            ).first()
+
+            tournament_points = (
+                tournament_prediction.points
+                if tournament_prediction
+                else 0
+            )
+
+            total_points = match_points + tournament_points
             exact_scores = sum(
                 1
                 for prediction in predictions
@@ -288,6 +307,8 @@ def get_table():
                     "exact_scores": exact_scores,
                     "outcomes": outcomes,
                     "predictions_count": len(predictions),
+                    "match_points": match_points,
+                    "tournament_points": tournament_points,
                 }
             )
 
@@ -301,6 +322,96 @@ def get_table():
         )
 
         return table
+
+    finally:
+        db.close()
+
+@app.get("/tournament-predictions")
+def get_tournament_predictions():
+    db = SessionLocal()
+
+    try:
+        predictions = db.query(TournamentPrediction).all()
+
+        return [
+            {
+                "id": prediction.id,
+                "user": prediction.user.display_name,
+                "tournament_code": prediction.tournament_code,
+                "champion": prediction.champion,
+                "runner_up": prediction.runner_up,
+                "third_place": prediction.third_place,
+                "top_scorer": prediction.top_scorer,
+                "champion_points": prediction.champion_points,
+                "runner_up_points": prediction.runner_up_points,
+                "third_place_points": prediction.third_place_points,
+                "top_scorer_points": prediction.top_scorer_points,
+                "points": prediction.points,
+            }
+            for prediction in predictions
+        ]
+
+    finally:
+        db.close()
+
+
+@app.post("/admin/tournament-result")
+def set_tournament_result(payload: TournamentResultUpdate):
+    db = SessionLocal()
+
+    try:
+        predictions = db.query(TournamentPrediction).filter(
+            TournamentPrediction.tournament_code == payload.tournament_code
+        ).all()
+
+        recalculated = []
+
+        for prediction in predictions:
+            result = score_tournament_prediction(
+                pred_champion=prediction.champion,
+                pred_runner_up=prediction.runner_up,
+                pred_third_place=prediction.third_place,
+                pred_top_scorer=prediction.top_scorer,
+                actual_champion=payload.champion,
+                actual_runner_up=payload.runner_up,
+                actual_third_place=payload.third_place,
+                actual_top_scorer=payload.top_scorer,
+            )
+
+            prediction.champion_points = result["champion_points"]
+            prediction.runner_up_points = result["runner_up_points"]
+            prediction.third_place_points = result["third_place_points"]
+            prediction.top_scorer_points = result["top_scorer_points"]
+            prediction.points = result["total_points"]
+
+            recalculated.append(
+                {
+                    "user": prediction.user.display_name,
+                    "champion": prediction.champion,
+                    "runner_up": prediction.runner_up,
+                    "third_place": prediction.third_place,
+                    "top_scorer": prediction.top_scorer,
+                    "champion_points": prediction.champion_points,
+                    "runner_up_points": prediction.runner_up_points,
+                    "third_place_points": prediction.third_place_points,
+                    "top_scorer_points": prediction.top_scorer_points,
+                    "total_points": prediction.points,
+                }
+            )
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "tournament_code": payload.tournament_code,
+            "actual_result": {
+                "champion": payload.champion,
+                "runner_up": payload.runner_up,
+                "third_place": payload.third_place,
+                "top_scorer": payload.top_scorer,
+            },
+            "recalculated_predictions": recalculated,
+        }
 
     finally:
         db.close()

@@ -78,3 +78,49 @@ def score_match_prediction(
         "advancement_points": advancement_points,
         "total_points": score_points + advancement_points,
     }
+
+def normalize_text(value: str) -> str:
+    return value.strip().lower().replace("ё", "е")
+
+
+def score_tournament_prediction(
+    pred_champion: str,
+    pred_runner_up: str,
+    pred_third_place: str,
+    pred_top_scorer: str,
+    actual_champion: str,
+    actual_runner_up: str,
+    actual_third_place: str,
+    actual_top_scorer: str,
+) -> dict:
+    champion_points = 0
+    runner_up_points = 0
+    third_place_points = 0
+    top_scorer_points = 0
+
+    if normalize_text(pred_champion) == normalize_text(actual_champion):
+        champion_points = 15
+
+    if normalize_text(pred_runner_up) == normalize_text(actual_runner_up):
+        runner_up_points = 10
+
+    if normalize_text(pred_third_place) == normalize_text(actual_third_place):
+        third_place_points = 5
+
+    if normalize_text(pred_top_scorer) == normalize_text(actual_top_scorer):
+        top_scorer_points = 15
+
+    total_points = (
+        champion_points
+        + runner_up_points
+        + third_place_points
+        + top_scorer_points
+    )
+
+    return {
+        "champion_points": champion_points,
+        "runner_up_points": runner_up_points,
+        "third_place_points": third_place_points,
+        "top_scorer_points": top_scorer_points,
+        "total_points": total_points,
+    }
