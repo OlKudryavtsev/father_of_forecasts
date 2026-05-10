@@ -162,6 +162,56 @@ def format_datetime(dt):
 def is_user_admin(user: User) -> bool:
     return bool(user.is_admin)
 
+def ensure_admin_or_reply(user: User) -> bool:
+    return bool(user.is_admin)
+
+
+def parse_admin_match_payload(text: str):
+    payload = text.replace("/admin_add_match", "", 1).strip()
+    parts = [part.strip() for part in payload.split(";")]
+
+    if len(parts) not in (4, 5):
+        raise ValueError("Invalid admin match format")
+
+    home_team = parts[0]
+    away_team = parts[1]
+    starts_at_raw = parts[2]
+    stage = parts[3]
+    tournament_code = parts[4] if len(parts) == 5 else TOURNAMENT_CODE
+
+    starts_at = datetime.fromisoformat(
+        starts_at_raw.replace("Z", "+00:00")
+    )
+
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=APP_TIMEZONE)
+
+    starts_at = starts_at.astimezone(timezone.utc)
+
+    return home_team, away_team, starts_at, stage, tournament_code
+
+
+def parse_result_payload(text: str):
+    parts = text.split()
+
+    if len(parts) not in (3, 4):
+        raise ValueError("Invalid result format")
+
+    _, match_id_raw, score_raw, *winner_side_raw = parts
+
+    if not match_id_raw.isdigit():
+        raise ValueError("Match ID must be number")
+
+    match_id = int(match_id_raw)
+    score_home, score_away = parse_score(score_raw)
+
+    winner_side = winner_side_raw[0].lower() if winner_side_raw else None
+
+    if winner_side not in (None, "home", "away"):
+        raise ValueError("Invalid winner_side")
+
+    return match_id, score_home, score_away, winner_side
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
@@ -819,17 +869,246 @@ async def admin_handler(message: Message):
 
         await message.answer(
             "🛠 Админ-панель\n\n"
-            "Доступные действия пока через Swagger:\n\n"
-            "1. Добавить матч:\n"
-            "POST /admin/matches\n\n"
-            "2. Внести результат матча:\n"
-            "POST /admin/matches/{match_id}/result\n\n"
-            "3. Пересчитать все очки:\n"
-            "POST /admin/recalculate\n\n"
-            "4. Внести итоги турнира:\n"
-            "POST /admin/tournament-result\n\n"
-            "Для Swagger нужен header:\n"
-            "X-Admin-Token: твой ADMIN_API_TOKEN"
+            "Добавить матч:\n"
+            "/admin_add_match Мексика; ЮАР; 2026-06-11T21:00:00+03:00; group\n\n"
+            "Внести результат группового матча:\n"
+            "/admin_set_result 1 2:1\n\n"
+            "Внести результат плей-офф:\n"
+            "/admin_set_result 5 1:1 home\n"
+            "/admin_set_result 5 1:1 away\n\n"
+            "Пересчитать все завершенные матчи:\n"
+            "/admin_recalculate\n\n"
+            "Стадии:\n"
+            "group, round_of_32, round_of_16, quarterfinal, semifinal, "
+            "third_place, final"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_add_match"))
+async def admin_add_match_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer(
+                "У тебя нет админских прав."
+            )
+            return
+
+        try:
+            home_team, away_team, starts_at, stage, tournament_code = (
+                parse_admin_match_payload(message.text)
+            )
+        except ValueError:
+            await message.answer(
+                "Формат добавления матча:\n\n"
+                "/admin_add_match Команда1; Команда2; Дата; Стадия\n\n"
+                "Пример:\n"
+                "/admin_add_match Мексика; ЮАР; 2026-06-11T21:00:00+03:00; group\n\n"
+                "Стадии:\n"
+                "group, round_of_32, round_of_16, quarterfinal, "
+                "semifinal, third_place, final"
+            )
+            return
+
+        match = Match(
+            home_team=home_team,
+            away_team=away_team,
+            starts_at=starts_at,
+            stage=stage,
+            tournament_code=tournament_code,
+        )
+
+        db.add(match)
+        db.commit()
+        db.refresh(match)
+
+        await message.answer(
+            "Матч добавлен ✅\n\n"
+            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n"
+            f"Стадия: {match.stage}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_set_result"))
+async def admin_set_result_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer(
+                "У тебя нет админских прав."
+            )
+            return
+
+        try:
+            match_id, score_home, score_away, winner_side = (
+                parse_result_payload(message.text)
+            )
+        except ValueError:
+            await message.answer(
+                "Формат результата:\n\n"
+                "/admin_set_result ID СЧЕТ\n\n"
+                "Пример для группового матча:\n"
+                "/admin_set_result 1 2:1\n\n"
+                "Пример для плей-офф:\n"
+                "/admin_set_result 5 1:1 home\n"
+                "/admin_set_result 5 1:1 away\n\n"
+                "home — прошла первая команда\n"
+                "away — прошла вторая команда"
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        if is_playoff_match(match) and winner_side is None:
+            await message.answer(
+                "Это матч плей-офф. Нужно указать, кто прошел дальше:\n\n"
+                f"/admin_set_result {match.id} {score_home}:{score_away} home\n"
+                f"/admin_set_result {match.id} {score_home}:{score_away} away"
+            )
+            return
+
+        if not is_playoff_match(match) and winner_side is not None:
+            await message.answer(
+                "Это не матч плей-офф. Для группового матча не нужно "
+                "указывать home/away."
+            )
+            return
+
+        match.score_home = score_home
+        match.score_away = score_away
+        match.winner_side = winner_side
+        match.is_finished = True
+
+        predictions = db.query(Prediction).filter(
+            Prediction.match_id == match.id
+        ).all()
+
+        recalculated = []
+
+        for prediction in predictions:
+            from app.scoring import score_match_prediction
+
+            result = score_match_prediction(
+                pred_home=prediction.pred_home,
+                pred_away=prediction.pred_away,
+                actual_home=score_home,
+                actual_away=score_away,
+                advancement_bet_enabled=prediction.advancement_bet_enabled,
+                predicted_advancing_side=prediction.predicted_advancing_side,
+                actual_winner_side=winner_side,
+            )
+
+            prediction.score_points = result["score_points"]
+            prediction.advancement_points = result["advancement_points"]
+            prediction.points = result["total_points"]
+
+            recalculated.append(
+                {
+                    "user": prediction.user.display_name,
+                    "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
+                    "score_points": prediction.score_points,
+                    "advancement_points": prediction.advancement_points,
+                    "total_points": prediction.points,
+                }
+            )
+
+        db.commit()
+
+        lines = [
+            "Результат сохранен ✅",
+            "",
+            f"{match.home_team} — {match.away_team}: {score_home}:{score_away}",
+        ]
+
+        if winner_side == "home":
+            lines.append(f"Прошла команда: {match.home_team}")
+        elif winner_side == "away":
+            lines.append(f"Прошла команда: {match.away_team}")
+
+        lines.append("")
+        lines.append("Пересчет прогнозов:")
+
+        if not recalculated:
+            lines.append("Прогнозов на этот матч нет.")
+        else:
+            for item in recalculated:
+                lines.append(
+                    f"{item['user']}: {item['prediction']} → "
+                    f"{item['total_points']} очк. "
+                    f"({item['score_points']} за счет/исход, "
+                    f"{item['advancement_points']} за проход)"
+                )
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_recalculate"))
+async def admin_recalculate_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        finished_matches = db.query(Match).filter(
+            Match.is_finished == True
+        ).all()
+
+        recalculated_predictions_count = 0
+
+        for match in finished_matches:
+            if match.score_home is None or match.score_away is None:
+                continue
+
+            predictions = db.query(Prediction).filter(
+                Prediction.match_id == match.id
+            ).all()
+
+            for prediction in predictions:
+                from app.scoring import score_match_prediction
+
+                result = score_match_prediction(
+                    pred_home=prediction.pred_home,
+                    pred_away=prediction.pred_away,
+                    actual_home=match.score_home,
+                    actual_away=match.score_away,
+                    advancement_bet_enabled=prediction.advancement_bet_enabled,
+                    predicted_advancing_side=prediction.predicted_advancing_side,
+                    actual_winner_side=match.winner_side,
+                )
+
+                prediction.score_points = result["score_points"]
+                prediction.advancement_points = result["advancement_points"]
+                prediction.points = result["total_points"]
+
+                recalculated_predictions_count += 1
+
+        db.commit()
+
+        await message.answer(
+            "Пересчет завершен ✅\n\n"
+            f"Матчей обработано: {len(finished_matches)}\n"
+            f"Прогнозов пересчитано: {recalculated_predictions_count}"
         )
 
     finally:
