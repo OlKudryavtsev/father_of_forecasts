@@ -32,6 +32,9 @@ class TournamentPredictionForm(StatesGroup):
     third_place = State()
     top_scorer = State()
 
+class MatchPredictionForm(StatesGroup):
+    custom_score = State()
+
 def get_tournament_starts_at():
     dt = datetime.fromisoformat(
         TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
@@ -1962,19 +1965,52 @@ async def predict_advancement_callback(callback: CallbackQuery):
         db.close()
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_custom:"))
-async def predict_custom_callback(callback: CallbackQuery):
-    match_id = int(callback.data.split(":")[1])
+async def predict_custom_callback(callback: CallbackQuery, state: FSMContext):
+    db = SessionLocal()
 
-    await callback.message.answer(
-        "Для нестандартного счета пока используй текстовую команду:\n\n"
-        f"/predict {match_id} 3:2\n\n"
-        "Для плей-офф:\n"
-        f"/predict {match_id} 3:2 home\n"
-        f"/predict {match_id} 3:2 away\n"
-        f"/predict {match_id} 3:2 none"
-    )
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
 
-    await callback.answer()
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        if now >= match_start:
+            await callback.message.answer(
+                "Ставки на этот матч уже закрыты."
+            )
+            await callback.answer()
+            return
+
+        await state.clear()
+        await state.set_state(MatchPredictionForm.custom_score)
+        await state.update_data(match_id=match.id)
+
+        await callback.message.answer(
+            f"Введи счет для матча:\n"
+            f"{match.home_team} — {match.away_team}\n\n"
+            "Например:\n"
+            "3:2\n\n"
+            "Можно также через дефис:\n"
+            "3-2\n\n"
+            "Отмена: /cancel"
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
 
 @dp.message(TournamentPredictionForm.champion)
 async def tournament_champion_handler(message: Message, state: FSMContext):
@@ -2101,9 +2137,78 @@ async def cancel_handler(message: Message, state: FSMContext):
 
     await state.clear()
 
-    await message.answer(
-        "Действие отменено."
-    )
+    await message.answer("Действие отменено.")
+
+@dp.message(MatchPredictionForm.custom_score)
+async def match_custom_score_handler(message: Message, state: FSMContext):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        data = await state.get_data()
+        match_id = data.get("match_id")
+
+        if not match_id:
+            await state.clear()
+            await message.answer(
+                "Не нашел выбранный матч. Начни заново через /predict."
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await state.clear()
+            await message.answer(
+                "Матч не найден. Начни заново через /predict."
+            )
+            return
+
+        try:
+            pred_home, pred_away = parse_score(message.text)
+        except ValueError:
+            await message.answer(
+                "Не понял счет.\n\n"
+                "Введи в формате:\n"
+                "3:2\n\n"
+                "Или:\n"
+                "3-2\n\n"
+                "Отмена: /cancel"
+            )
+            return
+
+        if is_playoff_match(match):
+            await state.clear()
+
+            await message.answer(
+                f"Счет выбран: {pred_home}:{pred_away}\n\n"
+                "Это матч плей-офф. Хочешь рискнуть и поставить, "
+                "кто пройдет дальше?\n\n"
+                "Если угадаешь — +1 очко.\n"
+                "Если не угадаешь — -1 очко.",
+                reply_markup=build_advancement_keyboard(
+                    match_id=match.id,
+                    pred_home=pred_home,
+                    pred_away=pred_away,
+                    match=match,
+                ),
+            )
+            return
+
+        success, text = save_prediction(
+            db=db,
+            user=user,
+            match=match,
+            pred_home=pred_home,
+            pred_away=pred_away,
+        )
+
+        await state.clear()
+        await message.answer(text)
+
+    finally:
+        db.close()
 
 async def main():
     await dp.start_polling(bot)
