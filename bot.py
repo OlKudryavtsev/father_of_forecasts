@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.db import SessionLocal
 from app.models import Match, Prediction, TournamentPrediction, TournamentResult, User
@@ -23,6 +26,11 @@ TOURNAMENT_STARTS_AT_RAW = os.getenv(
     "2026-06-11T21:00:00+03:00",
 )
 
+class TournamentPredictionForm(StatesGroup):
+    champion = State()
+    runner_up = State()
+    third_place = State()
+    top_scorer = State()
 
 def get_tournament_starts_at():
     dt = datetime.fromisoformat(
@@ -42,7 +50,7 @@ if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 
 def get_or_create_user(db, telegram_user):
@@ -405,6 +413,63 @@ def save_prediction(
         text += f"\n{format_advancement_prediction(prediction, match)}"
 
     return True, text
+
+def save_tournament_prediction(
+    db,
+    user: User,
+    champion: str,
+    runner_up: str,
+    third_place: str,
+    top_scorer: str,
+) -> tuple[bool, str]:
+    existing_prediction = db.query(TournamentPrediction).filter(
+        TournamentPrediction.user_id == user.id,
+        TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+    ).first()
+
+    if existing_prediction:
+        existing_prediction.champion = champion
+        existing_prediction.runner_up = runner_up
+        existing_prediction.third_place = third_place
+        existing_prediction.top_scorer = top_scorer
+
+        existing_prediction.champion_points = 0
+        existing_prediction.runner_up_points = 0
+        existing_prediction.third_place_points = 0
+        existing_prediction.top_scorer_points = 0
+        existing_prediction.points = 0
+
+        db.commit()
+
+        return (
+            True,
+            "Турнирный прогноз обновлен 🏆\n\n"
+            f"1 место: {champion}\n"
+            f"2 место: {runner_up}\n"
+            f"3 место: {third_place}\n"
+            f"Бомбардир: {top_scorer}",
+        )
+
+    prediction = TournamentPrediction(
+        user_id=user.id,
+        tournament_code=TOURNAMENT_CODE,
+        champion=champion,
+        runner_up=runner_up,
+        third_place=third_place,
+        top_scorer=top_scorer,
+    )
+
+    db.add(prediction)
+    db.commit()
+
+    return (
+        True,
+        "Турнирный прогноз принят 🏆\n\n"
+        f"1 место: {champion}\n"
+        f"2 место: {runner_up}\n"
+        f"3 место: {third_place}\n"
+        f"Бомбардир: {top_scorer}",
+    )
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -884,9 +949,12 @@ async def rules_handler(message: Message):
         "🥉 3 место — 5 очков\n"
         "⚽ Бомбардир — 15 очков\n\n"
         "Формат прогноза на турнир:\n"
+        "/tournament_set\n\n"
+        "Бот пошагово спросит чемпиона, финалиста, 3 место и бомбардира.\n\n"
+        "Также можно одной строкой:\n"
         "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
         "Пример:\n"
-        "/tournament_set Аргентина; Франция; Бразилия; Мбаппе\n\n"
+"/tournament_set Аргентина; Франция; Бразилия; Мбаппе\n\n"
         "Прогнозы можно менять только до стартового свистка."
     )
 
@@ -913,7 +981,7 @@ def parse_tournament_result_payload(text: str):
     return champion, runner_up, third_place, top_scorer
 
 @dp.message(Command("tournament_set"))
-async def tournament_set_handler(message: Message):
+async def tournament_set_handler(message: Message, state: FSMContext):
     db = SessionLocal()
 
     try:
@@ -926,64 +994,42 @@ async def tournament_set_handler(message: Message):
             )
             return
 
-        try:
-            champion, runner_up, third_place, top_scorer = (
-                parse_tournament_prediction_payload(message.text)
+        # Если пользователь ввел старый формат через ;
+        if ";" in message.text:
+            try:
+                champion, runner_up, third_place, top_scorer = (
+                    parse_tournament_prediction_payload(message.text)
+                )
+            except ValueError:
+                await message.answer(
+                    "Формат прогноза на турнир:\n\n"
+                    "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
+                    "Пример:\n"
+                    "/tournament_set Аргентина; Франция; Бразилия; Мбаппе"
+                )
+                return
+
+            _, text = save_tournament_prediction(
+                db=db,
+                user=user,
+                champion=champion,
+                runner_up=runner_up,
+                third_place=third_place,
+                top_scorer=top_scorer,
             )
-        except ValueError:
-            await message.answer(
-                "Формат прогноза на турнир:\n\n"
-                "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
-                "Пример:\n"
-                "/tournament_set Аргентина; Франция; Бразилия; Мбаппе"
-            )
+
+            await message.answer(text)
             return
 
-        existing_prediction = db.query(TournamentPrediction).filter(
-            TournamentPrediction.user_id == user.id,
-            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
-        ).first()
-
-        if existing_prediction:
-            existing_prediction.champion = champion
-            existing_prediction.runner_up = runner_up
-            existing_prediction.third_place = third_place
-            existing_prediction.top_scorer = top_scorer
-            existing_prediction.champion_points = 0
-            existing_prediction.runner_up_points = 0
-            existing_prediction.third_place_points = 0
-            existing_prediction.top_scorer_points = 0
-            existing_prediction.points = 0
-
-            db.commit()
-
-            await message.answer(
-                "Турнирный прогноз обновлен 🏆\n\n"
-                f"1 место: {champion}\n"
-                f"2 место: {runner_up}\n"
-                f"3 место: {third_place}\n"
-                f"Бомбардир: {top_scorer}"
-            )
-            return
-
-        prediction = TournamentPrediction(
-            user_id=user.id,
-            tournament_code=TOURNAMENT_CODE,
-            champion=champion,
-            runner_up=runner_up,
-            third_place=third_place,
-            top_scorer=top_scorer,
-        )
-
-        db.add(prediction)
-        db.commit()
+        # Новый пошаговый режим
+        await state.clear()
+        await state.set_state(TournamentPredictionForm.champion)
 
         await message.answer(
-            "Турнирный прогноз принят 🏆\n\n"
-            f"1 место: {champion}\n"
-            f"2 место: {runner_up}\n"
-            f"3 место: {third_place}\n"
-            f"Бомбардир: {top_scorer}"
+            "Начинаем прогноз на итоги турнира 🏆\n\n"
+            "Кто станет чемпионом?\n\n"
+            "Напиши название команды, например:\n"
+            "Аргентина"
         )
 
     finally:
@@ -1004,7 +1050,9 @@ async def tournament_handler(message: Message):
         if not prediction:
             await message.answer(
                 "У тебя пока нет прогноза на итоги турнира.\n\n"
-                "Создать прогноз:\n"
+                "Создать прогноз пошагово:\n"
+                "/tournament_set\n\n"
+                "Или одной строкой:\n"
                 "/tournament_set Чемпион; Финалист; Третье место; Бомбардир\n\n"
                 "Пример:\n"
                 "/tournament_set Аргентина; Франция; Бразилия; Мбаппе"
@@ -1927,6 +1975,135 @@ async def predict_custom_callback(callback: CallbackQuery):
     )
 
     await callback.answer()
+
+@dp.message(TournamentPredictionForm.champion)
+async def tournament_champion_handler(message: Message, state: FSMContext):
+    champion = message.text.strip()
+
+    if not champion:
+        await message.answer("Напиши название команды-чемпиона.")
+        return
+
+    await state.update_data(champion=champion)
+    await state.set_state(TournamentPredictionForm.runner_up)
+
+    await message.answer(
+        f"Чемпион: {champion}\n\n"
+        "Кто займет 2 место?"
+    )
+
+@dp.message(TournamentPredictionForm.runner_up)
+async def tournament_runner_up_handler(message: Message, state: FSMContext):
+    runner_up = message.text.strip()
+
+    if not runner_up:
+        await message.answer("Напиши команду, которая займет 2 место.")
+        return
+
+    data = await state.get_data()
+
+    if runner_up.lower() == data["champion"].lower():
+        await message.answer(
+            "Чемпион и финалист не могут быть одной и той же командой.\n"
+            "Напиши другую команду."
+        )
+        return
+
+    await state.update_data(runner_up=runner_up)
+    await state.set_state(TournamentPredictionForm.third_place)
+
+    await message.answer(
+        f"2 место: {runner_up}\n\n"
+        "Кто займет 3 место?"
+    )
+
+@dp.message(TournamentPredictionForm.third_place)
+async def tournament_third_place_handler(message: Message, state: FSMContext):
+    third_place = message.text.strip()
+
+    if not third_place:
+        await message.answer("Напиши команду, которая займет 3 место.")
+        return
+
+    data = await state.get_data()
+
+    existing_teams = {
+        data["champion"].lower(),
+        data["runner_up"].lower(),
+    }
+
+    if third_place.lower() in existing_teams:
+        await message.answer(
+            "Команда на 3 месте не должна совпадать с 1 или 2 местом.\n"
+            "Напиши другую команду."
+        )
+        return
+
+    await state.update_data(third_place=third_place)
+    await state.set_state(TournamentPredictionForm.top_scorer)
+
+    await message.answer(
+        f"3 место: {third_place}\n\n"
+        "Кто станет лучшим бомбардиром турнира?\n\n"
+        "Напиши фамилию или имя игрока, например:\n"
+        "Мбаппе"
+    )
+
+@dp.message(TournamentPredictionForm.top_scorer)
+async def tournament_top_scorer_handler(message: Message, state: FSMContext):
+    top_scorer = message.text.strip()
+
+    if not top_scorer:
+        await message.answer("Напиши имя или фамилию бомбардира.")
+        return
+
+    data = await state.get_data()
+
+    champion = data["champion"]
+    runner_up = data["runner_up"]
+    third_place = data["third_place"]
+
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if is_tournament_started():
+            await state.clear()
+            await message.answer(
+                "Прогнозы на итоги турнира уже закрыты. "
+                "Турнир стартовал."
+            )
+            return
+
+        _, text = save_tournament_prediction(
+            db=db,
+            user=user,
+            champion=champion,
+            runner_up=runner_up,
+            third_place=third_place,
+            top_scorer=top_scorer,
+        )
+
+        await state.clear()
+        await message.answer(text)
+
+    finally:
+        db.close()
+
+@dp.message(Command("cancel"))
+async def cancel_handler(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+
+    if current_state is None:
+        await message.answer("Сейчас нечего отменять.")
+        return
+
+    await state.clear()
+
+    await message.answer(
+        "Действие отменено."
+    )
 
 async def main():
     await dp.start_polling(bot)
