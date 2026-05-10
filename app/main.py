@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.db import Base, SessionLocal, engine
 from app.models import Match, Prediction, User
+from app.scoring import score_match_prediction
 
 app = FastAPI(title="Отец прогнозов")
 
@@ -17,6 +18,11 @@ class MatchCreate(BaseModel):
     starts_at: datetime
     stage: str = "group"
     tournament_code: str = "wc2026"
+
+
+class MatchResultUpdate(BaseModel):
+    score_home: int
+    score_away: int
 
 
 @app.get("/")
@@ -95,6 +101,56 @@ def create_match(payload: MatchCreate):
         db.close()
 
 
+@app.post("/admin/matches/{match_id}/result")
+def set_match_result(match_id: int, payload: MatchResultUpdate):
+    db = SessionLocal()
+
+    try:
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            raise HTTPException(status_code=404, detail="Match not found")
+
+        match.score_home = payload.score_home
+        match.score_away = payload.score_away
+        match.is_finished = True
+
+        predictions = db.query(Prediction).filter(
+            Prediction.match_id == match.id
+        ).all()
+
+        recalculated = []
+
+        for prediction in predictions:
+            points = score_match_prediction(
+                pred_home=prediction.pred_home,
+                pred_away=prediction.pred_away,
+                actual_home=payload.score_home,
+                actual_away=payload.score_away,
+            )
+
+            prediction.points = points
+
+            recalculated.append(
+                {
+                    "user": prediction.user.display_name,
+                    "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
+                    "points": points,
+                }
+            )
+
+        db.commit()
+
+        return {
+            "match": f"{match.home_team} — {match.away_team}",
+            "result": f"{payload.score_home}:{payload.score_away}",
+            "recalculated_predictions": recalculated,
+        }
+
+    finally:
+        db.close()
+
+
 @app.get("/predictions")
 def get_predictions():
     db = SessionLocal()
@@ -111,5 +167,56 @@ def get_predictions():
             }
             for prediction in predictions
         ]
+    finally:
+        db.close()
+
+
+@app.get("/table")
+def get_table():
+    db = SessionLocal()
+
+    try:
+        users = db.query(User).order_by(User.display_name).all()
+
+        table = []
+
+        for user in users:
+            predictions = db.query(Prediction).filter(
+                Prediction.user_id == user.id
+            ).all()
+
+            total_points = sum(prediction.points or 0 for prediction in predictions)
+            exact_scores = sum(
+                1
+                for prediction in predictions
+                if prediction.points == 3
+            )
+            outcomes = sum(
+                1
+                for prediction in predictions
+                if prediction.points == 1
+            )
+
+            table.append(
+                {
+                    "user": user.display_name,
+                    "points": total_points,
+                    "exact_scores": exact_scores,
+                    "outcomes": outcomes,
+                    "predictions_count": len(predictions),
+                }
+            )
+
+        table.sort(
+            key=lambda row: (
+                row["points"],
+                row["exact_scores"],
+                row["outcomes"],
+            ),
+            reverse=True,
+        )
+
+        return table
+
     finally:
         db.close()

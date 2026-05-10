@@ -323,6 +323,92 @@ async def predictions_handler(message: Message):
     finally:
         db.close()
 
+@dp.message(Command("table"))
+async def table_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        users = db.query(User).order_by(User.display_name).all()
+
+        if not users:
+            await message.answer("Пока нет участников.")
+            return
+
+        rows = []
+
+        for user in users:
+            predictions = db.query(Prediction).filter(
+                Prediction.user_id == user.id
+            ).all()
+
+            total_points = sum(prediction.points or 0 for prediction in predictions)
+
+            exact_scores = sum(
+                1
+                for prediction in predictions
+                if prediction.points == 3
+            )
+
+            outcomes = sum(
+                1
+                for prediction in predictions
+                if prediction.points == 1
+            )
+
+            rows.append(
+                {
+                    "name": user.display_name,
+                    "points": total_points,
+                    "exact_scores": exact_scores,
+                    "outcomes": outcomes,
+                    "predictions_count": len(predictions),
+                }
+            )
+
+        rows.sort(
+            key=lambda row: (
+                row["points"],
+                row["exact_scores"],
+                row["outcomes"],
+            ),
+            reverse=True,
+        )
+
+        lines = ["🏆 Таблица «Отец прогнозов»", ""]
+
+        for index, row in enumerate(rows, start=1):
+            lines.append(
+                f"{index}. {row['name']} — {row['points']} очк. "
+                f"🎯 {row['exact_scores']} | ✅ {row['outcomes']} | "
+                f"📋 {row['predictions_count']}"
+            )
+
+        lines.append("")
+        lines.append("🎯 точные счета")
+        lines.append("✅ угаданные исходы")
+        lines.append("📋 всего прогнозов")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.message(Command("rules"))
+async def rules_handler(message: Message):
+    await message.answer(
+        "📜 Правила «Отец прогнозов»\n\n"
+        "За каждый матч:\n"
+        "🎯 3 очка — точный счет\n"
+        "✅ 1 очко — угаданный исход\n"
+        "❌ 0 очков — если не угадан ни счет, ни исход\n\n"
+        "Пример:\n"
+        "Прогноз: Мексика — ЮАР 2:1\n\n"
+        "Если матч закончился 2:1 — 3 очка.\n"
+        "Если матч закончился 3:1 — 1 очко.\n"
+        "Если матч закончился 2:2 или 0:1 — 0 очков.\n\n"
+        "Прогноз можно менять только до стартового свистка."
+    )
+
 async def main():
     await dp.start_polling(bot)
 
