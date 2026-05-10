@@ -1,24 +1,20 @@
-
 from fastapi import FastAPI
-app = FastAPI(title='Отец прогнозов')
 
-matches = [
-    {"id":1,"home":"Mexico","away":"South Africa","start":"2026-06-11T18:00"}
-]
+from app.db import Base, engine
 
-predictions = []
+# импорт обязателен для регистрации моделей
+from app.models import User
 
-@app.get("/matches")
-def get_matches():
-    return matches
+app = FastAPI(title="Отец прогнозов")
 
-@app.post("/predict/{match_id}")
-def predict(match_id:int, user:str, home:int, away:int):
-    predictions.append({
-        "match_id":match_id,"user":user,"home":home,"away":away
-    })
-    return {"status":"ok"}
+Base.metadata.create_all(bind=engine)
 
-@app.get("/table")
-def table():
-    return {"leaderboard":[]}
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+
+@app.get("/health")
+def health():
+    return {"health": "green"}
