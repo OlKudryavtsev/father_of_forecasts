@@ -474,6 +474,77 @@ def save_tournament_prediction(
         f"Бомбардир: {top_scorer}",
     )
 
+def get_available_matches_query(db):
+    now = datetime.now(timezone.utc)
+
+    return db.query(Match).filter(
+        Match.is_finished == False,
+        Match.starts_at > now,
+    ).order_by(Match.starts_at)
+
+
+def get_nearest_matchday_matches(db) -> list[Match]:
+    """
+    Возвращает матчи ближайшего игрового дня.
+
+    Логика:
+    - берем ближайший матч в будущем;
+    - берем все матчи с той же локальной датой в APP_TIMEZONE.
+    """
+
+    first_match = get_available_matches_query(db).first()
+
+    if not first_match:
+        return []
+
+    first_local_date = first_match.starts_at.astimezone(APP_TIMEZONE).date()
+
+    all_future_matches = get_available_matches_query(db).all()
+
+    return [
+        match
+        for match in all_future_matches
+        if match.starts_at.astimezone(APP_TIMEZONE).date() == first_local_date
+    ]
+
+
+def get_all_available_matches(db, limit: int = 30) -> list[Match]:
+    return get_available_matches_query(db).limit(limit).all()
+
+
+def format_matches_list(matches: list[Match], title: str) -> str:
+    lines = [title, ""]
+
+    current_date = None
+
+    for match in matches:
+        local_dt = match.starts_at.astimezone(APP_TIMEZONE)
+        local_date = local_dt.date()
+
+        if current_date != local_date:
+            current_date = local_date
+            lines.append(f"📅 {local_dt.strftime('%d.%m.%Y')}")
+            lines.append("")
+
+        status = "✅ завершен" if match.is_finished else "⏳ открыт"
+
+        if match.score_home is not None and match.score_away is not None:
+            status = f"🏁 {match.score_home}:{match.score_away}"
+
+        lines.append(
+            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n"
+            f"Стадия: {match.stage} | {status}"
+        )
+        lines.append("")
+
+    lines.append(
+        "Сделать прогноз кнопками: /predict\n"
+        "Посмотреть все будущие матчи: /matches_all"
+    )
+
+    return "\n".join(lines)
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
@@ -499,29 +570,15 @@ async def matches_handler(message: Message):
     db = SessionLocal()
 
     try:
-        matches = db.query(Match).order_by(Match.starts_at).all()
+        matches = get_nearest_matchday_matches(db)
 
         if not matches:
-            await message.answer("Пока матчей нет.")
+            await message.answer("Нет будущих матчей.")
             return
 
-        text = "📅 Матчи:\n\n"
-        text += "\n\n".join(format_match(match) for match in matches)
-
-        text += (
-            "\n\nЧтобы сделать прогноз:\n"
-            "/predict ID СЧЕТ\n\n"
-            "Например:\n"
-            "/predict 1 2:1\n\n"
-            "Для плей-офф можно добавить ставку на проход:\n"
-            "/predict ID СЧЕТ home\n"
-            "/predict ID СЧЕТ away\n"
-            "/predict ID СЧЕТ none\n\n"
-            "home — пройдет первая команда\n"
-            "away — пройдет вторая команда\n"
-            "none — не рисковать ставкой на проход\n\n"
-            "Чтобы посмотреть прогнозы по матчу:\n"
-            "/predictions ID"
+        text = format_matches_list(
+            matches,
+            "📅 Ближайший игровой день",
         )
 
         await message.answer(
@@ -543,16 +600,14 @@ async def predict_handler(message: Message):
         parts = message.text.split()
 
         if len(parts) == 1:
-            matches = db.query(Match).filter(
-                Match.is_finished == False
-            ).order_by(Match.starts_at).all()
+            matches = get_nearest_matchday_matches(db)
 
             if not matches:
                 await message.answer("Нет доступных матчей для прогноза.")
                 return
 
             await message.answer(
-                "Выбери матч для прогноза:",
+                "Выбери матч ближайшего игрового дня:",
                 reply_markup=build_matches_keyboard(matches),
             )
             return
@@ -2206,6 +2261,50 @@ async def match_custom_score_handler(message: Message, state: FSMContext):
 
         await state.clear()
         await message.answer(text)
+
+    finally:
+        db.close()
+
+@dp.message(Command("matches_all"))
+async def matches_all_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        matches = get_all_available_matches(db, limit=30)
+
+        if not matches:
+            await message.answer("Нет будущих матчей.")
+            return
+
+        text = format_matches_list(
+            matches,
+            "📅 Все будущие матчи",
+        )
+
+        text += "\n\nПоказаны ближайшие 30 матчей."
+
+        await message.answer(text)
+
+    finally:
+        db.close()
+
+@dp.message(Command("predict_all"))
+async def predict_all_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        matches = get_all_available_matches(db)
+
+        if not matches:
+            await message.answer("Нет доступных матчей для прогноза.")
+            return
+
+        await message.answer(
+            "Выбери матч для прогноза:",
+            reply_markup=build_matches_keyboard(matches),
+        )
 
     finally:
         db.close()
