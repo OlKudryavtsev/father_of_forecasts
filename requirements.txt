@@ -1,5 +1,5 @@
 fastapi
-univcorn
+unicorn
 sqlalchemy
 psycopg2-binary
 aiogram
