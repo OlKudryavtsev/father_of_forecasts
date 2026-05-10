@@ -8,8 +8,11 @@ from aiogram.types import Message
 
 from app.db import SessionLocal
 from app.models import Match, Prediction, TournamentPrediction, User
+from app.admin import is_admin_telegram_id
 
 from zoneinfo import ZoneInfo
+
+
 
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -43,17 +46,38 @@ dp = Dispatcher()
 
 
 def get_or_create_user(db, telegram_user):
+    admin_status = is_admin_telegram_id(telegram_user.id)
+
     existing_user = db.query(User).filter(
         User.telegram_id == telegram_user.id
     ).first()
 
     if existing_user:
+        changed = False
+
+        if existing_user.username != telegram_user.username:
+            existing_user.username = telegram_user.username
+            changed = True
+
+        if existing_user.display_name != telegram_user.full_name:
+            existing_user.display_name = telegram_user.full_name
+            changed = True
+
+        if existing_user.is_admin != admin_status:
+            existing_user.is_admin = admin_status
+            changed = True
+
+        if changed:
+            db.commit()
+            db.refresh(existing_user)
+
         return existing_user, False
 
     new_user = User(
         telegram_id=telegram_user.id,
         username=telegram_user.username,
         display_name=telegram_user.full_name,
+        is_admin=admin_status,
     )
 
     db.add(new_user)
@@ -134,6 +158,9 @@ def format_datetime(dt):
 
     local_dt = dt.astimezone(APP_TIMEZONE)
     return local_dt.strftime("%d.%m.%Y %H:%M")
+
+def is_user_admin(user: User) -> bool:
+    return bool(user.is_admin)
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -772,6 +799,38 @@ async def tournament_predictions_handler(message: Message):
                     lines.append(f"{user.display_name}: ❌ прогноза нет")
 
         await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin"))
+async def admin_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not is_user_admin(user):
+            await message.answer(
+                "У тебя нет админских прав.\n"
+                "Отец прогнозов не выдал тебе свисток судьи."
+            )
+            return
+
+        await message.answer(
+            "🛠 Админ-панель\n\n"
+            "Доступные действия пока через Swagger:\n\n"
+            "1. Добавить матч:\n"
+            "POST /admin/matches\n\n"
+            "2. Внести результат матча:\n"
+            "POST /admin/matches/{match_id}/result\n\n"
+            "3. Пересчитать все очки:\n"
+            "POST /admin/recalculate\n\n"
+            "4. Внести итоги турнира:\n"
+            "POST /admin/tournament-result\n\n"
+            "Для Swagger нужен header:\n"
+            "X-Admin-Token: твой ADMIN_API_TOKEN"
+        )
 
     finally:
         db.close()

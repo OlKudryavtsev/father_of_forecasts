@@ -1,11 +1,12 @@
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.db import Base, SessionLocal, engine
 from app.models import Match, Prediction, TournamentPrediction, User
 from app.scoring import score_match_prediction, score_tournament_prediction
+from app.admin import require_admin_api_token
 
 app = FastAPI(title="Отец прогнозов")
 
@@ -82,7 +83,7 @@ def get_matches():
         db.close()
 
 
-@app.post("/admin/matches")
+@app.post("/admin/matches", dependencies=[Depends(require_admin_api_token)])
 def create_match(payload: MatchCreate):
     db = SessionLocal()
     try:
@@ -174,7 +175,7 @@ def set_match_result(match_id: int, payload: MatchResultUpdate):
     finally:
         db.close()
 
-@app.post("/admin/recalculate")
+@app.post("/admin/recalculate", dependencies=[Depends(require_admin_api_token)])
 def recalculate_all_finished_matches():
     db = SessionLocal()
 
@@ -355,7 +356,10 @@ def get_tournament_predictions():
         db.close()
 
 
-@app.post("/admin/tournament-result")
+@app.post(
+    "/admin/tournament-result",
+    dependencies=[Depends(require_admin_api_token)],
+)
 def set_tournament_result(payload: TournamentResultUpdate):
     db = SessionLocal()
 
