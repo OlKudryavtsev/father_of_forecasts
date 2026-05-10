@@ -190,6 +190,44 @@ def parse_admin_match_payload(text: str):
 
     return home_team, away_team, starts_at, stage, tournament_code
 
+def parse_admin_edit_match_payload(text: str):
+    payload = text.replace("/admin_edit_match", "", 1).strip()
+    parts = [part.strip() for part in payload.split(";")]
+
+    if len(parts) not in (5, 6):
+        raise ValueError("Invalid admin edit match format")
+
+    match_id_raw = parts[0]
+
+    if not match_id_raw.isdigit():
+        raise ValueError("Match ID must be number")
+
+    match_id = int(match_id_raw)
+    home_team = parts[1]
+    away_team = parts[2]
+    starts_at_raw = parts[3]
+    stage = parts[4]
+    tournament_code = parts[5] if len(parts) == 6 else TOURNAMENT_CODE
+
+    starts_at = datetime.fromisoformat(
+        starts_at_raw.replace("Z", "+00:00")
+    )
+
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=APP_TIMEZONE)
+
+    starts_at = starts_at.astimezone(timezone.utc)
+
+    return match_id, home_team, away_team, starts_at, stage, tournament_code
+
+
+def parse_match_id_command(text: str, command: str) -> int:
+    payload = text.replace(command, "", 1).strip()
+
+    if not payload.isdigit():
+        raise ValueError("Match ID must be number")
+
+    return int(payload)
 
 def parse_result_payload(text: str):
     parts = text.split()
@@ -880,8 +918,16 @@ async def admin_handler(message: Message):
 
         await message.answer(
             "🛠 Админ-панель\n\n"
+            "Список матчей:\n"
+            "/admin_matches\n\n"
             "Добавить матч:\n"
             "/admin_add_match Мексика; ЮАР; 2026-06-11T21:00:00+03:00; group\n\n"
+            "Редактировать матч:\n"
+            "/admin_edit_match 5; Аргентина; Франция; 2026-06-30T21:00:00+03:00; round_of_16\n\n"
+            "Удалить матч без прогнозов:\n"
+            "/admin_delete_match 5\n\n"
+            "Удалить матч вместе с прогнозами:\n"
+            "/admin_force_delete_match 5\n\n"
             "Внести результат группового матча:\n"
             "/admin_set_result 1 2:1\n\n"
             "Внести результат плей-офф:\n"
@@ -1302,6 +1348,239 @@ async def admin_tournament_recalculate_handler(message: Message):
             f"🥈 Финалист: {tournament_result.runner_up}\n"
             f"🥉 3 место: {tournament_result.third_place}\n"
             f"⚽ Бомбардир: {tournament_result.top_scorer}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_matches"))
+async def admin_matches_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        matches = db.query(Match).order_by(Match.starts_at).all()
+
+        if not matches:
+            await message.answer("Матчей пока нет.")
+            return
+
+        lines = ["🛠 Матчи в базе:", ""]
+
+        for match in matches:
+            status = "✅ завершен" if match.is_finished else "⏳ не завершен"
+
+            result = ""
+            if match.score_home is not None and match.score_away is not None:
+                result = f" | счет {match.score_home}:{match.score_away}"
+
+            winner = ""
+            if match.winner_side == "home":
+                winner = f" | прошла {match.home_team}"
+            elif match.winner_side == "away":
+                winner = f" | прошла {match.away_team}"
+
+            predictions_count = db.query(Prediction).filter(
+                Prediction.match_id == match.id
+            ).count()
+
+            lines.append(
+                f"#{match.id} {match.home_team} — {match.away_team}\n"
+                f"Старт: {format_datetime(match.starts_at)}\n"
+                f"Стадия: {match.stage} | {status}{result}{winner}\n"
+                f"Прогнозов: {predictions_count}"
+            )
+            lines.append("")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_edit_match"))
+async def admin_edit_match_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            (
+                match_id,
+                home_team,
+                away_team,
+                starts_at,
+                stage,
+                tournament_code,
+            ) = parse_admin_edit_match_payload(message.text)
+        except ValueError:
+            await message.answer(
+                "Формат редактирования матча:\n\n"
+                "/admin_edit_match ID; Команда1; Команда2; Дата; Стадия\n\n"
+                "Пример:\n"
+                "/admin_edit_match 5; Аргентина; Франция; "
+                "2026-06-30T21:00:00+03:00; round_of_16\n\n"
+                "Стадии:\n"
+                "group, round_of_32, round_of_16, quarterfinal, "
+                "semifinal, third_place, final"
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        old_text = (
+            f"Было:\n"
+            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n"
+            f"Стадия: {match.stage}"
+        )
+
+        match.home_team = home_team
+        match.away_team = away_team
+        match.starts_at = starts_at
+        match.stage = stage
+        match.tournament_code = tournament_code
+
+        db.commit()
+        db.refresh(match)
+
+        new_text = (
+            f"Стало:\n"
+            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n"
+            f"Стадия: {match.stage}"
+        )
+
+        await message.answer(
+            "Матч обновлен ✅\n\n"
+            f"{old_text}\n\n"
+            f"{new_text}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_delete_match"))
+async def admin_delete_match_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            match_id = parse_match_id_command(
+                message.text,
+                "/admin_delete_match",
+            )
+        except ValueError:
+            await message.answer(
+                "Формат удаления матча:\n\n"
+                "/admin_delete_match ID\n\n"
+                "Пример:\n"
+                "/admin_delete_match 5"
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        predictions_count = db.query(Prediction).filter(
+            Prediction.match_id == match.id
+        ).count()
+
+        if predictions_count > 0:
+            await message.answer(
+                "Матч не удален, потому что на него уже есть прогнозы.\n\n"
+                f"Матч: #{match.id} {match.home_team} — {match.away_team}\n"
+                f"Прогнозов: {predictions_count}\n\n"
+                "Если это тестовый или ошибочный матч, используй:\n"
+                f"/admin_force_delete_match {match.id}\n\n"
+                "Осторожно: эта команда удалит и матч, и все прогнозы на него."
+            )
+            return
+
+        match_text = f"#{match.id} {match.home_team} — {match.away_team}"
+
+        db.delete(match)
+        db.commit()
+
+        await message.answer(
+            "Матч удален ✅\n\n"
+            f"{match_text}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_force_delete_match"))
+async def admin_force_delete_match_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            match_id = parse_match_id_command(
+                message.text,
+                "/admin_force_delete_match",
+            )
+        except ValueError:
+            await message.answer(
+                "Формат принудительного удаления матча:\n\n"
+                "/admin_force_delete_match ID\n\n"
+                "Пример:\n"
+                "/admin_force_delete_match 5"
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        predictions = db.query(Prediction).filter(
+            Prediction.match_id == match.id
+        ).all()
+
+        predictions_count = len(predictions)
+
+        match_text = f"#{match.id} {match.home_team} — {match.away_team}"
+
+        for prediction in predictions:
+            db.delete(prediction)
+
+        db.delete(match)
+        db.commit()
+
+        await message.answer(
+            "Матч и прогнозы удалены ✅\n\n"
+            f"{match_text}\n"
+            f"Удалено прогнозов: {predictions_count}"
         )
 
     finally:
