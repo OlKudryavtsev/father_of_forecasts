@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import SessionLocal
 from app.models import Match, Prediction, TournamentPrediction, TournamentResult, User
@@ -250,6 +250,162 @@ def parse_result_payload(text: str):
 
     return match_id, score_home, score_away, winner_side
 
+def build_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
+    buttons = []
+
+    for match in matches:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"#{match.id} {match.home_team} — {match.away_team}",
+                    callback_data=f"predict_match:{match.id}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
+    common_scores = [
+        ("0:0", 0, 0),
+        ("1:0", 1, 0),
+        ("0:1", 0, 1),
+        ("1:1", 1, 1),
+        ("2:0", 2, 0),
+        ("0:2", 0, 2),
+        ("2:1", 2, 1),
+        ("1:2", 1, 2),
+        ("2:2", 2, 2),
+        ("3:1", 3, 1),
+        ("1:3", 1, 3),
+    ]
+
+    rows = []
+
+    for index in range(0, len(common_scores), 3):
+        row = []
+
+        for label, home, away in common_scores[index:index + 3]:
+            row.append(
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"predict_score:{match_id}:{home}:{away}",
+                )
+            )
+
+        rows.append(row)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="Другой счет",
+                callback_data=f"predict_custom:{match_id}",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def build_advancement_keyboard(
+    match_id: int,
+    pred_home: int,
+    pred_away: int,
+    match: Match,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"Рискнуть: пройдет {match.home_team}",
+                    callback_data=(
+                        f"predict_adv:{match_id}:{pred_home}:{pred_away}:home"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"Рискнуть: пройдет {match.away_team}",
+                    callback_data=(
+                        f"predict_adv:{match_id}:{pred_home}:{pred_away}:away"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Не ставить на проход",
+                    callback_data=(
+                        f"predict_adv:{match_id}:{pred_home}:{pred_away}:none"
+                    ),
+                )
+            ],
+        ]
+    )
+
+def save_prediction(
+    db,
+    user: User,
+    match: Match,
+    pred_home: int,
+    pred_away: int,
+    advancement_bet_enabled: bool = False,
+    predicted_advancing_side: str | None = None,
+) -> tuple[bool, str]:
+    now = datetime.now(timezone.utc)
+
+    match_start = match.starts_at
+    if match_start.tzinfo is None:
+        match_start = match_start.replace(tzinfo=timezone.utc)
+
+    if now >= match_start:
+        return (
+            False,
+            "Ставки на этот матч уже закрыты. "
+            "Отец прогнозов суров, но справедлив.",
+        )
+
+    existing_prediction = db.query(Prediction).filter(
+        Prediction.user_id == user.id,
+        Prediction.match_id == match.id,
+    ).first()
+
+    if existing_prediction:
+        existing_prediction.pred_home = pred_home
+        existing_prediction.pred_away = pred_away
+        existing_prediction.advancement_bet_enabled = advancement_bet_enabled
+        existing_prediction.predicted_advancing_side = predicted_advancing_side
+
+        db.commit()
+        db.refresh(existing_prediction)
+
+        prediction = existing_prediction
+        prefix = "Прогноз обновлен"
+    else:
+        prediction = Prediction(
+            user_id=user.id,
+            match_id=match.id,
+            pred_home=pred_home,
+            pred_away=pred_away,
+            advancement_bet_enabled=advancement_bet_enabled,
+            predicted_advancing_side=predicted_advancing_side,
+        )
+
+        db.add(prediction)
+        db.commit()
+        db.refresh(prediction)
+
+        prefix = "Прогноз принят"
+
+    text = (
+        f"{prefix}:\n"
+        f"{match.home_team} — {match.away_team}: "
+        f"{pred_home}:{pred_away}"
+    )
+
+    if is_playoff_match(match):
+        text += f"\n{format_advancement_prediction(prediction, match)}"
+
+    return True, text
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
@@ -300,7 +456,10 @@ async def matches_handler(message: Message):
             "/predictions ID"
         )
 
-        await message.answer(text)
+        await message.answer(
+            text,
+            reply_markup=build_matches_keyboard(matches),
+        )
 
     finally:
         db.close()
@@ -314,6 +473,21 @@ async def predict_handler(message: Message):
         user, _ = get_or_create_user(db, message.from_user)
 
         parts = message.text.split()
+
+        if len(parts) == 1:
+            matches = db.query(Match).filter(
+                Match.is_finished == False
+            ).order_by(Match.starts_at).all()
+
+            if not matches:
+                await message.answer("Нет доступных матчей для прогноза.")
+                return
+
+            await message.answer(
+                "Выбери матч для прогноза:",
+                reply_markup=build_matches_keyboard(matches),
+            )
+            return
 
         if len(parts) not in (3, 4):
             await message.answer(
@@ -391,7 +565,18 @@ async def predict_handler(message: Message):
                     "Ставка на проход доступна только в матчах на вылет."
                 )
                 return
+        success, text = save_prediction(
+            db=db,
+            user=user,
+            match=match,
+            pred_home=pred_home,
+            pred_away=pred_away,
+            advancement_bet_enabled=advancement_bet_enabled,
+            predicted_advancing_side=predicted_advancing_side,
+        )
 
+        await message.answer(text)
+        """
         existing_prediction = db.query(Prediction).filter(
             Prediction.user_id == user.id,
             Prediction.match_id == match.id,
@@ -438,7 +623,8 @@ async def predict_handler(message: Message):
         if is_playoff_match(match):
             text += f"\n{format_advancement_prediction(prediction, match)}"
 
-        await message.answer(text)
+        await message.answer(text) 
+        """
 
     finally:
         db.close()
@@ -1585,6 +1771,162 @@ async def admin_force_delete_match_handler(message: Message):
 
     finally:
         db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("predict_match:"))
+async def predict_match_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        if now >= match_start:
+            await callback.message.answer(
+                "Ставки на этот матч уже закрыты."
+            )
+            await callback.answer()
+            return
+
+        await callback.message.answer(
+            f"Выбран матч:\n"
+            f"{match.home_team} — {match.away_team}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n\n"
+            f"Выбери счет:",
+            reply_markup=build_score_keyboard(match.id),
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("predict_score:"))
+async def predict_score_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        _, match_id_raw, pred_home_raw, pred_away_raw = callback.data.split(":")
+
+        match_id = int(match_id_raw)
+        pred_home = int(pred_home_raw)
+        pred_away = int(pred_away_raw)
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        if is_playoff_match(match):
+            await callback.message.answer(
+                f"Счет выбран: {pred_home}:{pred_away}\n\n"
+                "Это матч плей-офф. Хочешь рискнуть и поставить, "
+                "кто пройдет дальше?\n\n"
+                "Если угадаешь — +1 очко.\n"
+                "Если не угадаешь — -1 очко.",
+                reply_markup=build_advancement_keyboard(
+                    match_id=match.id,
+                    pred_home=pred_home,
+                    pred_away=pred_away,
+                    match=match,
+                ),
+            )
+
+            await callback.answer()
+            return
+
+        success, text = save_prediction(
+            db=db,
+            user=user,
+            match=match,
+            pred_home=pred_home,
+            pred_away=pred_away,
+        )
+
+        await callback.message.answer(text)
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("predict_adv:"))
+async def predict_advancement_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        _, match_id_raw, pred_home_raw, pred_away_raw, choice = (
+            callback.data.split(":")
+        )
+
+        match_id = int(match_id_raw)
+        pred_home = int(pred_home_raw)
+        pred_away = int(pred_away_raw)
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        try:
+            advancement_bet_enabled, predicted_advancing_side = (
+                parse_advancement_choice(choice)
+            )
+        except ValueError:
+            await callback.message.answer("Не понял ставку на проход.")
+            await callback.answer()
+            return
+
+        success, text = save_prediction(
+            db=db,
+            user=user,
+            match=match,
+            pred_home=pred_home,
+            pred_away=pred_away,
+            advancement_bet_enabled=advancement_bet_enabled,
+            predicted_advancing_side=predicted_advancing_side,
+        )
+
+        await callback.message.answer(text)
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("predict_custom:"))
+async def predict_custom_callback(callback: CallbackQuery):
+    match_id = int(callback.data.split(":")[1])
+
+    await callback.message.answer(
+        "Для нестандартного счета пока используй текстовую команду:\n\n"
+        f"/predict {match_id} 3:2\n\n"
+        "Для плей-офф:\n"
+        f"/predict {match_id} 3:2 home\n"
+        f"/predict {match_id} 3:2 away\n"
+        f"/predict {match_id} 3:2 none"
+    )
+
+    await callback.answer()
 
 async def main():
     await dp.start_polling(bot)
