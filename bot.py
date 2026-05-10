@@ -7,12 +7,12 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.db import SessionLocal
-from app.models import Match, Prediction, TournamentPrediction, User
+from app.models import Match, Prediction, TournamentPrediction, TournamentResult, User
 from app.admin import is_admin_telegram_id
 
 from zoneinfo import ZoneInfo
 
-
+from app.scoring import score_match_prediction, score_tournament_prediction
 
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -677,6 +677,17 @@ def parse_tournament_prediction_payload(text: str):
 
     return champion, runner_up, third_place, top_scorer
 
+def parse_tournament_result_payload(text: str):
+    payload = text.replace("/admin_set_tournament_result", "", 1).strip()
+    parts = [part.strip() for part in payload.split(";")]
+
+    if len(parts) != 4 or any(not part for part in parts):
+        raise ValueError("Invalid tournament result format")
+
+    champion, runner_up, third_place, top_scorer = parts
+
+    return champion, runner_up, third_place, top_scorer
+
 @dp.message(Command("tournament_set"))
 async def tournament_set_handler(message: Message):
     db = SessionLocal()
@@ -878,6 +889,10 @@ async def admin_handler(message: Message):
             "/admin_set_result 5 1:1 away\n\n"
             "Пересчитать все завершенные матчи:\n"
             "/admin_recalculate\n\n"
+            "Внести итоги турнира:\n"
+            "/admin_set_tournament_result Аргентина; Франция; Бразилия; Мбаппе\n\n"
+            "Пересчитать турнирные прогнозы:\n"
+            "/admin_tournament_recalculate\n\n"
             "Стадии:\n"
             "group, round_of_32, round_of_16, quarterfinal, semifinal, "
             "third_place, final"
@@ -1109,6 +1124,184 @@ async def admin_recalculate_handler(message: Message):
             "Пересчет завершен ✅\n\n"
             f"Матчей обработано: {len(finished_matches)}\n"
             f"Прогнозов пересчитано: {recalculated_predictions_count}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_set_tournament_result"))
+async def admin_set_tournament_result_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            champion, runner_up, third_place, top_scorer = (
+                parse_tournament_result_payload(message.text)
+            )
+        except ValueError:
+            await message.answer(
+                "Формат итогов турнира:\n\n"
+                "/admin_set_tournament_result Чемпион; Финалист; Третье место; Бомбардир\n\n"
+                "Пример:\n"
+                "/admin_set_tournament_result Аргентина; Франция; Бразилия; Мбаппе"
+            )
+            return
+
+        tournament_result = db.query(TournamentResult).filter(
+            TournamentResult.tournament_code == TOURNAMENT_CODE
+        ).first()
+
+        if tournament_result:
+            tournament_result.champion = champion
+            tournament_result.runner_up = runner_up
+            tournament_result.third_place = third_place
+            tournament_result.top_scorer = top_scorer
+        else:
+            tournament_result = TournamentResult(
+                tournament_code=TOURNAMENT_CODE,
+                champion=champion,
+                runner_up=runner_up,
+                third_place=third_place,
+                top_scorer=top_scorer,
+            )
+            db.add(tournament_result)
+
+        predictions = db.query(TournamentPrediction).filter(
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE
+        ).all()
+
+        recalculated = []
+
+        for prediction in predictions:
+            result = score_tournament_prediction(
+                pred_champion=prediction.champion,
+                pred_runner_up=prediction.runner_up,
+                pred_third_place=prediction.third_place,
+                pred_top_scorer=prediction.top_scorer,
+                actual_champion=champion,
+                actual_runner_up=runner_up,
+                actual_third_place=third_place,
+                actual_top_scorer=top_scorer,
+            )
+
+            prediction.champion_points = result["champion_points"]
+            prediction.runner_up_points = result["runner_up_points"]
+            prediction.third_place_points = result["third_place_points"]
+            prediction.top_scorer_points = result["top_scorer_points"]
+            prediction.points = result["total_points"]
+
+            recalculated.append(
+                {
+                    "user": prediction.user.display_name,
+                    "champion": prediction.champion,
+                    "runner_up": prediction.runner_up,
+                    "third_place": prediction.third_place,
+                    "top_scorer": prediction.top_scorer,
+                    "champion_points": prediction.champion_points,
+                    "runner_up_points": prediction.runner_up_points,
+                    "third_place_points": prediction.third_place_points,
+                    "top_scorer_points": prediction.top_scorer_points,
+                    "total_points": prediction.points,
+                }
+            )
+
+        db.commit()
+
+        lines = [
+            "Итоги турнира сохранены ✅",
+            "",
+            f"🏆 Чемпион: {champion}",
+            f"🥈 Финалист: {runner_up}",
+            f"🥉 3 место: {third_place}",
+            f"⚽ Бомбардир: {top_scorer}",
+            "",
+            "Пересчет турнирных прогнозов:",
+            "",
+        ]
+
+        if not recalculated:
+            lines.append("Турнирных прогнозов пока нет.")
+        else:
+            for item in recalculated:
+                lines.append(
+                    f"{item['user']} — {item['total_points']} очк.\n"
+                    f"🏆 {item['champion_points']} | "
+                    f"🥈 {item['runner_up_points']} | "
+                    f"🥉 {item['third_place_points']} | "
+                    f"⚽ {item['top_scorer_points']}"
+                )
+                lines.append("")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_tournament_recalculate"))
+async def admin_tournament_recalculate_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        tournament_result = db.query(TournamentResult).filter(
+            TournamentResult.tournament_code == TOURNAMENT_CODE
+        ).first()
+
+        if not tournament_result:
+            await message.answer(
+                "Итоги турнира еще не внесены.\n\n"
+                "Сначала используй:\n"
+                "/admin_set_tournament_result Чемпион; Финалист; Третье место; Бомбардир"
+            )
+            return
+
+        predictions = db.query(TournamentPrediction).filter(
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE
+        ).all()
+
+        recalculated_count = 0
+
+        for prediction in predictions:
+            result = score_tournament_prediction(
+                pred_champion=prediction.champion,
+                pred_runner_up=prediction.runner_up,
+                pred_third_place=prediction.third_place,
+                pred_top_scorer=prediction.top_scorer,
+                actual_champion=tournament_result.champion,
+                actual_runner_up=tournament_result.runner_up,
+                actual_third_place=tournament_result.third_place,
+                actual_top_scorer=tournament_result.top_scorer,
+            )
+
+            prediction.champion_points = result["champion_points"]
+            prediction.runner_up_points = result["runner_up_points"]
+            prediction.third_place_points = result["third_place_points"]
+            prediction.top_scorer_points = result["top_scorer_points"]
+            prediction.points = result["total_points"]
+
+            recalculated_count += 1
+
+        db.commit()
+
+        await message.answer(
+            "Турнирные прогнозы пересчитаны ✅\n\n"
+            f"Турнир: {TOURNAMENT_CODE}\n"
+            f"Прогнозов пересчитано: {recalculated_count}\n\n"
+            f"🏆 Чемпион: {tournament_result.champion}\n"
+            f"🥈 Финалист: {tournament_result.runner_up}\n"
+            f"🥉 3 место: {tournament_result.third_place}\n"
+            f"⚽ Бомбардир: {tournament_result.top_scorer}"
         )
 
     finally:

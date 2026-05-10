@@ -117,3 +117,18 @@ class TournamentPrediction(Base):
             name="uq_user_tournament_prediction",
         ),
     )
+
+class TournamentResult(Base):
+    __tablename__ = "tournament_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    tournament_code = Column(String, nullable=False, unique=True, default="wc2026")
+
+    champion = Column(String, nullable=False)
+    runner_up = Column(String, nullable=False)
+    third_place = Column(String, nullable=False)
+    top_scorer = Column(String, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
