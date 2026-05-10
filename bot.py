@@ -1216,6 +1216,25 @@ def parse_tournament_result_payload(text: str):
 
     return champion, runner_up, third_place, top_scorer
 
+async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
+    chunks = []
+    current_chunk = ""
+
+    for line in lines:
+        line_with_break = line + "\n"
+
+        if len(current_chunk) + len(line_with_break) > chunk_size:
+            chunks.append(current_chunk)
+            current_chunk = line_with_break
+        else:
+            current_chunk += line_with_break
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    for chunk in chunks:
+        await message.answer(chunk)
+
 @dp.message(Command("tournament_set"))
 async def tournament_set_handler(message: Message, state: FSMContext):
     db = SessionLocal()
@@ -1390,6 +1409,8 @@ async def admin_handler(message: Message):
             "🛠 Админ-панель\n\n"
             "Список матчей:\n"
             "/admin_matches\n\n"
+            "Полный список матчей:\n"
+            "/admin_matches_all\n\n"
              "Импорт матчей из CSV:\n"
             "/admin_import_matches\n\n"
             "Добавить матч:\n"
@@ -1838,13 +1859,25 @@ async def admin_matches_handler(message: Message):
             await message.answer("У тебя нет админских прав.")
             return
 
-        matches = db.query(Match).order_by(Match.starts_at).all()
+        matches = (
+            db.query(Match)
+            .order_by(Match.starts_at)
+            .limit(20)
+            .all()
+        )
+
+        total_matches = db.query(Match).count()
 
         if not matches:
             await message.answer("Матчей пока нет.")
             return
 
-        lines = ["🛠 Матчи в базе:", ""]
+        lines = [
+            "🛠 Матчи в базе",
+            f"Показаны первые {len(matches)} из {total_matches}.",
+            "Для полного списка: /admin_matches_all",
+            "",
+        ]
 
         for match in matches:
             status = "✅ завершен" if match.is_finished else "⏳ не завершен"
@@ -1863,15 +1896,86 @@ async def admin_matches_handler(message: Message):
                 Prediction.match_id == match.id
             ).count()
 
+            round_text = match.match_round or get_default_match_round(match.stage)
+
+            group_text = f" | группа {match.group_code}" if match.group_code else ""
+
+            fifa_no_text = (
+                f"FIFA #{match.fifa_match_no} | "
+                if match.fifa_match_no
+                else ""
+            )
+
             lines.append(
-                f"#{match.id} {match.home_team} — {match.away_team}\n"
+                f"#{match.id} {fifa_no_text}{match.home_team} — {match.away_team}\n"
                 f"Старт: {format_datetime(match.starts_at)}\n"
-                f"Стадия: {match.stage} | {status}{result}{winner}\n"
+                f"Стадия: {match.stage} | Тур: {round_text}{group_text}\n"
+                f"{status}{result}{winner}\n"
                 f"Прогнозов: {predictions_count}"
             )
             lines.append("")
 
-        await message.answer("\n".join(lines))
+        await send_long_message(message, lines)
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_matches_all"))
+async def admin_matches_all_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        matches = db.query(Match).order_by(Match.starts_at).all()
+
+        if not matches:
+            await message.answer("Матчей пока нет.")
+            return
+
+        lines = ["🛠 Все матчи в базе:", ""]
+
+        for match in matches:
+            status = "✅ завершен" if match.is_finished else "⏳ не завершен"
+
+            result = ""
+            if match.score_home is not None and match.score_away is not None:
+                result = f" | счет {match.score_home}:{match.score_away}"
+
+            winner = ""
+            if match.winner_side == "home":
+                winner = f" | прошла {match.home_team}"
+            elif match.winner_side == "away":
+                winner = f" | прошла {match.away_team}"
+
+            predictions_count = db.query(Prediction).filter(
+                Prediction.match_id == match.id
+            ).count()
+
+            round_text = match.match_round or get_default_match_round(match.stage)
+
+            group_text = f" | группа {match.group_code}" if match.group_code else ""
+
+            fifa_no_text = (
+                f"FIFA #{match.fifa_match_no} | "
+                if match.fifa_match_no
+                else ""
+            )
+
+            lines.append(
+                f"#{match.id} {fifa_no_text}{match.home_team} — {match.away_team}\n"
+                f"Старт: {format_datetime(match.starts_at)}\n"
+                f"Стадия: {match.stage} | Тур: {round_text}{group_text}\n"
+                f"{status}{result}{winner}\n"
+                f"Прогнозов: {predictions_count}"
+            )
+            lines.append("")
+
+        await send_long_message(message, lines)
 
     finally:
         db.close()
