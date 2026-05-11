@@ -281,7 +281,7 @@ def build_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=f"#{match.id} {match.home_team} — {match.away_team}",
+                    text=format_match_label(match, include_id=False),
                     callback_data=f"predict_match:{match.id}",
                 )
             ]
@@ -421,7 +421,7 @@ def save_prediction(
 
     text = (
         f"{prefix}:\n"
-        f"{match.home_team} — {match.away_team}: "
+        f"{format_match_label(match, include_id=False)}: "
         f"{pred_home}:{pred_away}"
     )
 
@@ -525,40 +525,25 @@ def get_all_available_matches(db, limit: int = 30) -> list[Match]:
     return get_available_matches_query(db).limit(limit).all()
 
 
-def format_matches_list(matches: list[Match], title: str) -> str:
-    lines = [title, ""]
+def format_match(match: Match):
+    start_text = format_datetime(match.starts_at)
 
-    current_date = None
+    group_text = ""
+    if match.group_code:
+        group_text = f"\nГруппа: {match.group_code}"
 
+    venue_text = ""
+    if match.venue or match.city:
+        venue_parts = [part for part in [match.venue, match.city] if part]
+        venue_text = f"\nСтадион: {', '.join(venue_parts)}"
 
-    for match in matches:
-        local_dt = match.starts_at.astimezone(APP_TIMEZONE)
-        local_date = local_dt.date()
-        round_text = match.match_round or get_default_match_round(match.stage)
-
-        if current_date != local_date:
-            current_date = local_date
-            lines.append(f"📅 {local_dt.strftime('%d.%m.%Y')}")
-            lines.append("")
-
-        status = "✅ завершен" if match.is_finished else "⏳ открыт"
-
-        if match.score_home is not None and match.score_away is not None:
-            status = f"🏁 {match.score_home}:{match.score_away}"
-
-        lines.append(
-            f"#{match.id} {match.home_team} — {match.away_team}\n"
-            f"Старт: {format_datetime(match.starts_at)}\n"
-            f"Стадия: {match.stage} | Тур: {round_text} | {status}"
-        )
-        lines.append("")
-
-    lines.append(
-        "Сделать прогноз кнопками: /predict\n"
-        "Посмотреть все будущие матчи: /matches_all"
+    return (
+        f"{format_match_label(match, include_id=True)}\n"
+        f"Стадия: {match.stage}"
+        f"{group_text}\n"
+        f"Старт: {start_text}"
+        f"{venue_text}"
     )
-
-    return "\n".join(lines)
 
 def get_default_match_round(stage: str) -> str:
     mapping = {
@@ -952,7 +937,7 @@ async def mybets_handler(message: Message):
             match = prediction.match
 
             line = (
-                f"{match.home_team} — {match.away_team}: "
+                f"{format_match_label(match, include_id=False)}: "
                 f"{prediction.pred_home}:{prediction.pred_away}"
             )
 
@@ -1018,8 +1003,8 @@ async def predictions_handler(message: Message):
         start_text = format_datetime(match.starts_at)
 
         lines = [
-            f"🔮 Прогнозы на матч #{match.id}",
-            f"{match.home_team} — {match.away_team}",
+            "🔮 Прогнозы на матч",
+            format_match_label(match, include_id=True),
             f"Старт: {start_text}",
             "",
         ]
@@ -1215,6 +1200,79 @@ def parse_tournament_result_payload(text: str):
     champion, runner_up, third_place, top_scorer = parts
 
     return champion, runner_up, third_place, top_scorer
+
+def format_match_label(match: Match, include_id: bool = False) -> str:
+    """
+    Единый короткий формат матча для списков и кнопок.
+
+    Групповой этап:
+    Группа A. Тур 1. Мексика — ЮАР
+
+    Плей-офф:
+    1/8. Нидерланды — США
+    Финал. Испания — Бразилия
+    """
+
+    team_text = f"{match.home_team} — {match.away_team}"
+
+    prefix_parts = []
+
+    if match.stage == "group":
+        if match.group_code:
+            prefix_parts.append(f"Группа {match.group_code}")
+
+        round_text = match.match_round or get_default_match_round(match.stage)
+        if round_text:
+            prefix_parts.append(f"Тур {round_text}")
+    else:
+        round_text = match.match_round or get_default_match_round(match.stage)
+        if round_text:
+            prefix_parts.append(round_text.capitalize())
+
+    prefix = ". ".join(prefix_parts)
+
+    if prefix:
+        label = f"{prefix}. {team_text}"
+    else:
+        label = team_text
+
+    if include_id:
+        return f"#{match.id}. {label}"
+
+    return label
+
+def format_matches_list(matches: list[Match], title: str) -> str:
+    lines = [title, ""]
+
+    current_date = None
+
+    for match in matches:
+        local_dt = match.starts_at.astimezone(APP_TIMEZONE)
+        local_date = local_dt.date()
+
+        if current_date != local_date:
+            current_date = local_date
+            lines.append(f"📅 {local_dt.strftime('%d.%m.%Y')}")
+            lines.append("")
+
+        status = "✅ завершен" if match.is_finished else "⏳ открыт"
+
+        if match.score_home is not None and match.score_away is not None:
+            status = f"🏁 {match.score_home}:{match.score_away}"
+
+        lines.append(
+            f"{format_match_label(match, include_id=True)}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n"
+            f"Стадия: {match.stage} | {status}"
+        )
+        lines.append("")
+
+    lines.append(
+        "Сделать прогноз кнопками: /predict\n"
+        "Посмотреть все будущие матчи: /matches_all"
+    )
+
+    return "\n".join(lines)
 
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
     chunks = []
@@ -1484,9 +1542,8 @@ async def admin_add_match_handler(message: Message):
 
         await message.answer(
             "Матч добавлен ✅\n\n"
-            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"{format_match_label(match, include_id=True)}\n"
             f"Старт: {format_datetime(match.starts_at)}\n"
-            f"Тур/стадия: {match.match_round}\n"
             f"Стадия: {match.stage}"
         )
 
@@ -1588,7 +1645,7 @@ async def admin_set_result_handler(message: Message):
         lines = [
             "Результат сохранен ✅",
             "",
-            f"{match.home_team} — {match.away_team}: {score_home}:{score_away}",
+            f"{format_match_label(match, include_id=False)}: {score_home}:{score_away}",
         ]
 
         if winner_side == "home":
@@ -1907,9 +1964,10 @@ async def admin_matches_handler(message: Message):
             )
 
             lines.append(
-                f"#{match.id} {fifa_no_text}{match.home_team} — {match.away_team}\n"
+                f"{format_match_label(match, include_id=True)}\n"
+                f"{fifa_no_text}"
                 f"Старт: {format_datetime(match.starts_at)}\n"
-                f"Стадия: {match.stage} | Тур: {round_text}{group_text}\n"
+                f"Стадия: {match.stage}\n"
                 f"{status}{result}{winner}\n"
                 f"Прогнозов: {predictions_count}"
             )
@@ -1967,9 +2025,10 @@ async def admin_matches_all_handler(message: Message):
             )
 
             lines.append(
-                f"#{match.id} {fifa_no_text}{match.home_team} — {match.away_team}\n"
+                f"{format_match_label(match, include_id=True)}\n"
+                f"{fifa_no_text}"
                 f"Старт: {format_datetime(match.starts_at)}\n"
-                f"Стадия: {match.stage} | Тур: {round_text}{group_text}\n"
+                f"Стадия: {match.stage}\n"
                 f"{status}{result}{winner}\n"
                 f"Прогнозов: {predictions_count}"
             )
@@ -2022,7 +2081,7 @@ async def admin_edit_match_handler(message: Message):
 
         old_text = (
             f"Было:\n"
-            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"{format_match_label(match, include_id=True)}\n"
             f"Старт: {format_datetime(match.starts_at)}\n"
             f"Стадия: {match.stage}"
         )
@@ -2039,7 +2098,7 @@ async def admin_edit_match_handler(message: Message):
 
         new_text = (
             f"Стало:\n"
-            f"#{match.id} {match.home_team} — {match.away_team}\n"
+            f"{format_match_label(match, include_id=True)}\n"
             f"Старт: {format_datetime(match.starts_at)}\n"
             f"Стадия: {match.stage}"
         )
@@ -2099,7 +2158,7 @@ async def admin_delete_match_handler(message: Message):
             )
             return
 
-        match_text = f"#{match.id} {match.home_team} — {match.away_team}"
+        match_text = format_match_label(match, include_id=True)
 
         db.delete(match)
         db.commit()
@@ -2149,7 +2208,7 @@ async def admin_force_delete_match_handler(message: Message):
 
         predictions_count = len(predictions)
 
-        match_text = f"#{match.id} {match.home_team} — {match.away_team}"
+        match_text = format_match_label(match, include_id=True)
 
         for prediction in predictions:
             db.delete(prediction)
@@ -2197,7 +2256,7 @@ async def predict_match_callback(callback: CallbackQuery):
 
         await callback.message.answer(
             f"Выбран матч:\n"
-            f"{match.home_team} — {match.away_team}\n"
+            f"{format_match_label(match, include_id=False)}\n"
             f"Старт: {format_datetime(match.starts_at)}\n\n"
             f"Выбери счет:",
             reply_markup=build_score_keyboard(match.id),
@@ -2342,7 +2401,7 @@ async def predict_custom_callback(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.answer(
             f"Введи счет для матча:\n"
-            f"{match.home_team} — {match.away_team}\n\n"
+            f"{format_match_label(match, include_id=False)}\n\n"
             "Например:\n"
             "3:2\n\n"
             "Можно также через дефис:\n"
