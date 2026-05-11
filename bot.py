@@ -2,7 +2,7 @@ import asyncio
 import os
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -12,7 +12,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.db import SessionLocal
-from app.models import Match, Prediction, TournamentPrediction, TournamentResult, User
+from app.models import (
+    Match,
+    Prediction,
+    ReminderLog,
+    TournamentPrediction,
+    TournamentResult,
+    User,
+)
 from app.admin import is_admin_telegram_id
 
 from zoneinfo import ZoneInfo
@@ -707,6 +714,95 @@ def import_matches_from_rows(db, rows: list[dict]) -> dict:
         "total": len(imported_matches),
     }
 
+def reminders_enabled() -> bool:
+    return os.getenv("REMINDERS_ENABLED", "false").lower() == "true"
+
+
+def get_reminder_offsets_minutes() -> list[int]:
+    raw_value = os.getenv("REMINDER_OFFSETS_MINUTES", "1440,180,30")
+
+    offsets = []
+
+    for item in raw_value.split(","):
+        item = item.strip()
+
+        if item.isdigit():
+            offsets.append(int(item))
+
+    return sorted(offsets, reverse=True)
+
+
+def get_reminder_check_interval_seconds() -> int:
+    raw_value = os.getenv("REMINDER_CHECK_INTERVAL_SECONDS", "60")
+
+    if raw_value.isdigit():
+        return int(raw_value)
+
+    return 60
+
+
+def format_reminder_offset(minutes: int) -> str:
+    if minutes >= 1440:
+        days = minutes // 1440
+
+        if days == 1:
+            return "24 часа"
+
+        return f"{days} дн."
+
+    if minutes >= 60:
+        hours = minutes // 60
+
+        if hours == 1:
+            return "1 час"
+
+        return f"{hours} часа"
+
+    return f"{minutes} минут"
+
+
+def user_has_prediction(db, user: User, match: Match) -> bool:
+    prediction = db.query(Prediction).filter(
+        Prediction.user_id == user.id,
+        Prediction.match_id == match.id,
+    ).first()
+
+    return prediction is not None
+
+
+def reminder_was_sent(
+    db,
+    user: User,
+    match: Match,
+    reminder_type: str,
+    reminder_key: str,
+) -> bool:
+    existing_log = db.query(ReminderLog).filter(
+        ReminderLog.user_id == user.id,
+        ReminderLog.match_id == match.id,
+        ReminderLog.reminder_type == reminder_type,
+        ReminderLog.reminder_key == reminder_key,
+    ).first()
+
+    return existing_log is not None
+
+
+def mark_reminder_sent(
+    db,
+    user: User,
+    match: Match,
+    reminder_type: str,
+    reminder_key: str,
+):
+    log = ReminderLog(
+        user_id=user.id,
+        match_id=match.id,
+        reminder_type=reminder_type,
+        reminder_key=reminder_key,
+    )
+
+    db.add(log)
+    db.commit()
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -1549,6 +1645,8 @@ async def admin_handler(message: Message):
             "Стадии:\n"
             "group, round_of_32, round_of_16, quarterfinal, semifinal, "
             "third_place, final"
+            "Статус напоминаний:\n"
+            "/admin_reminders_status\n\n"
         )
 
     finally:
@@ -2854,7 +2952,185 @@ async def missing_all_handler(message: Message):
     finally:
         db.close()
 
+async def send_match_reminders_once():
+    if not reminders_enabled():
+        return
+
+    db = SessionLocal()
+
+    try:
+        now = datetime.now(timezone.utc)
+
+        offsets = get_reminder_offsets_minutes()
+        check_interval_seconds = get_reminder_check_interval_seconds()
+
+        if not offsets:
+            return
+
+        max_offset = max(offsets)
+
+        matches = db.query(Match).filter(
+            Match.is_finished == False,
+            Match.starts_at > now,
+            Match.starts_at <= now + timedelta(minutes=max_offset + 10),
+        ).order_by(Match.starts_at).all()
+
+        if not matches:
+            return
+
+        users = db.query(User).all()
+
+        for match in matches:
+            match_start = match.starts_at
+
+            if match_start.tzinfo is None:
+                match_start = match_start.replace(tzinfo=timezone.utc)
+
+            for offset_minutes in offsets:
+                reminder_due_at = match_start - timedelta(minutes=offset_minutes)
+
+                window_end = reminder_due_at + timedelta(
+                    seconds=check_interval_seconds + 30
+                )
+
+                if not (reminder_due_at <= now <= window_end):
+                    continue
+
+                reminder_type = "match_missing_prediction"
+                reminder_key = f"{offset_minutes}m"
+
+                for user in users:
+                    if user_has_prediction(db, user, match):
+                        continue
+
+                    if reminder_was_sent(
+                        db=db,
+                        user=user,
+                        match=match,
+                        reminder_type=reminder_type,
+                        reminder_key=reminder_key,
+                    ):
+                        continue
+
+                    text = (
+                        f"⏰ Напоминание от Отца прогнозов\n\n"
+                        f"До матча осталось: {format_reminder_offset(offset_minutes)}\n\n"
+                        f"{format_match_label(match, include_id=False)}\n"
+                        f"Старт: {format_datetime(match.starts_at)}\n\n"
+                        f"У тебя еще нет прогноза на этот матч."
+                    )
+
+                    try:
+                        await bot.send_message(
+                            chat_id=user.telegram_id,
+                            text=text,
+                            reply_markup=build_matches_keyboard([match]),
+                        )
+
+                        mark_reminder_sent(
+                            db=db,
+                            user=user,
+                            match=match,
+                            reminder_type=reminder_type,
+                            reminder_key=reminder_key,
+                        )
+
+                    except Exception as error:
+                        print(
+                            f"Failed to send reminder to user "
+                            f"{user.telegram_id}: {error}"
+                        )
+
+    finally:
+        db.close()
+
+async def reminders_loop():
+    if not reminders_enabled():
+        print("Reminders are disabled")
+        return
+
+    interval_seconds = get_reminder_check_interval_seconds()
+
+    print(
+        "Reminders loop started. "
+        f"Interval: {interval_seconds} seconds. "
+        f"Offsets: {get_reminder_offsets_minutes()} minutes."
+    )
+
+    await asyncio.sleep(10)
+
+    while True:
+        try:
+            await send_match_reminders_once()
+        except Exception as error:
+            print(f"Reminder loop error: {error}")
+
+        await asyncio.sleep(interval_seconds)
+
+@dp.message(Command("admin_reminders_status"))
+async def admin_reminders_status_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        now = datetime.now(timezone.utc)
+
+        offsets = get_reminder_offsets_minutes()
+
+        matches = db.query(Match).filter(
+            Match.is_finished == False,
+            Match.starts_at > now,
+        ).order_by(Match.starts_at).limit(5).all()
+
+        lines = [
+            "⏰ Статус напоминаний",
+            "",
+            f"Включены: {reminders_enabled()}",
+            f"Интервал проверки: {get_reminder_check_interval_seconds()} сек.",
+            f"Напоминания за минуты: {offsets}",
+            "",
+            "Ближайшие матчи:",
+            "",
+        ]
+
+        if not matches:
+            lines.append("Будущих матчей нет.")
+        else:
+            for match in matches:
+                lines.append(
+                    f"{format_match_label(match, include_id=True)}\n"
+                    f"Старт: {format_datetime(match.starts_at)}"
+                )
+
+                match_start = match.starts_at
+
+                if match_start.tzinfo is None:
+                    match_start = match_start.replace(tzinfo=timezone.utc)
+
+                for offset in offsets:
+                    due_at = match_start - timedelta(minutes=offset)
+                    lines.append(
+                        f"— напоминание за {format_reminder_offset(offset)}: "
+                        f"{format_datetime(due_at)}"
+                    )
+
+                lines.append("")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+
 async def main():
+    if reminders_enabled():
+        asyncio.create_task(reminders_loop())
+
     await dp.start_polling(bot)
 
 

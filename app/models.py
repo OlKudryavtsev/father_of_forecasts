@@ -140,3 +140,30 @@ class TournamentResult(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReminderLog(Base):
+    __tablename__ = "reminder_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False)
+
+    reminder_type = Column(String, nullable=False)
+    reminder_key = Column(String, nullable=False)
+
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+    match = relationship("Match")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "match_id",
+            "reminder_type",
+            "reminder_key",
+            name="uq_reminder_user_match_type_key",
+        ),
+    )
