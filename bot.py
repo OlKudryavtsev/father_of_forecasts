@@ -1177,6 +1177,9 @@ async def rules_handler(message: Message):
         "Пример:\n"
 "/tournament_set Аргентина; Франция; Бразилия; Мбаппе\n\n"
         "Прогнозы можно менять только до стартового свистка."
+        "\n\nПолезные команды:\n"
+        "/missing — матчи ближайшего игрового дня без прогноза\n"
+        "/missing_all — ближайшие матчи без прогноза\n"
     )
 
 def parse_tournament_prediction_payload(text: str):
@@ -1271,6 +1274,59 @@ def format_matches_list(matches: list[Match], title: str) -> str:
         "Сделать прогноз кнопками: /predict\n"
         "Посмотреть все будущие матчи: /matches_all"
     )
+
+    return "\n".join(lines)
+
+def get_user_prediction_match_ids(db, user: User) -> set[int]:
+    predictions = db.query(Prediction).filter(
+        Prediction.user_id == user.id
+    ).all()
+
+    return {
+        prediction.match_id
+        for prediction in predictions
+    }
+
+
+def get_missing_predictions_for_matches(
+    db,
+    user: User,
+    matches: list[Match],
+) -> list[Match]:
+    predicted_match_ids = get_user_prediction_match_ids(db, user)
+
+    return [
+        match
+        for match in matches
+        if match.id not in predicted_match_ids
+    ]
+
+
+def format_missing_matches_list(matches: list[Match], title: str) -> str:
+    lines = [title, ""]
+
+    if not matches:
+        lines.append("Все прогнозы сделаны ✅")
+        return "\n".join(lines)
+
+    current_date = None
+
+    for match in matches:
+        local_dt = match.starts_at.astimezone(APP_TIMEZONE)
+        local_date = local_dt.date()
+
+        if current_date != local_date:
+            current_date = local_date
+            lines.append(f"📅 {local_dt.strftime('%d.%m.%Y')}")
+            lines.append("")
+
+        lines.append(
+            f"{format_match_label(match, include_id=True)}\n"
+            f"Старт: {format_datetime(match.starts_at)}"
+        )
+        lines.append("")
+
+    lines.append("Сделать прогноз: /predict")
 
     return "\n".join(lines)
 
@@ -2722,6 +2778,78 @@ async def admin_import_matches_handler(message: Message):
             "Проверить:\n"
             "/admin_matches"
         )
+
+    finally:
+        db.close()
+
+@dp.message(Command("missing"))
+async def missing_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        matches = get_nearest_matchday_matches(db)
+
+        if not matches:
+            await message.answer("Нет будущих матчей.")
+            return
+
+        missing_matches = get_missing_predictions_for_matches(
+            db=db,
+            user=user,
+            matches=matches,
+        )
+
+        text = format_missing_matches_list(
+            missing_matches,
+            "❌ Матчи ближайшего игрового дня без твоего прогноза",
+        )
+
+        if missing_matches:
+            await message.answer(
+                text,
+                reply_markup=build_matches_keyboard(missing_matches),
+            )
+        else:
+            await message.answer(text)
+
+    finally:
+        db.close()
+
+@dp.message(Command("missing_all"))
+async def missing_all_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        matches = get_all_available_matches(db, limit=30)
+
+        if not matches:
+            await message.answer("Нет будущих матчей.")
+            return
+
+        missing_matches = get_missing_predictions_for_matches(
+            db=db,
+            user=user,
+            matches=matches,
+        )
+
+        text = format_missing_matches_list(
+            missing_matches,
+            "❌ Ближайшие матчи без твоего прогноза",
+        )
+
+        text += "\n\nПроверены ближайшие 30 будущих матчей."
+
+        if missing_matches:
+            await message.answer(
+                text,
+                reply_markup=build_matches_keyboard(missing_matches),
+            )
+        else:
+            await message.answer(text)
 
     finally:
         db.close()
