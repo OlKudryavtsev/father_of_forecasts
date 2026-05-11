@@ -64,9 +64,11 @@ USER_HELP_TEXT = (
     "🔴 не угадал — -1 очко\n"
     "⚪ не ставил на проход — 0 очков\n\n"
     "5️⃣ Полезные команды\n"
+    "/match — карточка матча\n"
     "/matches — ближайший игровой день\n"
     "/missing — где еще нет твоего прогноза\n"
     "/mybets — твои прогнозы\n"
+    "/predictions — прогнозы участников по матчу\n"
     "/table — таблица участников\n"
     "/summary — твоя статистика\n"
     "/rules — правила начисления очков"
@@ -1013,6 +1015,127 @@ def apply_match_result_from_admin(
 
     return lines
 
+def build_predictions_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
+    buttons = []
+
+    for match in matches:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=format_match_label(match, include_id=False),
+                    callback_data=f"predictions_match:{match.id}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_recent_and_upcoming_matches(db, limit: int = 20) -> list[Match]:
+    now = datetime.now(timezone.utc)
+
+    # Берем последние завершенные/начавшиеся и ближайшие будущие
+    past_matches = (
+        db.query(Match)
+        .filter(Match.starts_at <= now)
+        .order_by(Match.starts_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    future_matches = (
+        db.query(Match)
+        .filter(Match.starts_at > now)
+        .order_by(Match.starts_at)
+        .limit(limit - len(past_matches))
+        .all()
+    )
+
+    matches = list(reversed(past_matches)) + future_matches
+
+    return matches
+
+def build_match_card_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
+    buttons = []
+
+    for match in matches:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=format_match_label(match, include_id=False),
+                    callback_data=f"match_card:{match.id}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_predictions_text(db, match: Match) -> str:
+    now = datetime.now(timezone.utc)
+
+    match_start = match.starts_at
+    if match_start.tzinfo is None:
+        match_start = match_start.replace(tzinfo=timezone.utc)
+
+    is_revealed = now >= match_start
+
+    users = db.query(User).order_by(User.display_name).all()
+
+    predictions = db.query(Prediction).filter(
+        Prediction.match_id == match.id
+    ).all()
+
+    predictions_by_user_id = {
+        prediction.user_id: prediction
+        for prediction in predictions
+    }
+
+    start_text = format_datetime(match.starts_at)
+
+    lines = [
+        "🔮 Прогнозы на матч",
+        format_match_label(match, include_id=True),
+        f"Старт: {start_text}",
+        "",
+    ]
+
+    if is_revealed:
+        lines.append("Матч уже начался — прогнозы открыты:")
+        lines.append("")
+
+        for user in users:
+            prediction = predictions_by_user_id.get(user.id)
+
+            if prediction:
+                line = (
+                    f"{user.display_name}: "
+                    f"{prediction.pred_home}:{prediction.pred_away}"
+                )
+
+                if is_playoff_match(match):
+                    line += f" ({format_advancement_prediction(prediction, match)})"
+
+                if match.is_finished:
+                    line += f" — {prediction.points or 0} очк."
+
+                lines.append(line)
+            else:
+                lines.append(f"{user.display_name}: прогноза нет")
+
+    else:
+        lines.append("До старта матча прогнозы скрыты.")
+        lines.append("Видно только, кто уже сделал прогноз:")
+        lines.append("")
+
+        for user in users:
+            prediction = predictions_by_user_id.get(user.id)
+
+            if prediction:
+                lines.append(f"{user.display_name}: ✅ прогноз сделан")
+            else:
+                lines.append(f"{user.display_name}: ❌ прогноза нет")
+
+    return "\n".join(lines)
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
@@ -1269,22 +1392,33 @@ async def predictions_handler(message: Message):
     try:
         parts = message.text.split()
 
-        if len(parts) != 2:
+        # Новый кнопочный режим
+        if len(parts) == 1:
+            matches = get_recent_and_upcoming_matches(db, limit=20)
+
+            if not matches:
+                await message.answer("Матчей пока нет.")
+                return
+
             await message.answer(
-                "Формат команды:\n"
-                "/predictions ID_МАТЧА\n\n"
-                "Например:\n"
-                "/predictions 1"
+                "Выбери матч, по которому хочешь посмотреть прогнозы:",
+                reply_markup=build_predictions_matches_keyboard(matches),
             )
             return
 
-        _, match_id_raw = parts
-
-        if not match_id_raw.isdigit():
-            await message.answer("ID матча должен быть числом.")
+        # Старый ручной режим: /predictions ID
+        if len(parts) != 2 or not parts[1].isdigit():
+            await message.answer(
+                "Формат команды:\n\n"
+                "/predictions\n\n"
+                "или:\n"
+                "/predictions ID\n\n"
+                "Например:\n"
+                "/predictions 12"
+            )
             return
 
-        match_id = int(match_id_raw)
+        match_id = int(parts[1])
 
         match = db.query(Match).filter(Match.id == match_id).first()
 
@@ -1292,68 +1426,7 @@ async def predictions_handler(message: Message):
             await message.answer("Матч с таким ID не найден.")
             return
 
-        now = datetime.now(timezone.utc)
-
-        match_start = match.starts_at
-        if match_start.tzinfo is None:
-            match_start = match_start.replace(tzinfo=timezone.utc)
-
-        is_revealed = now >= match_start
-
-        users = db.query(User).order_by(User.display_name).all()
-
-        predictions = db.query(Prediction).filter(
-            Prediction.match_id == match.id
-        ).all()
-
-        predictions_by_user_id = {
-            prediction.user_id: prediction
-            for prediction in predictions
-        }
-
-        start_text = format_datetime(match.starts_at)
-
-        lines = [
-            "🔮 Прогнозы на матч",
-            format_match_label(match, include_id=True),
-            f"Старт: {start_text}",
-            "",
-        ]
-
-        if is_revealed:
-            lines.append("Матч уже начался — прогнозы открыты:")
-            lines.append("")
-
-            for user in users:
-                prediction = predictions_by_user_id.get(user.id)
-
-                if prediction:
-                    line = (
-                        f"{user.display_name}: "
-                        f"{prediction.pred_home}:{prediction.pred_away}"
-                    )
-
-                    if is_playoff_match(match):
-                        line += f" ({format_advancement_prediction(prediction, match)})"
-
-                    lines.append(line)
-                else:
-                    lines.append(f"{user.display_name}: прогноза нет")
-
-        else:
-            lines.append("До старта матча прогнозы скрыты.")
-            lines.append("Видно только, кто уже сделал прогноз:")
-            lines.append("")
-
-            for user in users:
-                prediction = predictions_by_user_id.get(user.id)
-
-                if prediction:
-                    lines.append(f"{user.display_name}: ✅ прогноз сделан")
-                else:
-                    lines.append(f"{user.display_name}: ❌ прогноза нет")
-
-        await message.answer("\n".join(lines))
+        await message.answer(build_predictions_text(db, match))
 
     finally:
         db.close()
@@ -1695,6 +1768,102 @@ def format_user_match_prediction(
 
     return text
 
+def build_match_card_text(db, user: User, match: Match) -> str:
+    now = datetime.now(timezone.utc)
+
+    match_start = match.starts_at
+    if match_start.tzinfo is None:
+        match_start = match_start.replace(tzinfo=timezone.utc)
+
+    predictions_are_revealed = now >= match_start
+
+    my_prediction = db.query(Prediction).filter(
+        Prediction.user_id == user.id,
+        Prediction.match_id == match.id,
+    ).first()
+
+    predictions_count = db.query(Prediction).filter(
+        Prediction.match_id == match.id
+    ).count()
+
+    users_count = db.query(User).count()
+
+    lines = [
+        "⚽ Карточка матча",
+        "",
+        format_match_label(match, include_id=True),
+        f"Старт: {format_datetime(match.starts_at)}",
+        f"Статус: {get_match_status(match)}",
+        f"Стадия: {match.stage}",
+    ]
+
+    if match.group_code:
+        lines.append(f"Группа: {match.group_code}")
+
+    if match.match_round:
+        if match.stage == "group":
+            lines.append(f"Тур: {match.match_round}")
+        else:
+            lines.append(f"Раунд: {match.match_round}")
+
+    if match.venue or match.city:
+        venue_parts = [part for part in [match.venue, match.city] if part]
+        lines.append(f"Стадион: {', '.join(venue_parts)}")
+
+    lines.extend(
+        [
+            "",
+            format_match_result(match),
+            "",
+            f"Прогнозов сделано: {predictions_count} из {users_count}",
+            "",
+            "Твой прогноз:",
+            format_user_match_prediction(
+                my_prediction,
+                match,
+                reveal=True,
+            ),
+            "",
+        ]
+    )
+
+    users = db.query(User).order_by(User.display_name).all()
+
+    predictions = db.query(Prediction).filter(
+        Prediction.match_id == match.id
+    ).all()
+
+    predictions_by_user_id = {
+        prediction.user_id: prediction
+        for prediction in predictions
+    }
+
+    if predictions_are_revealed:
+        lines.append("Прогнозы участников:")
+        lines.append("")
+
+        for participant in users:
+            prediction = predictions_by_user_id.get(participant.id)
+
+            lines.append(
+                f"{participant.display_name}: "
+                f"{format_user_match_prediction(prediction, match, reveal=True)}"
+            )
+    else:
+        lines.append("До старта матча чужие прогнозы скрыты.")
+        lines.append("Видно только, кто уже сделал прогноз:")
+        lines.append("")
+
+        for participant in users:
+            prediction = predictions_by_user_id.get(participant.id)
+
+            lines.append(
+                f"{participant.display_name}: "
+                f"{format_user_match_prediction(prediction, match, reveal=False)}"
+            )
+
+    return "\n".join(lines)
+
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
     chunks = []
     current_chunk = ""
@@ -1923,54 +2092,64 @@ async def admin_handler(message: Message):
     finally:
         db.close()
 
-@dp.message(Command("admin_add_match"))
-async def admin_add_match_handler(message: Message):
+@dp.message(Command("match"))
+async def match_handler(message: Message):
     db = SessionLocal()
 
     try:
         user, _ = get_or_create_user(db, message.from_user)
 
-        if not ensure_admin_or_reply(user):
+        parts = message.text.split()
+
+        # Новый кнопочный режим
+        if len(parts) == 1:
+            matches = get_recent_and_upcoming_matches(db, limit=20)
+
+            if not matches:
+                await message.answer("Матчей пока нет.")
+                return
+
             await message.answer(
-                "У тебя нет админских прав."
+                "Выбери матч, карточку которого хочешь открыть:",
+                reply_markup=build_match_card_keyboard(matches),
             )
             return
 
-        try:
-            home_team, away_team, starts_at, stage, match_round, tournament_code = (
-                parse_admin_match_payload(message.text)
-            )
-        except ValueError:
+        # Старый ручной режим: /match ID
+        if len(parts) != 2 or not parts[1].isdigit():
             await message.answer(
-                "Формат добавления матча:\n\n"
-                "/admin_add_match Команда1; Команда2; Дата; Стадия\n\n"
-                "Пример:\n"
-                "/admin_add_match Мексика; ЮАР; 2026-06-11T21:00:00+03:00; group\n\n"
-                "Стадии:\n"
-                "group, round_of_32, round_of_16, quarterfinal, "
-                "semifinal, third_place, final"
+                "Формат команды:\n\n"
+                "/match\n\n"
+                "или:\n"
+                "/match ID\n\n"
+                "Например:\n"
+                "/match 12"
             )
             return
 
-        match = Match(
-            home_team=home_team,
-            away_team=away_team,
-            starts_at=starts_at,
-            stage=stage,
-            match_round=match_round,
-            tournament_code=tournament_code,
-        )
+        match_id = int(parts[1])
 
-        db.add(match)
-        db.commit()
-        db.refresh(match)
+        match = db.query(Match).filter(Match.id == match_id).first()
 
-        await message.answer(
-            "Матч добавлен ✅\n\n"
-            f"{format_match_label(match, include_id=True)}\n"
-            f"Старт: {format_datetime(match.starts_at)}\n"
-            f"Стадия: {match.stage}"
-        )
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        text = build_match_card_text(db, user, match)
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        if not match.is_finished and now < match_start:
+            await message.answer(
+                text,
+                reply_markup=build_matches_keyboard([match]),
+            )
+        else:
+            await message.answer(text)
 
     finally:
         db.close()
@@ -3935,6 +4114,64 @@ async def admin_result_custom_score_handler(message: Message, state: FSMContext)
 @dp.message(Command("help"))
 async def help_handler(message: Message):
     await message.answer(USER_HELP_TEXT)
+
+
+@dp.callback_query(lambda callback: callback.data.startswith("predictions_match:"))
+async def predictions_match_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        await callback.message.answer(build_predictions_text(db, match))
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("match_card:"))
+async def match_card_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        text = build_match_card_text(db, user, match)
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        if not match.is_finished and now < match_start:
+            await callback.message.answer(
+                text,
+                reply_markup=build_matches_keyboard([match]),
+            )
+        else:
+            await callback.message.answer(text)
+
+        await callback.answer()
+
+    finally:
+        db.close()
 
 async def main():
     if reminders_enabled():
