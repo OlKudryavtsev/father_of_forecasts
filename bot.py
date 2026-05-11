@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 from app.scoring import score_match_prediction, score_tournament_prediction
 
+from app.ai_summary import generate_ai_summary
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
@@ -71,6 +72,7 @@ USER_HELP_TEXT = (
     "/predictions — прогнозы участников по матчу\n"
     "/table — таблица участников\n"
     "/summary — твоя статистика\n"
+    "/ai_summary — ИИ-разбор твоей игры\n"
     "/rules — правила начисления очков"
 )
 
@@ -1523,10 +1525,10 @@ async def table_handler(message: Message):
             )
 
         lines.append("")
-        lines.append("🎯 точные счета")
-        lines.append("✅ угаданные исходы")
-        lines.append("🟢 угаданные проходы")
-        lines.append("🔴 неугаданные проходы")
+        lines.append("🎯 точные счета (+3)")
+        lines.append("✅ угаданные исходы (+1)")
+        lines.append("🟢 угаданные проходы (+1)")
+        lines.append("🔴 неугаданные проходы (-1)")
         lines.append("📋 всего прогнозов")
         lines.append("🏆 очки за прогноз на турнир")
 
@@ -1863,6 +1865,203 @@ def build_match_card_text(db, user: User, match: Match) -> str:
             )
 
     return "\n".join(lines)
+
+def build_user_summary_context(db, user: User) -> dict:
+    predictions = db.query(Prediction).filter(
+        Prediction.user_id == user.id
+    ).all()
+
+    tournament_prediction = db.query(TournamentPrediction).filter(
+        TournamentPrediction.user_id == user.id,
+        TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+    ).first()
+
+    all_users = db.query(User).all()
+
+    leaderboard_rows = []
+
+    for participant in all_users:
+        participant_predictions = db.query(Prediction).filter(
+            Prediction.user_id == participant.id
+        ).all()
+
+        participant_match_points = sum(
+            prediction.points or 0
+            for prediction in participant_predictions
+        )
+
+        participant_tournament_prediction = db.query(TournamentPrediction).filter(
+            TournamentPrediction.user_id == participant.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        ).first()
+
+        participant_tournament_points = (
+            participant_tournament_prediction.points
+            if participant_tournament_prediction
+            else 0
+        )
+
+        leaderboard_rows.append(
+            {
+                "user_id": participant.id,
+                "name": participant.display_name,
+                "points": participant_match_points + participant_tournament_points,
+            }
+        )
+
+    leaderboard_rows.sort(
+        key=lambda row: row["points"],
+        reverse=True,
+    )
+
+    user_position = None
+    leader_points = 0
+
+    if leaderboard_rows:
+        leader_points = leaderboard_rows[0]["points"]
+
+    for index, row in enumerate(leaderboard_rows, start=1):
+        if row["user_id"] == user.id:
+            user_position = index
+            break
+
+    total_predictions = len(predictions)
+
+    match_points = sum(prediction.points or 0 for prediction in predictions)
+
+    tournament_points = (
+        tournament_prediction.points
+        if tournament_prediction
+        else 0
+    )
+
+    total_points = match_points + tournament_points
+
+    finished_predictions = [
+        prediction
+        for prediction in predictions
+        if prediction.match.is_finished
+    ]
+
+    future_predictions = [
+        prediction
+        for prediction in predictions
+        if not prediction.match.is_finished
+        and prediction.match.starts_at > datetime.now(timezone.utc)
+    ]
+
+    exact_scores = sum(
+        1
+        for prediction in finished_predictions
+        if prediction.score_points == 3
+    )
+
+    outcomes = sum(
+        1
+        for prediction in finished_predictions
+        if prediction.score_points == 1
+    )
+
+    misses = sum(
+        1
+        for prediction in finished_predictions
+        if (prediction.score_points or 0) == 0
+    )
+
+    advancement_plus = sum(
+        1
+        for prediction in finished_predictions
+        if prediction.advancement_points == 1
+    )
+
+    advancement_minus = sum(
+        1
+        for prediction in finished_predictions
+        if prediction.advancement_points == -1
+    )
+
+    advancement_risk_count = sum(
+        1
+        for prediction in predictions
+        if prediction.advancement_bet_enabled
+    )
+
+    best_predictions = sorted(
+        finished_predictions,
+        key=lambda prediction: (
+            prediction.points or 0,
+            prediction.score_points or 0,
+            prediction.advancement_points or 0,
+        ),
+        reverse=True,
+    )[:3]
+
+    best_predictions_payload = []
+
+    for prediction in best_predictions:
+        best_predictions_payload.append(
+            {
+                "match": format_match_label(prediction.match, include_id=False),
+                "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
+                "points": prediction.points or 0,
+                "score_points": prediction.score_points or 0,
+                "advancement_points": prediction.advancement_points or 0,
+            }
+        )
+
+    missing_nearest = get_missing_predictions_for_matches(
+        db=db,
+        user=user,
+        matches=get_nearest_matchday_matches(db),
+    )
+
+    tournament_payload = None
+
+    if tournament_prediction:
+        tournament_payload = {
+            "champion": tournament_prediction.champion,
+            "runner_up": tournament_prediction.runner_up,
+            "third_place": tournament_prediction.third_place,
+            "top_scorer": tournament_prediction.top_scorer,
+            "points": tournament_prediction.points or 0,
+        }
+
+    return {
+        "user": {
+            "name": user.display_name,
+            "position": user_position,
+            "participants_count": len(all_users),
+            "leader_points": leader_points,
+            "points_behind_leader": max(leader_points - total_points, 0),
+        },
+        "points": {
+            "total": total_points,
+            "match_points": match_points,
+            "tournament_points": tournament_points,
+        },
+        "match_predictions": {
+            "total": total_predictions,
+            "finished": len(finished_predictions),
+            "future": len(future_predictions),
+            "exact_scores": exact_scores,
+            "outcomes": outcomes,
+            "misses": misses,
+        },
+        "playoff": {
+            "risk_count": advancement_risk_count,
+            "advancement_plus": advancement_plus,
+            "advancement_minus": advancement_minus,
+        },
+        "tournament_prediction": tournament_payload,
+        "best_predictions": best_predictions_payload,
+        "missing_predictions_nearest_matchday": len(missing_nearest),
+        "available_commands": {
+            "missing": "/missing",
+            "summary": "/summary",
+            "table": "/table",
+            "predict": "/predict",
+        },
+    }
 
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
     chunks = []
@@ -4183,6 +4382,33 @@ async def match_card_callback(callback: CallbackQuery):
             await callback.message.answer(text)
 
         await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.message(Command("ai_summary"))
+async def ai_summary_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        await message.answer("🤖 Отец прогнозов изучает твою статистику...")
+
+        context = build_user_summary_context(db, user)
+
+        try:
+            text = generate_ai_summary(context)
+        except Exception as error:
+            print(f"AI summary error: {error}")
+
+            await message.answer(
+                "ИИ-сводка сейчас не получилась. "
+                "Обычная статистика доступна через /summary."
+            )
+            return
+
+        await message.answer(text)
 
     finally:
         db.close()
