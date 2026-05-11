@@ -1274,6 +1274,8 @@ async def rules_handler(message: Message):
 "/tournament_set Аргентина; Франция; Бразилия; Мбаппе\n\n"
         "Прогнозы можно менять только до стартового свистка."
         "\n\nПолезные команды:\n"
+        "/match ID — карточка матча\n"
+        "/summary — твоя статистика\n"
         "/missing — матчи ближайшего игрового дня без прогноза\n"
         "/missing_all — ближайшие матчи без прогноза\n"
     )
@@ -1425,6 +1427,65 @@ def format_missing_matches_list(matches: list[Match], title: str) -> str:
     lines.append("Сделать прогноз: /predict")
 
     return "\n".join(lines)
+
+def get_match_status(match: Match) -> str:
+    now = datetime.now(timezone.utc)
+
+    match_start = match.starts_at
+    if match_start.tzinfo is None:
+        match_start = match_start.replace(tzinfo=timezone.utc)
+
+    if match.is_finished:
+        return "🏁 Завершен"
+
+    if now >= match_start:
+        return "🔓 Идет / прогнозы открыты"
+
+    return "⏳ Открыт для прогнозов"
+
+
+def format_match_result(match: Match) -> str:
+    if match.score_home is None or match.score_away is None:
+        return "Результат: еще не внесен"
+
+    result = f"Результат: {match.score_home}:{match.score_away}"
+
+    if match.winner_side == "home":
+        result += f"\nПрошла команда: {match.home_team}"
+    elif match.winner_side == "away":
+        result += f"\nПрошла команда: {match.away_team}"
+
+    return result
+
+
+def get_prediction_points_breakdown(prediction: Prediction) -> str:
+    return (
+        f"Очки: {prediction.points or 0} "
+        f"({prediction.score_points or 0} за счет/исход, "
+        f"{prediction.advancement_points or 0} за проход)"
+    )
+
+
+def format_user_match_prediction(
+    prediction: Prediction | None,
+    match: Match,
+    reveal: bool = True,
+) -> str:
+    if not prediction:
+        return "прогноза нет"
+
+    if not reveal:
+        return "✅ прогноз сделан"
+
+    text = f"{prediction.pred_home}:{prediction.pred_away}"
+
+    if is_playoff_match(match):
+        text += f" ({format_advancement_prediction(prediction, match)})"
+
+    if match.is_finished:
+        text += f" — {get_prediction_points_breakdown(prediction)}"
+
+    return text
 
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
     chunks = []
@@ -3044,6 +3105,12 @@ async def send_match_reminders_once():
     finally:
         db.close()
 
+def format_percent(part: int, total: int) -> str:
+    if total == 0:
+        return "0%"
+
+    return f"{round(part / total * 100)}%"
+
 async def reminders_loop():
     if not reminders_enabled():
         print("Reminders are disabled")
@@ -3126,6 +3193,307 @@ async def admin_reminders_status_handler(message: Message):
     finally:
         db.close()
 
+@dp.message(Command("match"))
+async def match_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        parts = message.text.split()
+
+        if len(parts) != 2 or not parts[1].isdigit():
+            await message.answer(
+                "Формат команды:\n\n"
+                "/match ID\n\n"
+                "Например:\n"
+                "/match 12"
+            )
+            return
+
+        match_id = int(parts[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        now = datetime.now(timezone.utc)
+
+        match_start = match.starts_at
+        if match_start.tzinfo is None:
+            match_start = match_start.replace(tzinfo=timezone.utc)
+
+        predictions_are_revealed = now >= match_start
+
+        my_prediction = db.query(Prediction).filter(
+            Prediction.user_id == user.id,
+            Prediction.match_id == match.id,
+        ).first()
+
+        predictions_count = db.query(Prediction).filter(
+            Prediction.match_id == match.id
+        ).count()
+
+        users_count = db.query(User).count()
+
+        lines = [
+            "⚽ Карточка матча",
+            "",
+            format_match_label(match, include_id=True),
+            f"Старт: {format_datetime(match.starts_at)}",
+            f"Статус: {get_match_status(match)}",
+            f"Стадия: {match.stage}",
+        ]
+
+        if match.group_code:
+            lines.append(f"Группа: {match.group_code}")
+
+        if match.match_round:
+            if match.stage == "group":
+                lines.append(f"Тур: {match.match_round}")
+            else:
+                lines.append(f"Раунд: {match.match_round}")
+
+        if match.venue or match.city:
+            venue_parts = [part for part in [match.venue, match.city] if part]
+            lines.append(f"Стадион: {', '.join(venue_parts)}")
+
+        lines.extend(
+            [
+                "",
+                format_match_result(match),
+                "",
+                f"Прогнозов сделано: {predictions_count} из {users_count}",
+                "",
+                "Твой прогноз:",
+                format_user_match_prediction(
+                    my_prediction,
+                    match,
+                    reveal=True,
+                ),
+                "",
+            ]
+        )
+
+        if predictions_are_revealed:
+            lines.append("Прогнозы участников:")
+            lines.append("")
+
+            users = db.query(User).order_by(User.display_name).all()
+
+            predictions = db.query(Prediction).filter(
+                Prediction.match_id == match.id
+            ).all()
+
+            predictions_by_user_id = {
+                prediction.user_id: prediction
+                for prediction in predictions
+            }
+
+            for participant in users:
+                prediction = predictions_by_user_id.get(participant.id)
+
+                lines.append(
+                    f"{participant.display_name}: "
+                    f"{format_user_match_prediction(prediction, match, reveal=True)}"
+                )
+        else:
+            lines.append("До старта матча чужие прогнозы скрыты.")
+            lines.append("Видно только, кто уже сделал прогноз:")
+            lines.append("")
+
+            users = db.query(User).order_by(User.display_name).all()
+
+            predictions = db.query(Prediction).filter(
+                Prediction.match_id == match.id
+            ).all()
+
+            predictions_by_user_id = {
+                prediction.user_id: prediction
+                for prediction in predictions
+            }
+
+            for participant in users:
+                prediction = predictions_by_user_id.get(participant.id)
+
+                lines.append(
+                    f"{participant.display_name}: "
+                    f"{format_user_match_prediction(prediction, match, reveal=False)}"
+                )
+
+        if not match.is_finished and now < match_start:
+            await message.answer(
+                "\n".join(lines),
+                reply_markup=build_matches_keyboard([match]),
+            )
+        else:
+            await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.message(Command("summary"))
+async def summary_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        predictions = db.query(Prediction).filter(
+            Prediction.user_id == user.id
+        ).all()
+
+        tournament_prediction = db.query(TournamentPrediction).filter(
+            TournamentPrediction.user_id == user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        ).first()
+
+        total_predictions = len(predictions)
+
+        match_points = sum(prediction.points or 0 for prediction in predictions)
+        tournament_points = (
+            tournament_prediction.points
+            if tournament_prediction
+            else 0
+        )
+
+        total_points = match_points + tournament_points
+
+        exact_scores = sum(
+            1
+            for prediction in predictions
+            if prediction.score_points == 3
+        )
+
+        outcomes = sum(
+            1
+            for prediction in predictions
+            if prediction.score_points == 1
+        )
+
+        misses = sum(
+            1
+            for prediction in predictions
+            if prediction.match.is_finished
+            and (prediction.score_points or 0) == 0
+        )
+
+        finished_predictions = sum(
+            1
+            for prediction in predictions
+            if prediction.match.is_finished
+        )
+
+        advancement_plus = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_points == 1
+        )
+
+        advancement_minus = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_points == -1
+        )
+
+        advancement_risk_count = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_bet_enabled
+        )
+
+        upcoming_predictions = sum(
+            1
+            for prediction in predictions
+            if not prediction.match.is_finished
+            and prediction.match.starts_at > datetime.now(timezone.utc)
+        )
+
+        best_predictions = sorted(
+            [
+                prediction
+                for prediction in predictions
+                if prediction.match.is_finished
+            ],
+            key=lambda prediction: (
+                prediction.points or 0,
+                prediction.score_points or 0,
+                prediction.advancement_points or 0,
+            ),
+            reverse=True,
+        )
+
+        lines = [
+            "📊 Твоя статистика",
+            "",
+            f"Участник: {user.display_name}",
+            f"Всего очков: {total_points}",
+            f"Очки за матчи: {match_points}",
+            f"Очки за турнир: {tournament_points}",
+            "",
+            "Матчевые прогнозы:",
+            f"Всего прогнозов: {total_predictions}",
+            f"Завершенных прогнозов: {finished_predictions}",
+            f"Будущих прогнозов: {upcoming_predictions}",
+            "",
+            f"🎯 Точные счета: {exact_scores} "
+            f"({format_percent(exact_scores, finished_predictions)})",
+            f"✅ Исходы: {outcomes} "
+            f"({format_percent(outcomes, finished_predictions)})",
+            f"❌ Без очков за счет/исход: {misses} "
+            f"({format_percent(misses, finished_predictions)})",
+            "",
+            "Плей-офф:",
+            f"Рисковых ставок на проход: {advancement_risk_count}",
+            f"🟢 Угадано проходов: {advancement_plus}",
+            f"🔴 Не угадано проходов: {advancement_minus}",
+            "",
+        ]
+
+        if tournament_prediction:
+            lines.extend(
+                [
+                    "Турнирный прогноз:",
+                    f"1 место: {tournament_prediction.champion}",
+                    f"2 место: {tournament_prediction.runner_up}",
+                    f"3 место: {tournament_prediction.third_place}",
+                    f"Бомбардир: {tournament_prediction.top_scorer}",
+                    f"Очки: {tournament_prediction.points}",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "Турнирный прогноз:",
+                    "пока не сделан",
+                    "",
+                    "Создать: /tournament_set",
+                    "",
+                ]
+            )
+
+        if best_predictions:
+            lines.append("Лучшие прогнозы:")
+
+            for prediction in best_predictions[:3]:
+                match = prediction.match
+
+                lines.append(
+                    f"{format_match_label(match, include_id=True)}\n"
+                    f"Прогноз: {prediction.pred_home}:{prediction.pred_away}\n"
+                    f"{get_prediction_points_breakdown(prediction)}"
+                )
+                lines.append("")
+        else:
+            lines.append("Завершенных матчей с твоими прогнозами пока нет.")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
 
 async def main():
     if reminders_enabled():
