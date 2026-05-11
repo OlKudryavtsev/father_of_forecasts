@@ -2724,14 +2724,19 @@ async def admin_delete_match_handler(message: Message):
             Prediction.match_id == match.id
         ).count()
 
-        if predictions_count > 0:
+        reminder_logs_count = db.query(ReminderLog).filter(
+            ReminderLog.match_id == match.id
+        ).count()
+
+        if predictions_count > 0 or reminder_logs_count > 0:
             await message.answer(
-                "Матч не удален, потому что на него уже есть прогнозы.\n\n"
-                f"Матч: #{match.id} {match.home_team} — {match.away_team}\n"
-                f"Прогнозов: {predictions_count}\n\n"
+                "Матч не удален, потому что у него уже есть связанные данные.\n\n"
+                f"Матч: {format_match_label(match, include_id=True)}\n"
+                f"Прогнозов: {predictions_count}\n"
+                f"Логов напоминаний: {reminder_logs_count}\n\n"
                 "Если это тестовый или ошибочный матч, используй:\n"
                 f"/admin_force_delete_match {match.id}\n\n"
-                "Осторожно: эта команда удалит и матч, и все прогнозы на него."
+                "Осторожно: эта команда удалит матч и все связанные данные."
             )
             return
 
@@ -2783,20 +2788,29 @@ async def admin_force_delete_match_handler(message: Message):
             Prediction.match_id == match.id
         ).all()
 
+        reminder_logs = db.query(ReminderLog).filter(
+            ReminderLog.match_id == match.id
+        ).all()
+
         predictions_count = len(predictions)
+        reminder_logs_count = len(reminder_logs)
 
         match_text = format_match_label(match, include_id=True)
 
         for prediction in predictions:
             db.delete(prediction)
 
+        for reminder_log in reminder_logs:
+            db.delete(reminder_log)
+
         db.delete(match)
         db.commit()
 
         await message.answer(
-            "Матч и прогнозы удалены ✅\n\n"
+            "Матч удален ✅\n\n"
             f"{match_text}\n"
-            f"Удалено прогнозов: {predictions_count}"
+            f"Удалено прогнозов: {predictions_count}\n"
+            f"Удалено логов напоминаний: {reminder_logs_count}"
         )
 
     finally:
