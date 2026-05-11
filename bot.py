@@ -44,6 +44,9 @@ class TournamentPredictionForm(StatesGroup):
 class MatchPredictionForm(StatesGroup):
     custom_score = State()
 
+class AdminResultForm(StatesGroup):
+    custom_score = State()
+
 def get_tournament_starts_at():
     dt = datetime.fromisoformat(
         TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
@@ -336,6 +339,95 @@ def build_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
     )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def build_admin_result_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
+    buttons = []
+
+    for match in matches:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=format_match_label(match, include_id=False),
+                    callback_data=f"admin_result_match:{match.id}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_admin_result_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
+    common_scores = [
+        ("0:0", 0, 0),
+        ("1:0", 1, 0),
+        ("0:1", 0, 1),
+        ("1:1", 1, 1),
+        ("2:0", 2, 0),
+        ("0:2", 0, 2),
+        ("2:1", 2, 1),
+        ("1:2", 1, 2),
+        ("2:2", 2, 2),
+        ("3:0", 3, 0),
+        ("0:3", 0, 3),
+        ("3:1", 3, 1),
+        ("1:3", 1, 3),
+        ("3:2", 3, 2),
+        ("2:3", 2, 3),
+    ]
+
+    rows = []
+
+    for index in range(0, len(common_scores), 3):
+        row = []
+
+        for label, home, away in common_scores[index:index + 3]:
+            row.append(
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"admin_result_score:{match_id}:{home}:{away}",
+                )
+            )
+
+        rows.append(row)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="Другой счет",
+                callback_data=f"admin_result_custom:{match_id}",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_admin_result_winner_keyboard(
+    match_id: int,
+    score_home: int,
+    score_away: int,
+    match: Match,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"Прошла {match.home_team}",
+                    callback_data=(
+                        f"admin_result_winner:{match_id}:{score_home}:{score_away}:home"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"Прошла {match.away_team}",
+                    callback_data=(
+                        f"admin_result_winner:{match_id}:{score_home}:{score_away}:away"
+                    ),
+                )
+            ],
+        ]
+    )
+
 
 def build_advancement_keyboard(
     match_id: int,
@@ -803,6 +895,85 @@ def mark_reminder_sent(
 
     db.add(log)
     db.commit()
+
+
+def apply_match_result_from_admin(
+    db,
+    match: Match,
+    score_home: int,
+    score_away: int,
+    winner_side: str | None = None,
+) -> list[str]:
+    if is_playoff_match(match) and winner_side is None:
+        raise ValueError("Playoff match requires winner_side")
+
+    if not is_playoff_match(match) and winner_side is not None:
+        raise ValueError("Group match must not have winner_side")
+
+    match.score_home = score_home
+    match.score_away = score_away
+    match.winner_side = winner_side
+    match.is_finished = True
+
+    predictions = db.query(Prediction).filter(
+        Prediction.match_id == match.id
+    ).all()
+
+    recalculated = []
+
+    for prediction in predictions:
+        result = score_match_prediction(
+            pred_home=prediction.pred_home,
+            pred_away=prediction.pred_away,
+            actual_home=score_home,
+            actual_away=score_away,
+            advancement_bet_enabled=prediction.advancement_bet_enabled,
+            predicted_advancing_side=prediction.predicted_advancing_side,
+            actual_winner_side=winner_side,
+        )
+
+        prediction.score_points = result["score_points"]
+        prediction.advancement_points = result["advancement_points"]
+        prediction.points = result["total_points"]
+
+        recalculated.append(
+            {
+                "user": prediction.user.display_name,
+                "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
+                "score_points": prediction.score_points,
+                "advancement_points": prediction.advancement_points,
+                "total_points": prediction.points,
+            }
+        )
+
+    db.commit()
+
+    lines = [
+        "Результат сохранен ✅",
+        "",
+        f"{format_match_label(match, include_id=False)}: {score_home}:{score_away}",
+    ]
+
+    if winner_side == "home":
+        lines.append(f"Прошла команда: {match.home_team}")
+    elif winner_side == "away":
+        lines.append(f"Прошла команда: {match.away_team}")
+
+    lines.append("")
+    lines.append("Пересчет прогнозов:")
+
+    if not recalculated:
+        lines.append("Прогнозов на этот матч нет.")
+    else:
+        for item in recalculated:
+            lines.append(
+                f"{item['user']}: {item['prediction']} → "
+                f"{item['total_points']} очк. "
+                f"({item['score_points']} за счет/исход, "
+                f"{item['advancement_points']} за проход)"
+            )
+
+    return lines
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -1692,9 +1863,11 @@ async def admin_handler(message: Message):
             "/admin_delete_match 5\n\n"
             "Удалить матч вместе с прогнозами:\n"
             "/admin_force_delete_match 5\n\n"
-            "Внести результат группового матча:\n"
+            "Внести результат матча кнопками:\n"
+            "/admin_set_result\n\n"
+            "Или вручную для группового матча:\n"
             "/admin_set_result 1 2:1\n\n"
-            "Внести результат плей-офф:\n"
+            "Или вручную для плей-офф:\n"
             "/admin_set_result 5 1:1 home\n"
             "/admin_set_result 5 1:1 away\n\n"
             "Пересчитать все завершенные матчи:\n"
@@ -1773,11 +1946,39 @@ async def admin_set_result_handler(message: Message):
         user, _ = get_or_create_user(db, message.from_user)
 
         if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        parts = message.text.split()
+
+        # Новый кнопочный режим
+        if len(parts) == 1:
+            now = datetime.now(timezone.utc)
+
+            matches = (
+                db.query(Match)
+                .filter(
+                    Match.is_finished == False,
+                    Match.starts_at <= now + timedelta(days=3),
+                )
+                .order_by(Match.starts_at)
+                .limit(20)
+                .all()
+            )
+
+            if not matches:
+                await message.answer(
+                    "Нет незавершенных матчей для внесения результата."
+                )
+                return
+
             await message.answer(
-                "У тебя нет админских прав."
+                "Выбери матч, для которого нужно внести результат:",
+                reply_markup=build_admin_result_matches_keyboard(matches),
             )
             return
 
+        # Старый текстовый режим
         try:
             match_id, score_home, score_away, winner_side = (
                 parse_result_payload(message.text)
@@ -1785,6 +1986,9 @@ async def admin_set_result_handler(message: Message):
         except ValueError:
             await message.answer(
                 "Формат результата:\n\n"
+                "Кнопками:\n"
+                "/admin_set_result\n\n"
+                "Или вручную:\n"
                 "/admin_set_result ID СЧЕТ\n\n"
                 "Пример для группового матча:\n"
                 "/admin_set_result 1 2:1\n\n"
@@ -1802,85 +2006,27 @@ async def admin_set_result_handler(message: Message):
             await message.answer("Матч с таким ID не найден.")
             return
 
-        if is_playoff_match(match) and winner_side is None:
-            await message.answer(
-                "Это матч плей-офф. Нужно указать, кто прошел дальше:\n\n"
-                f"/admin_set_result {match.id} {score_home}:{score_away} home\n"
-                f"/admin_set_result {match.id} {score_home}:{score_away} away"
+        try:
+            lines = apply_match_result_from_admin(
+                db=db,
+                match=match,
+                score_home=score_home,
+                score_away=score_away,
+                winner_side=winner_side,
             )
-            return
-
-        if not is_playoff_match(match) and winner_side is not None:
-            await message.answer(
-                "Это не матч плей-офф. Для группового матча не нужно "
-                "указывать home/away."
-            )
-            return
-
-        match.score_home = score_home
-        match.score_away = score_away
-        match.winner_side = winner_side
-        match.is_finished = True
-
-        predictions = db.query(Prediction).filter(
-            Prediction.match_id == match.id
-        ).all()
-
-        recalculated = []
-
-        for prediction in predictions:
-            from app.scoring import score_match_prediction
-
-            result = score_match_prediction(
-                pred_home=prediction.pred_home,
-                pred_away=prediction.pred_away,
-                actual_home=score_home,
-                actual_away=score_away,
-                advancement_bet_enabled=prediction.advancement_bet_enabled,
-                predicted_advancing_side=prediction.predicted_advancing_side,
-                actual_winner_side=winner_side,
-            )
-
-            prediction.score_points = result["score_points"]
-            prediction.advancement_points = result["advancement_points"]
-            prediction.points = result["total_points"]
-
-            recalculated.append(
-                {
-                    "user": prediction.user.display_name,
-                    "prediction": f"{prediction.pred_home}:{prediction.pred_away}",
-                    "score_points": prediction.score_points,
-                    "advancement_points": prediction.advancement_points,
-                    "total_points": prediction.points,
-                }
-            )
-
-        db.commit()
-
-        lines = [
-            "Результат сохранен ✅",
-            "",
-            f"{format_match_label(match, include_id=False)}: {score_home}:{score_away}",
-        ]
-
-        if winner_side == "home":
-            lines.append(f"Прошла команда: {match.home_team}")
-        elif winner_side == "away":
-            lines.append(f"Прошла команда: {match.away_team}")
-
-        lines.append("")
-        lines.append("Пересчет прогнозов:")
-
-        if not recalculated:
-            lines.append("Прогнозов на этот матч нет.")
-        else:
-            for item in recalculated:
-                lines.append(
-                    f"{item['user']}: {item['prediction']} → "
-                    f"{item['total_points']} очк. "
-                    f"({item['score_points']} за счет/исход, "
-                    f"{item['advancement_points']} за проход)"
+        except ValueError:
+            if is_playoff_match(match):
+                await message.answer(
+                    "Это матч плей-офф. Нужно указать, кто прошел дальше:\n\n"
+                    f"/admin_set_result {match.id} {score_home}:{score_away} home\n"
+                    f"/admin_set_result {match.id} {score_home}:{score_away} away"
                 )
+            else:
+                await message.answer(
+                    "Это не матч плей-офф. Для группового матча не нужно "
+                    "указывать home/away."
+                )
+            return
 
         await message.answer("\n".join(lines))
 
@@ -3489,6 +3635,260 @@ async def summary_handler(message: Message):
                 lines.append("")
         else:
             lines.append("Завершенных матчей с твоими прогнозами пока нет.")
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("admin_result_match:"))
+async def admin_result_match_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await callback.message.answer("У тебя нет админских прав.")
+            await callback.answer()
+            return
+
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        if match.is_finished:
+            await callback.message.answer(
+                "Этот матч уже завершен. "
+                "Результат можно перезаписать вручную командой:\n\n"
+                f"/admin_set_result {match.id} 2:1"
+            )
+            await callback.answer()
+            return
+
+        await callback.message.answer(
+            "Выбран матч:\n\n"
+            f"{format_match_label(match, include_id=True)}\n"
+            f"Старт: {format_datetime(match.starts_at)}\n\n"
+            "Выбери итоговый счет:",
+            reply_markup=build_admin_result_score_keyboard(match.id),
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("admin_result_score:"))
+async def admin_result_score_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await callback.message.answer("У тебя нет админских прав.")
+            await callback.answer()
+            return
+
+        _, match_id_raw, score_home_raw, score_away_raw = callback.data.split(":")
+
+        match_id = int(match_id_raw)
+        score_home = int(score_home_raw)
+        score_away = int(score_away_raw)
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        if is_playoff_match(match):
+            await callback.message.answer(
+                f"Счет выбран: {score_home}:{score_away}\n\n"
+                "Это матч плей-офф. Кто прошел дальше?",
+                reply_markup=build_admin_result_winner_keyboard(
+                    match_id=match.id,
+                    score_home=score_home,
+                    score_away=score_away,
+                    match=match,
+                ),
+            )
+            await callback.answer()
+            return
+
+        lines = apply_match_result_from_admin(
+            db=db,
+            match=match,
+            score_home=score_home,
+            score_away=score_away,
+            winner_side=None,
+        )
+
+        await callback.message.answer("\n".join(lines))
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("admin_result_winner:"))
+async def admin_result_winner_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await callback.message.answer("У тебя нет админских прав.")
+            await callback.answer()
+            return
+
+        _, match_id_raw, score_home_raw, score_away_raw, winner_side = (
+            callback.data.split(":")
+        )
+
+        match_id = int(match_id_raw)
+        score_home = int(score_home_raw)
+        score_away = int(score_away_raw)
+
+        if winner_side not in ("home", "away"):
+            await callback.message.answer("Некорректный победитель.")
+            await callback.answer()
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        lines = apply_match_result_from_admin(
+            db=db,
+            match=match,
+            score_home=score_home,
+            score_away=score_away,
+            winner_side=winner_side,
+        )
+
+        await callback.message.answer("\n".join(lines))
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("admin_result_custom:"))
+async def admin_result_custom_callback(callback: CallbackQuery, state: FSMContext):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await callback.message.answer("У тебя нет админских прав.")
+            await callback.answer()
+            return
+
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        await state.clear()
+        await state.set_state(AdminResultForm.custom_score)
+        await state.update_data(match_id=match.id)
+
+        await callback.message.answer(
+            "Введи итоговый счет для матча:\n\n"
+            f"{format_match_label(match, include_id=True)}\n\n"
+            "Например:\n"
+            "3:2\n\n"
+            "Можно также через дефис:\n"
+            "3-2\n\n"
+            "Отмена: /cancel"
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.message(AdminResultForm.custom_score)
+async def admin_result_custom_score_handler(message: Message, state: FSMContext):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await state.clear()
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        data = await state.get_data()
+        match_id = data.get("match_id")
+
+        if not match_id:
+            await state.clear()
+            await message.answer(
+                "Не нашел выбранный матч. Начни заново через /admin_set_result."
+            )
+            return
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await state.clear()
+            await message.answer(
+                "Матч не найден. Начни заново через /admin_set_result."
+            )
+            return
+
+        try:
+            score_home, score_away = parse_score(message.text)
+        except ValueError:
+            await message.answer(
+                "Не понял счет.\n\n"
+                "Введи в формате:\n"
+                "3:2\n\n"
+                "Или:\n"
+                "3-2\n\n"
+                "Отмена: /cancel"
+            )
+            return
+
+        await state.clear()
+
+        if is_playoff_match(match):
+            await message.answer(
+                f"Счет выбран: {score_home}:{score_away}\n\n"
+                "Это матч плей-офф. Кто прошел дальше?",
+                reply_markup=build_admin_result_winner_keyboard(
+                    match_id=match.id,
+                    score_home=score_home,
+                    score_away=score_away,
+                    match=match,
+                ),
+            )
+            return
+
+        lines = apply_match_result_from_admin(
+            db=db,
+            match=match,
+            score_home=score_home,
+            score_away=score_away,
+            winner_side=None,
+        )
 
         await message.answer("\n".join(lines))
 
