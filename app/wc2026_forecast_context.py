@@ -167,6 +167,10 @@ def build_wc2026_openai_context(db, match) -> dict[str, Any]:
     home_api_name = match.home_team_api_name or match.home_team
     away_api_name = match.away_team_api_name or match.away_team
 
+    home_ranking = rankings.get_context(home_api_name)
+    away_ranking = rankings.get_context(away_api_name)
+
+
     home_recent = []
     away_recent = []
 
@@ -192,8 +196,7 @@ def build_wc2026_openai_context(db, match) -> dict[str, Any]:
         limit=5,
     )
 
-    home_ranking = rankings.get_context(home_api_name)
-    away_ranking = rankings.get_context(away_api_name)
+
 
     return {
         "fixture": {

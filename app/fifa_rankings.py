@@ -57,12 +57,18 @@ class FifaRankingsStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
+            print(f"FIFA rankings file not found: {self.path}")
             return {
                 "rankings": [],
                 "by_country": {},
             }
 
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+
+        rankings_count = len(data.get("rankings", []))
+        print(f"Loaded FIFA rankings: {rankings_count} rows from {self.path}")
+
+        return data
 
     def find(self, team_name: str) -> dict[str, Any] | None:
         canonical_name = TEAM_ALIASES.get(team_name, team_name)

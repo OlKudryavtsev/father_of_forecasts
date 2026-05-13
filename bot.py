@@ -36,6 +36,7 @@ from app.wc2026_sync import (
     get_winner_side,
     sync_wc2026_schedule,
 )
+from app.fifa_rankings import FifaRankingsStore
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
@@ -4741,6 +4742,42 @@ async def forecast_match_callback(callback: CallbackQuery):
 
         await callback.message.answer(build_forecast_text(db, match))
         await callback.answer()
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_rankings_check"))
+async def admin_rankings_check_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        parts = message.text.split(maxsplit=1)
+        query = parts[1].strip() if len(parts) > 1 else "Mexico"
+
+        rankings = FifaRankingsStore()
+        result = rankings.get_context(query)
+
+        if not result:
+            await message.answer(
+                f"Рейтинг не найден для: {query}\n\n"
+                "Проверь JSON-файл в data/ и TEAM_ALIASES."
+            )
+            return
+
+        await message.answer(
+            "Рейтинг найден ✅\n\n"
+            f"Запрос: {query}\n"
+            f"Страна: {result.get('country')}\n"
+            f"Место: #{result.get('rank')}\n"
+            f"Очки: {result.get('total_points')}\n"
+            f"Очки доступны: {result.get('points_available')}"
+        )
 
     finally:
         db.close()
