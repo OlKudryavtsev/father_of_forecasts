@@ -1,0 +1,38 @@
+WC2022_TEAM_RATINGS = {
+    "Brazil": 92,
+    "Argentina": 90,
+    "France": 90,
+    "England": 88,
+    "Spain": 87,
+    "Portugal": 86,
+    "Netherlands": 85,
+    "Germany": 85,
+    "Belgium": 84,
+    "Croatia": 83,
+    "Uruguay": 82,
+    "Denmark": 81,
+    "Switzerland": 80,
+    "Senegal": 78,
+    "USA": 77,
+    "Mexico": 77,
+    "Poland": 76,
+    "Wales": 75,
+    "Serbia": 75,
+    "Morocco": 74,
+    "Japan": 74,
+    "Ecuador": 73,
+    "South Korea": 73,
+    "Ghana": 72,
+    "Cameroon": 72,
+    "Canada": 71,
+    "Australia": 71,
+    "Iran": 70,
+    "Tunisia": 70,
+    "Saudi Arabia": 69,
+    "Qatar": 66,
+    "Costa Rica": 66,
+}
+
+
+def get_team_rating(team_name: str) -> int:
+    return WC2022_TEAM_RATINGS.get(team_name, 75)

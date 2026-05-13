@@ -63,6 +63,21 @@ class Match(Base):
     venue = Column(String, nullable=True)
     city = Column(String, nullable=True)
 
+    external_provider = Column(String, nullable=True)
+    external_fixture_id = Column(String, nullable=True)
+
+    home_external_team_id = Column(Integer, nullable=True)
+    away_external_team_id = Column(Integer, nullable=True)
+    home_team_api_name = Column(String, nullable=True)
+    away_team_api_name = Column(String, nullable=True)
+
+    api_league_round = Column(String, nullable=True)
+
+    status_short = Column(String, nullable=True)
+    status_long = Column(String, nullable=True)
+
+    synced_at = Column(DateTime(timezone=True), nullable=True)
+
 
 class Prediction(Base):
     __tablename__ = "predictions"

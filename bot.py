@@ -10,6 +10,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from app.openai_forecaster import generate_openai_forecast
+from app.wc2026_forecast_context import build_wc2026_openai_context
 
 from app.db import SessionLocal
 from app.models import (
@@ -27,6 +29,13 @@ from zoneinfo import ZoneInfo
 from app.scoring import score_match_prediction, score_tournament_prediction
 
 from app.ai_summary import generate_ai_summary
+from app.wc2026_sync import sync_wc2026_schedule
+from app.api_football import ApiFootballClient
+from app.wc2026_sync import (
+    get_fixture_score,
+    get_winner_side,
+    sync_wc2026_schedule,
+)
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
@@ -1137,6 +1146,95 @@ def build_predictions_text(db, match: Match) -> str:
                 lines.append(f"{user.display_name}: ❌ прогноза нет")
 
     return "\n".join(lines)
+
+def build_forecast_text(db, match: Match) -> str:
+    context = build_wc2026_openai_context(db, match)
+
+    forecast = generate_openai_forecast(context)
+
+    pred_home = int(forecast["pred_home"])
+    pred_away = int(forecast["pred_away"])
+
+    outcome_text = {
+        "home": f"победа {match.home_team}",
+        "away": f"победа {match.away_team}",
+        "draw": "ничья",
+    }[forecast["outcome"]]
+
+    confidence = int(float(forecast["confidence"]) * 100)
+
+    return (
+        "🤖 Прогноз Отца прогнозов\n\n"
+        f"{format_match_label(match, include_id=True)}\n"
+        f"Старт: {format_datetime(match.starts_at)}\n\n"
+        f"Прогноз счета: {pred_home}:{pred_away}\n"
+        f"Исход: {outcome_text}\n"
+        f"Уверенность: {confidence}%\n\n"
+        f"{forecast.get('reason', '')}\n\n"
+        "Это развлекательный прогноз по футбольным данным и ИИ-анализу, "
+        "не гарантия результата."
+    )
+
+def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
+    buttons = []
+
+    for match in matches:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=format_match_label(match, include_id=False),
+                    callback_data=f"forecast_match:{match.id}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@dp.message(Command("forecast"))
+async def forecast_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split()
+
+        if len(parts) == 1:
+            matches = get_nearest_matchday_matches(db)
+
+            if not matches:
+                await message.answer("Нет будущих матчей для прогноза.")
+                return
+
+            await message.answer(
+                "Выбери матч для прогноза Отца прогнозов:",
+                reply_markup=build_forecast_matches_keyboard(matches),
+            )
+            return
+
+        if len(parts) != 2 or not parts[1].isdigit():
+            await message.answer(
+                "Формат:\n\n"
+                "/forecast\n\n"
+                "или:\n"
+                "/forecast ID\n\n"
+                "Например:\n"
+                "/forecast 12"
+            )
+            return
+
+        match_id = int(parts[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        await message.answer(build_forecast_text(db, match))
+
+    finally:
+        db.close()
+
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -2283,9 +2381,13 @@ async def admin_handler(message: Message):
             "/admin_tournament_recalculate\n\n"
             "Стадии:\n"
             "group, round_of_32, round_of_16, quarterfinal, semifinal, "
-            "third_place, final"
+            "third_place, final\n\n"
             "Статус напоминаний:\n"
             "/admin_reminders_status\n\n"
+            "Синхронизировать календарь WC2026 из API-Football:\n"
+            "/admin_sync_wc2026_schedule\n\n"
+            "Синхронизировать результаты из API-Football:\n"
+            "/admin_sync_results\n\n"
         )
 
     finally:
@@ -4409,6 +4511,175 @@ async def ai_summary_handler(message: Message):
             return
 
         await message.answer(text)
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_sync_wc2026_schedule"))
+async def admin_sync_wc2026_schedule_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        await message.answer("🔄 Загружаю календарь WC2026 из API-Football...")
+
+        try:
+            result = sync_wc2026_schedule(db)
+        except Exception as error:
+            print(f"WC2026 schedule sync error: {error}")
+            await message.answer(
+                "Не удалось синхронизировать календарь WC2026.\n\n"
+                f"Ошибка: {error}"
+            )
+            return
+
+        await message.answer(
+            "Календарь WC2026 синхронизирован ✅\n\n"
+            f"Всего матчей из API: {result['total']}\n"
+            f"Создано: {result['created']}\n"
+            f"Обновлено: {result['updated']}\n\n"
+            "Проверить: /admin_matches"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_sync_results"))
+async def admin_sync_results_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        client = ApiFootballClient()
+
+        now = datetime.now(timezone.utc)
+
+        matches = (
+            db.query(Match)
+            .filter(
+                Match.tournament_code == TOURNAMENT_CODE,
+                Match.external_provider == "api-football",
+                Match.external_fixture_id.isnot(None),
+                Match.is_finished == False,
+                Match.starts_at <= now,
+            )
+            .order_by(Match.starts_at)
+            .limit(20)
+            .all()
+        )
+
+        if not matches:
+            await message.answer("Нет матчей для синхронизации результатов.")
+            return
+
+        checked = 0
+        updated = 0
+        skipped = 0
+        lines = ["🔄 Синхронизация результатов", ""]
+
+        for match in matches:
+            checked += 1
+
+            try:
+                api_fixture = client.get_fixture_by_id(match.external_fixture_id)
+            except Exception as error:
+                skipped += 1
+                lines.append(
+                    f"{format_match_label(match, include_id=True)} — ошибка API: {error}"
+                )
+                continue
+
+            if not api_fixture:
+                skipped += 1
+                lines.append(
+                    f"{format_match_label(match, include_id=True)} — fixture не найден"
+                )
+                continue
+
+            status = api_fixture["fixture"]["status"]["short"]
+
+            match.status_short = status
+            match.status_long = api_fixture["fixture"]["status"].get("long")
+            match.synced_at = datetime.now(timezone.utc)
+
+            if status not in {"FT", "AET", "PEN"}:
+                skipped += 1
+                lines.append(
+                    f"{format_match_label(match, include_id=True)} — статус {status}, еще не завершен"
+                )
+                continue
+
+            score_home, score_away = get_fixture_score(api_fixture)
+
+            if score_home is None or score_away is None:
+                skipped += 1
+                lines.append(
+                    f"{format_match_label(match, include_id=True)} — нет счета в API"
+                )
+                continue
+
+            winner_side = None
+
+            if is_playoff_match(match):
+                winner_side = get_winner_side(api_fixture)
+
+                if winner_side is None:
+                    skipped += 1
+                    lines.append(
+                        f"{format_match_label(match, include_id=True)} — плей-офф, но API не вернул winner"
+                    )
+                    continue
+
+            result_lines = apply_match_result_from_admin(
+                db=db,
+                match=match,
+                score_home=score_home,
+                score_away=score_away,
+                winner_side=winner_side,
+            )
+
+            updated += 1
+
+            lines.append(
+                f"{format_match_label(match, include_id=True)} — обновлен: {score_home}:{score_away}"
+            )
+
+        lines.append("")
+        lines.append(f"Проверено: {checked}")
+        lines.append(f"Обновлено: {updated}")
+        lines.append(f"Пропущено: {skipped}")
+
+        await send_long_message(message, lines)
+
+    finally:
+        db.close()
+
+@dp.callback_query(lambda callback: callback.data.startswith("forecast_match:"))
+async def forecast_match_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        match_id = int(callback.data.split(":")[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await callback.message.answer("Матч не найден.")
+            await callback.answer()
+            return
+
+        await callback.message.answer(build_forecast_text(db, match))
+        await callback.answer()
 
     finally:
         db.close()
