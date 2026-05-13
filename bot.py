@@ -39,10 +39,14 @@ from app.wc2026_sync import (
 )
 from app.fifa_rankings import FifaRankingsStore
 
+
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
 MATCHDAY_TIMEZONE_NAME = os.getenv("MATCHDAY_TIMEZONE", "America/New_York")
 MATCHDAY_TIMEZONE = ZoneInfo(MATCHDAY_TIMEZONE_NAME)
+
+ADMIN_NOTIFY_ENABLED = os.getenv("ADMIN_NOTIFY_ENABLED", "true").lower() == "true"
+
 TOURNAMENT_CODE = os.getenv("TOURNAMENT_CODE", "wc2026")
 TOURNAMENT_STARTS_AT_RAW = os.getenv(
     "TOURNAMENT_STARTS_AT",
@@ -234,6 +238,19 @@ TEAM_FLAGS = {
     # Заглушки
     "TBD": "🏳️",
 }
+
+def get_admin_telegram_ids() -> list[int]:
+    raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
+
+    admin_ids = []
+
+    for item in raw_value.split(","):
+        item = item.strip()
+
+        if item.isdigit():
+            admin_ids.append(int(item))
+
+    return admin_ids
 
 class TournamentPredictionForm(StatesGroup):
     champion = State()
@@ -785,6 +802,96 @@ def save_tournament_prediction(
         f"3 место: {third_place}\n"
         f"Бомбардир: {top_scorer}",
     )
+
+async def save_tournament_prediction_and_notify_admins(
+    db,
+    user: User,
+    champion: str,
+    runner_up: str,
+    third_place: str,
+    top_scorer: str,
+) -> tuple[bool, str]:
+    existing_prediction = db.query(TournamentPrediction).filter(
+        TournamentPrediction.user_id == user.id,
+        TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+    ).first()
+
+    was_update = existing_prediction is not None
+
+    success, text = save_tournament_prediction(
+        db=db,
+        user=user,
+        champion=champion,
+        runner_up=runner_up,
+        third_place=third_place,
+        top_scorer=top_scorer,
+    )
+
+    if success:
+        action_text = "обновил" if was_update else "сделал"
+
+        await notify_admins(
+            "🏆 Турнирный прогноз\n\n"
+            f"{user.display_name} {action_text} прогноз на турнир\n"
+            f"1 место: {champion}\n"
+            f"2 место: {runner_up}\n"
+            f"3 место: {third_place}\n"
+            f"Бомбардир: {top_scorer}",
+            exclude_telegram_id=user.telegram_id,
+        )
+
+    return success, text
+
+async def save_prediction_and_notify_admins(
+    db,
+    user: User,
+    match: Match,
+    pred_home: int,
+    pred_away: int,
+    advancement_bet_enabled: bool = False,
+    predicted_advancing_side: str | None = None,
+) -> tuple[bool, str]:
+    existing_prediction = db.query(Prediction).filter(
+        Prediction.user_id == user.id,
+        Prediction.match_id == match.id,
+    ).first()
+
+    was_update = existing_prediction is not None
+
+    success, text = save_prediction(
+        db=db,
+        user=user,
+        match=match,
+        pred_home=pred_home,
+        pred_away=pred_away,
+        advancement_bet_enabled=advancement_bet_enabled,
+        predicted_advancing_side=predicted_advancing_side,
+    )
+
+    if success:
+        action_text = "обновил прогноз" if was_update else "сделал прогноз"
+
+        advancement_text = ""
+
+        if is_playoff_match(match):
+            if advancement_bet_enabled:
+                if predicted_advancing_side == "home":
+                    advancement_text = f"\nПроход: {match.home_team}"
+                elif predicted_advancing_side == "away":
+                    advancement_text = f"\nПроход: {match.away_team}"
+            else:
+                advancement_text = "\nПроход: не ставил"
+
+        await notify_admins(
+            "🔮 Участник сделал прогноз на матч\n\n"
+            f"{user.display_name} {action_text}\n"
+            f"{format_match_label(match, include_id=True)}\n"
+            f"Прогноз: {pred_home}:{pred_away}"
+            f"{advancement_text}",
+            exclude_telegram_id=user.telegram_id,
+        )
+
+    return success, text
 
 def get_available_matches_query(db):
     now = datetime.now(timezone.utc)
@@ -1466,17 +1573,33 @@ async def start_handler(message: Message):
 
         if created:
             await message.answer(
-                f"Добро пожаловать в «Отец прогнозов ЧМ2026», {user.display_name} 🏆\n\n"
-                "Чтобы начать игру, посмотри короткую инструкцию: /help\n\n"
-                "Сделать прогноз на итоги турнира: /tournament_set\n\n"
-                "Сделать прогноз на ближайшие матчи: /predict"
+                f"Добро пожаловать в «Отец прогнозов», {user.display_name} 🏆\n\n"
+                "Чтобы понять, как играть, нажми /help.\n"
+                "Чтобы сделать прогноз на турнир, нажми /tournament_set.\n"
+                "Чтобы сделать прогноз на матч, нажми /predict."
             )
+
+            await notify_admins(
+                "🆕 Новый участник зарегистрировался\n\n"
+                f"Имя: {user.display_name}\n"
+                f"Telegram ID: {user.telegram_id}\n"
+                f"Username: @{message.from_user.username}"
+                if message.from_user.username
+                else (
+                    "🆕 Новый участник зарегистрировался\n\n"
+                    f"Имя: {user.display_name}\n"
+                    f"Telegram ID: {user.telegram_id}\n"
+                    "Username: не указан"
+                ),
+                exclude_telegram_id=user.telegram_id,
+            )
+
         else:
             await message.answer(
                 f"С возвращением, {user.display_name} ⚽\n\n"
-                "Ближайшие матчи: /matches\n\n"
-                "Где еще нет твоего прогноза: /missing\n\n"
-                "Короткая инструкция:/help"
+                "Прогноз на матч: /predict\n"
+                "Где нет прогноза: /missing\n"
+                "Краткая инструкция: /help"
             )
 
     finally:
@@ -1606,7 +1729,7 @@ async def predict_handler(message: Message):
                     "Ставка на проход доступна только в матчах на вылет."
                 )
                 return
-        success, text = save_prediction(
+        success, text = await save_prediction_and_notify_admins(
             db=db,
             user=user,
             match=match,
@@ -2428,6 +2551,30 @@ def build_user_summary_context(db, user: User) -> dict:
         },
     }
 
+async def notify_admins(text: str, exclude_telegram_id: int | None = None):
+    if not ADMIN_NOTIFY_ENABLED:
+        return
+
+    admin_ids = get_admin_telegram_ids()
+
+    if not admin_ids:
+        return
+
+    for admin_telegram_id in admin_ids:
+        if exclude_telegram_id and admin_telegram_id == exclude_telegram_id:
+            continue
+
+        try:
+            await bot.send_message(
+                chat_id=admin_telegram_id,
+                text=text,
+            )
+        except Exception as error:
+            print(
+                f"Failed to send admin notification "
+                f"to {admin_telegram_id}: {error}"
+            )
+
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
     chunks = []
     current_chunk = ""
@@ -2476,7 +2623,7 @@ async def tournament_set_handler(message: Message, state: FSMContext):
                 )
                 return
 
-            _, text = save_tournament_prediction(
+            _, text = await save_tournament_prediction_and_notify_admins(
                 db=db,
                 user=user,
                 champion=champion,
@@ -2655,6 +2802,8 @@ async def admin_handler(message: Message):
             "/admin_sync_wc2026_schedule\n\n"
             "Синхронизировать результаты из API-Football:\n"
             "/admin_sync_results\n\n"
+            "Оповещения админа:\n"
+            "новые регистрации, прогнозы на матч и турнир включаются через ADMIN_NOTIFY_ENABLED\n\n"
         )
 
     finally:
@@ -3464,7 +3613,7 @@ async def predict_score_callback(callback: CallbackQuery):
             await callback.answer()
             return
 
-        success, text = save_prediction(
+        success, text = await save_prediction_and_notify_admins(
             db=db,
             user=user,
             match=match,
@@ -3509,7 +3658,7 @@ async def predict_advancement_callback(callback: CallbackQuery):
             await callback.answer()
             return
 
-        success, text = save_prediction(
+        success, text = await save_prediction_and_notify_admins(
             db=db,
             user=user,
             match=match,
@@ -3673,7 +3822,7 @@ async def tournament_top_scorer_handler(message: Message, state: FSMContext):
             )
             return
 
-        _, text = save_tournament_prediction(
+        _, text = await save_tournament_prediction_and_notify_admins(
             db=db,
             user=user,
             champion=champion,
@@ -3757,7 +3906,7 @@ async def match_custom_score_handler(message: Message, state: FSMContext):
             )
             return
 
-        success, text = save_prediction(
+        success, text = await save_prediction_and_notify_admins(
             db=db,
             user=user,
             match=match,
@@ -4982,6 +5131,33 @@ async def admin_rankings_check_handler(message: Message):
             f"Место: #{result.get('rank')}\n"
             f"Очки: {result.get('total_points')}\n"
             f"Очки доступны: {result.get('points_available')}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_notify_test"))
+async def admin_notify_test_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        admin_ids = get_admin_telegram_ids()
+
+        await notify_admins(
+            "✅ Тестовое уведомление администратора\n\n"
+            "Если ты видишь это сообщение, уведомления работают."
+        )
+
+        await message.answer(
+            "Тест уведомлений отправлен.\n\n"
+            f"ADMIN_NOTIFY_ENABLED: {ADMIN_NOTIFY_ENABLED}\n"
+            f"ADMIN_TELEGRAM_IDS: {admin_ids}"
         )
 
     finally:
