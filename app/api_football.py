@@ -1,5 +1,6 @@
 import os
 import requests
+from datetime import date
 
 
 API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
@@ -60,18 +61,46 @@ class ApiFootballClient:
         return response[0]
 
     def get_team_fixtures_between(
-        self,
-        team_id: int,
-        date_from: str,
-        date_to: str,
+            self,
+            team_id: int,
+            date_from: str,
+            date_to: str,
+            seasons: list[int] | None = None,
     ) -> list[dict]:
-        payload = self.get(
-            "/fixtures",
-            params={
-                "team": team_id,
-                "from": date_from,
-                "to": date_to,
-            },
+        """
+        API-Football требует season при запросе fixtures по team.
+        Поэтому для периода в несколько лет делаем несколько запросов:
+        season=2024, season=2025, season=2026 и т.д.
+        """
+
+        if seasons is None:
+            start_year = date.fromisoformat(date_from).year
+            end_year = date.fromisoformat(date_to).year
+            seasons = list(range(start_year, end_year + 1))
+
+        fixtures_by_id = {}
+
+        for season in seasons:
+            payload = self.get(
+                "/fixtures",
+                params={
+                    "team": team_id,
+                    "season": season,
+                    "from": date_from,
+                    "to": date_to,
+                },
+            )
+
+            for item in payload.get("response", []):
+                fixture_id = item.get("fixture", {}).get("id")
+
+                if fixture_id:
+                    fixtures_by_id[fixture_id] = item
+
+        fixtures = list(fixtures_by_id.values())
+
+        fixtures.sort(
+            key=lambda item: item.get("fixture", {}).get("date") or ""
         )
 
-        return payload.get("response", [])
+        return fixtures
