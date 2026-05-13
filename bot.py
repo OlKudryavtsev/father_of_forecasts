@@ -86,6 +86,144 @@ USER_HELP_TEXT = (
     "/rules — правила начисления очков"
 )
 
+TEAM_FLAGS = {
+    # Русские названия
+    "Мексика": "🇲🇽",
+    "ЮАР": "🇿🇦",
+    "Южная Корея": "🇰🇷",
+    "Канада": "🇨🇦",
+    "США": "🇺🇸",
+    "Аргентина": "🇦🇷",
+    "Бразилия": "🇧🇷",
+    "Франция": "🇫🇷",
+    "Испания": "🇪🇸",
+    "Англия": "🏴",
+    "Португалия": "🇵🇹",
+    "Германия": "🇩🇪",
+    "Нидерланды": "🇳🇱",
+    "Бельгия": "🇧🇪",
+    "Хорватия": "🇭🇷",
+    "Италия": "🇮🇹",
+    "Колумбия": "🇨🇴",
+    "Сенегал": "🇸🇳",
+    "Уругвай": "🇺🇾",
+    "Япония": "🇯🇵",
+    "Швейцария": "🇨🇭",
+    "Дания": "🇩🇰",
+    "Иран": "🇮🇷",
+    "Турция": "🇹🇷",
+    "Эквадор": "🇪🇨",
+    "Австрия": "🇦🇹",
+    "Нигерия": "🇳🇬",
+    "Австралия": "🇦🇺",
+    "Алжир": "🇩🇿",
+    "Египет": "🇪🇬",
+    "Норвегия": "🇳🇴",
+    "Украина": "🇺🇦",
+    "Панама": "🇵🇦",
+    "Кот-д’Ивуар": "🇨🇮",
+    "Польша": "🇵🇱",
+    "Уэльс": "🏴",
+    "Швеция": "🇸🇪",
+    "Сербия": "🇷🇸",
+    "Парагвай": "🇵🇾",
+    "Чехия": "🇨🇿",
+    "Венгрия": "🇭🇺",
+    "Шотландия": "🏴",
+    "Тунис": "🇹🇳",
+    "Камерун": "🇨🇲",
+    "ДР Конго": "🇨🇩",
+    "Греция": "🇬🇷",
+    "Словакия": "🇸🇰",
+    "Венесуэла": "🇻🇪",
+    "Узбекистан": "🇺🇿",
+    "Коста-Рика": "🇨🇷",
+    "Мали": "🇲🇱",
+    "Перу": "🇵🇪",
+    "Чили": "🇨🇱",
+    "Катар": "🇶🇦",
+    "Румыния": "🇷🇴",
+    "Ирак": "🇮🇶",
+    "Словения": "🇸🇮",
+    "Ирландия": "🇮🇪",
+    "Саудовская Аравия": "🇸🇦",
+    "Новая Зеландия": "🇳🇿",
+    "Босния и Герцеговина": "🇧🇦",
+
+    # API/английские названия
+    "Mexico": "🇲🇽",
+    "South Africa": "🇿🇦",
+    "South Korea": "🇰🇷",
+    "Korea Republic": "🇰🇷",
+    "Canada": "🇨🇦",
+    "United States": "🇺🇸",
+    "USA": "🇺🇸",
+    "Argentina": "🇦🇷",
+    "Brazil": "🇧🇷",
+    "France": "🇫🇷",
+    "Spain": "🇪🇸",
+    "England": "🏴",
+    "Portugal": "🇵🇹",
+    "Germany": "🇩🇪",
+    "Netherlands": "🇳🇱",
+    "Belgium": "🇧🇪",
+    "Croatia": "🇭🇷",
+    "Italy": "🇮🇹",
+    "Colombia": "🇨🇴",
+    "Senegal": "🇸🇳",
+    "Uruguay": "🇺🇾",
+    "Japan": "🇯🇵",
+    "Switzerland": "🇨🇭",
+    "Denmark": "🇩🇰",
+    "Iran": "🇮🇷",
+    "IR Iran": "🇮🇷",
+    "Turkey": "🇹🇷",
+    "Türkiye": "🇹🇷",
+    "Ecuador": "🇪🇨",
+    "Austria": "🇦🇹",
+    "Nigeria": "🇳🇬",
+    "Australia": "🇦🇺",
+    "Algeria": "🇩🇿",
+    "Egypt": "🇪🇬",
+    "Norway": "🇳🇴",
+    "Ukraine": "🇺🇦",
+    "Panama": "🇵🇦",
+    "Côte d'Ivoire": "🇨🇮",
+    "Ivory Coast": "🇨🇮",
+    "Poland": "🇵🇱",
+    "Wales": "🏴",
+    "Sweden": "🇸🇪",
+    "Serbia": "🇷🇸",
+    "Paraguay": "🇵🇾",
+    "Czechia": "🇨🇿",
+    "Czech Republic": "🇨🇿",
+    "Hungary": "🇭🇺",
+    "Scotland": "🏴",
+    "Tunisia": "🇹🇳",
+    "Cameroon": "🇨🇲",
+    "DR Congo": "🇨🇩",
+    "Congo DR": "🇨🇩",
+    "Greece": "🇬🇷",
+    "Slovakia": "🇸🇰",
+    "Venezuela": "🇻🇪",
+    "Uzbekistan": "🇺🇿",
+    "Costa Rica": "🇨🇷",
+    "Mali": "🇲🇱",
+    "Peru": "🇵🇪",
+    "Chile": "🇨🇱",
+    "Qatar": "🇶🇦",
+    "Romania": "🇷🇴",
+    "Iraq": "🇮🇶",
+    "Slovenia": "🇸🇮",
+    "Ireland": "🇮🇪",
+    "Saudi Arabia": "🇸🇦",
+    "New Zealand": "🇳🇿",
+    "Bosnia and Herzegovina": "🇧🇦",
+    "Bosnia & Herzegovina": "🇧🇦",
+
+    # Заглушки
+    "TBD": "🏳️",
+}
 
 class TournamentPredictionForm(StatesGroup):
     champion = State()
@@ -1668,6 +1806,7 @@ async def table_handler(message: Message):
                     "outcomes": outcomes,
                     "advancement_plus": advancement_plus,
                     "advancement_minus": advancement_minus,
+                    "tournament_points": tournament_points,
                     "total_predictions": total_predictions,
                 }
             )
@@ -1687,7 +1826,7 @@ async def table_handler(message: Message):
 
         lines = [
             "🏆 Таблица «Отец прогнозов»",
-            "№ Игрок — Очки | 🎯 | ✅ | 🟢 | 🔴 | 📋",
+            "№ Игрок — Очки | 🎯 ✅ 🟢 🔴 🏆 📋",
             "",
         ]
 
@@ -1700,10 +1839,11 @@ async def table_handler(message: Message):
 
             lines.append(
                 f"{index}. {name} — {row['points']} | "
-                f"{row['exact_scores']} | "
-                f"{row['outcomes']} | "
-                f"{row['advancement_plus']} | "
-                f"{row['advancement_minus']} | "
+                f"{row['exact_scores']} "
+                f"{row['outcomes']} "
+                f"{row['advancement_plus']} "
+                f"{row['advancement_minus']} "
+                f"{row['tournament_points']} "
                 f"{row['total_predictions']}"
             )
 
@@ -1712,8 +1852,8 @@ async def table_handler(message: Message):
         lines.append("✅ угаданные исходы (+1)")
         lines.append("🟢 угаданные проходы (+1)")
         lines.append("🔴 неугаданные проходы (-1)")
-        lines.append("📋 всего прогнозов")
         lines.append("🏆 очки за прогноз на турнир")
+        lines.append("📋 всего матчевых прогнозов")
 
         await message.answer("\n".join(lines))
 
@@ -1768,8 +1908,45 @@ def parse_tournament_result_payload(text: str):
 
     return champion, runner_up, third_place, top_scorer
 
+def get_team_flag(team_name: str | None, api_name: str | None = None) -> str:
+    if api_name and api_name in TEAM_FLAGS:
+        return TEAM_FLAGS[api_name]
+
+    if team_name and team_name in TEAM_FLAGS:
+        return TEAM_FLAGS[team_name]
+
+    return ""
+
+
+def format_team_with_flag(
+    display_name: str,
+    api_name: str | None = None,
+    flag_before: bool = False,
+) -> str:
+    flag = get_team_flag(display_name, api_name)
+
+    if not flag:
+        return display_name
+
+    if flag_before:
+        return f"{flag} {display_name}"
+
+    return f"{display_name} {flag}"
+
 def format_match_label(match: Match, include_id: bool = False) -> str:
-    team_text = f"{match.home_team} — {match.away_team}"
+    home_text = format_team_with_flag(
+        display_name=match.home_team,
+        api_name=getattr(match, "home_team_api_name", None),
+        flag_before=False,
+    )
+
+    away_text = format_team_with_flag(
+        display_name=match.away_team,
+        api_name=getattr(match, "away_team_api_name", None),
+        flag_before=True,
+    )
+
+    team_text = f"{home_text} — {away_text}"
 
     prefix_parts = []
 
