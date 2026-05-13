@@ -3,6 +3,7 @@ import os
 import csv
 import io
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -40,6 +41,8 @@ from app.fifa_rankings import FifaRankingsStore
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
+MATCHDAY_TIMEZONE_NAME = os.getenv("MATCHDAY_TIMEZONE", "America/New_York")
+MATCHDAY_TIMEZONE = ZoneInfo(MATCHDAY_TIMEZONE_NAME)
 TOURNAMENT_CODE = os.getenv("TOURNAMENT_CODE", "wc2026")
 TOURNAMENT_STARTS_AT_RAW = os.getenv(
     "TOURNAMENT_STARTS_AT",
@@ -75,11 +78,11 @@ USER_HELP_TEXT = (
     "🔴 не угадал — -1 очко\n"
     "⚪ не ставил на проход — 0 очков\n\n"
     "5️⃣ Полезные команды\n"
-    "/rules — правила начисления очков"
+    "/rules — правила начисления очков\n"
     "/tournament_set — сделать прогноз на турнир\n"
     "/tournament — мой прогноз на турнир\n"
     "/match — карточка матча\n"
-    "/matches — ближайший игровой день\n"
+    "/matches — ближайший игровой день по времени турнира\n"
     "/matches_all — все ближайшие матчи (30)\n"
     "/predict — прогноз на ближайший игровой день\n"
     "/predict_all — прогноз на любой будущий матч\n"
@@ -796,9 +799,8 @@ def get_nearest_matchday_matches(db) -> list[Match]:
     """
     Возвращает матчи ближайшего игрового дня.
 
-    Логика:
-    - берем ближайший матч в будущем;
-    - берем все матчи с той же локальной датой в APP_TIMEZONE.
+    Игровой день считаем не по Москве, а по MATCHDAY_TIMEZONE.
+    Например, для WC2026 удобно использовать America/New_York.
     """
 
     first_match = get_available_matches_query(db).first()
@@ -806,14 +808,17 @@ def get_nearest_matchday_matches(db) -> list[Match]:
     if not first_match:
         return []
 
-    first_local_date = first_match.starts_at.astimezone(APP_TIMEZONE).date()
+    first_matchday_date = first_match.starts_at.astimezone(
+        MATCHDAY_TIMEZONE
+    ).date()
 
     all_future_matches = get_available_matches_query(db).all()
 
     return [
         match
         for match in all_future_matches
-        if match.starts_at.astimezone(APP_TIMEZONE).date() == first_local_date
+        if match.starts_at.astimezone(MATCHDAY_TIMEZONE).date()
+        == first_matchday_date
     ]
 
 
@@ -1989,13 +1994,15 @@ def format_matches_list(matches: list[Match], title: str) -> str:
     current_date = None
 
     for match in matches:
-        local_dt = match.starts_at.astimezone(APP_TIMEZONE)
-        local_date = local_dt.date()
+        matchday_dt = match.starts_at.astimezone(MATCHDAY_TIMEZONE)
+        matchday_date = matchday_dt.date()
 
-        if current_date != local_date:
-            current_date = local_date
-            lines.append(f"📅 {local_dt.strftime('%d.%m.%Y')}")
-            lines.append("")
+        if current_date != matchday_date:
+            current_date = matchday_date
+            lines.append(
+                f"📅 Игровой день {matchday_dt.strftime('%d.%m.%Y')} "
+                f"({MATCHDAY_TIMEZONE_NAME})"
+            )
 
         status = "✅ завершен" if match.is_finished else "⏳ открыт"
 
