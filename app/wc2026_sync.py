@@ -166,7 +166,10 @@ def get_winner_side(api_fixture: dict) -> str | None:
     return None
 
 
-def normalize_api_fixture(api_fixture: dict) -> dict:
+def normalize_api_fixture(
+    api_fixture: dict,
+    team_group_map: dict[int, str] | None = None,
+) -> dict:
     fixture = api_fixture["fixture"]
     league = api_fixture.get("league") or {}
     teams = api_fixture.get("teams") or {}
@@ -175,6 +178,11 @@ def normalize_api_fixture(api_fixture: dict) -> dict:
 
     home = teams.get("home") or {}
     away = teams.get("away") or {}
+
+    team_group_map = team_group_map or {}
+
+    home_team_id = home.get("id")
+    away_team_id = away.get("id")
 
     api_round = league.get("round")
 
@@ -195,7 +203,11 @@ def normalize_api_fixture(api_fixture: dict) -> dict:
 
         "stage": normalize_stage(api_round),
         "match_round": normalize_match_round(api_round),
-        "group_code": extract_group_code(api_round),
+        "group_code": (
+            extract_group_code(api_round)
+            or team_group_map.get(home_team_id)
+            or team_group_map.get(away_team_id)
+        ),
         "api_league_round": api_round,
 
         "starts_at": parse_datetime_utc(fixture["date"]),
@@ -220,8 +232,15 @@ def normalize_api_fixture(api_fixture: dict) -> dict:
     }
 
 
-def upsert_match_from_api_fixture(db, api_fixture: dict) -> tuple[Match, bool]:
-    row = normalize_api_fixture(api_fixture)
+def upsert_match_from_api_fixture(
+    db,
+    api_fixture: dict,
+    team_group_map: dict[int, str] | None = None,
+) -> tuple[Match, bool]:
+    row = normalize_api_fixture(
+        api_fixture=api_fixture,
+        team_group_map=team_group_map,
+    )
 
     match = db.query(Match).filter(
         Match.external_provider == API_PROVIDER,
@@ -254,11 +273,22 @@ def sync_wc2026_schedule(db) -> dict:
 
     fixtures = client.get_world_cup_fixtures(season=2026)
 
+    try:
+        standings = client.get_world_cup_standings(season=2026)
+        team_group_map = build_team_group_map_from_standings(standings)
+    except Exception as error:
+        print(f"Failed to load WC2026 standings/groups: {error}")
+        team_group_map = {}
+
     created = 0
     updated = 0
 
     for api_fixture in fixtures:
-        _, was_created = upsert_match_from_api_fixture(db, api_fixture)
+        _, was_created = upsert_match_from_api_fixture(
+            db=db,
+            api_fixture=api_fixture,
+            team_group_map=team_group_map,
+        )
 
         if was_created:
             created += 1
@@ -272,3 +302,41 @@ def sync_wc2026_schedule(db) -> dict:
         "created": created,
         "updated": updated,
     }
+
+def build_team_group_map_from_standings(standings: list[list[dict]]) -> dict[int, str]:
+    """
+    Возвращает:
+    {
+        team_id: "A",
+        team_id: "B",
+        ...
+    }
+    """
+
+    team_group_map = {}
+
+    for group_rows in standings:
+        for row in group_rows:
+            group_name = row.get("group") or ""
+
+            team = row.get("team") or {}
+            team_id = team.get("id")
+
+            if not team_id:
+                continue
+
+            group_code = None
+
+            # Возможные варианты:
+            # "Group A"
+            # "World Cup - Group A"
+            # "A"
+            for letter in list("ABCDEFGHIJKL"):
+                if f"Group {letter}" in group_name or group_name.strip() == letter:
+                    group_code = letter
+                    break
+
+            if group_code:
+                team_group_map[team_id] = group_code
+
+    return team_group_map

@@ -60,6 +60,39 @@ class ApiFootballClient:
 
         return response[0]
 
+    def get_fixture_head_to_head(
+            self,
+            home_team_id: int,
+            away_team_id: int,
+            last: int = 10,
+    ) -> list[dict]:
+        payload = self.get(
+            "/fixtures/headtohead",
+            params={
+                "h2h": f"{home_team_id}-{away_team_id}",
+                "last": last,
+            },
+        )
+
+        return payload.get("response", [])
+
+    def get_world_cup_standings(self, season: int = 2026) -> list[dict]:
+        payload = self.get(
+            "/standings",
+            params={
+                "league": 1,
+                "season": season,
+            },
+        )
+
+        response = payload.get("response", [])
+
+        if not response:
+            return []
+
+        league = response[0].get("league", {})
+        return league.get("standings", [])
+
     def get_team_fixtures_between(
             self,
             team_id: int,

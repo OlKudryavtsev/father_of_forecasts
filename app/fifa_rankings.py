@@ -11,16 +11,30 @@ DEFAULT_RANKINGS_PATH = Path(
 TEAM_ALIASES = {
     "United States": "USA",
     "USA": "USA",
+
     "Korea Republic": "South Korea",
     "South Korea": "South Korea",
+
     "IR Iran": "Iran",
     "Iran": "Iran",
+
     "Türkiye": "Türkiye",
     "Turkey": "Türkiye",
+
     "Czech Republic": "Czechia",
+    "Czechia": "Czechia",
+
     "Ivory Coast": "Côte d'Ivoire",
+    "Côte d'Ivoire": "Côte d'Ivoire",
+
     "Congo DR": "DR Congo",
+    "DR Congo": "DR Congo",
+
     "Bosnia and Herzegovina": "Bosnia & Herzegovina",
+    "Bosnia & Herzegovina": "Bosnia & Herzegovina",
+
+    "South Africa": "South Africa",
+    "RSA": "South Africa",
 }
 
 

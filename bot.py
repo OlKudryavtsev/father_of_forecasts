@@ -1163,6 +1163,35 @@ def build_forecast_text(db, match: Match) -> str:
 
     confidence = int(float(forecast["confidence"]) * 100)
 
+    fixture = context["fixture"]
+
+    home_api_name = fixture["home_team_api_name"]
+    away_api_name = fixture["away_team_api_name"]
+
+    rankings = context.get("fifa_rankings_sofascore") or {}
+    recent_short = context.get("recent_matches_short") or {}
+    h2h = context.get("head_to_head") or {}
+
+    ranking_home = rankings.get(home_api_name)
+    ranking_away = rankings.get(away_api_name)
+
+    recent_home = recent_short.get(home_api_name, [])
+    recent_away = recent_short.get(away_api_name, [])
+
+    h2h_rows = h2h.get("matches_short", [])
+
+    facts_text = (
+        "📌 Факты перед матчем\n\n"
+        "FIFA ranking:\n"
+        f"{format_ranking_fact(match.home_team, ranking_home)}\n"
+        f"{format_ranking_fact(match.away_team, ranking_away)}\n\n"
+        "Последние 3 матча:\n"
+        f"{format_short_matches_fact(match.home_team, recent_home)}\n\n"
+        f"{format_short_matches_fact(match.away_team, recent_away)}\n\n"
+        "Личные встречи:\n"
+        f"{format_h2h_fact(h2h_rows)}"
+    )
+
     return (
         "🤖 Прогноз Отца прогнозов\n\n"
         f"{format_match_label(match, include_id=True)}\n"
@@ -1171,9 +1200,50 @@ def build_forecast_text(db, match: Match) -> str:
         f"Исход: {outcome_text}\n"
         f"Уверенность: {confidence}%\n\n"
         f"{forecast.get('reason', '')}\n\n"
+        f"{facts_text}\n\n"
         "Это развлекательный прогноз по футбольным данным и ИИ-анализу, "
         "не гарантия результата."
     )
+
+def format_ranking_fact(team_name: str, ranking: dict | None) -> str:
+    if not ranking:
+        return f"{team_name}: рейтинг не найден"
+
+    rank = ranking.get("rank")
+    total_points = ranking.get("total_points")
+
+    if total_points is not None:
+        return f"{team_name}: #{rank}, {total_points} очк."
+
+    return f"{team_name}: #{rank}"
+
+
+def format_short_matches_fact(team_name: str, rows: list[dict]) -> str:
+    if not rows:
+        return f"{team_name}: нет данных"
+
+    lines = [f"{team_name}:"]
+
+    for row in rows[-3:]:
+        lines.append(
+            f"— {row.get('date')}: {row.get('match')} {row.get('score')}"
+        )
+
+    return "\n".join(lines)
+
+
+def format_h2h_fact(rows: list[dict]) -> str:
+    if not rows:
+        return "Личных встреч в данных не найдено."
+
+    lines = []
+
+    for row in rows[-5:]:
+        lines.append(
+            f"— {row.get('date')}: {row.get('match')} {row.get('score')}"
+        )
+
+    return "\n".join(lines)
 
 def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
@@ -1684,17 +1754,6 @@ def parse_tournament_result_payload(text: str):
     return champion, runner_up, third_place, top_scorer
 
 def format_match_label(match: Match, include_id: bool = False) -> str:
-    """
-    Единый короткий формат матча для списков и кнопок.
-
-    Групповой этап:
-    Группа A. Тур 1. Мексика — ЮАР
-
-    Плей-офф:
-    1/8. Нидерланды — США
-    Финал. Испания — Бразилия
-    """
-
     team_text = f"{match.home_team} — {match.away_team}"
 
     prefix_parts = []
@@ -1704,10 +1763,12 @@ def format_match_label(match: Match, include_id: bool = False) -> str:
             prefix_parts.append(f"Группа {match.group_code}")
 
         round_text = match.match_round or get_default_match_round(match.stage)
+
         if round_text:
             prefix_parts.append(f"Тур {round_text}")
     else:
         round_text = match.match_round or get_default_match_round(match.stage)
+
         if round_text:
             prefix_parts.append(round_text.capitalize())
 
