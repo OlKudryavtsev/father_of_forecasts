@@ -1607,11 +1607,7 @@ async def table_handler(message: Message):
     db = SessionLocal()
 
     try:
-        users = db.query(User).order_by(User.display_name).all()
-
-        if not users:
-            await message.answer("Пока нет участников.")
-            return
+        users = db.query(User).all()
 
         rows = []
 
@@ -1620,12 +1616,15 @@ async def table_handler(message: Message):
                 Prediction.user_id == user.id
             ).all()
 
-            match_points = sum(prediction.points or 0 for prediction in predictions)
-
             tournament_prediction = db.query(TournamentPrediction).filter(
                 TournamentPrediction.user_id == user.id,
                 TournamentPrediction.tournament_code == TOURNAMENT_CODE,
             ).first()
+
+            match_points = sum(
+                prediction.points or 0
+                for prediction in predictions
+            )
 
             tournament_points = (
                 tournament_prediction.points
@@ -1659,17 +1658,17 @@ async def table_handler(message: Message):
                 if prediction.advancement_points == -1
             )
 
+            total_predictions = len(predictions)
+
             rows.append(
                 {
                     "name": user.display_name,
                     "points": total_points,
                     "exact_scores": exact_scores,
                     "outcomes": outcomes,
-                    "predictions_count": len(predictions),
                     "advancement_plus": advancement_plus,
                     "advancement_minus": advancement_minus,
-                    "match_points": match_points,
-                    "tournament_points": tournament_points,
+                    "total_predictions": total_predictions,
                 }
             )
 
@@ -1682,15 +1681,30 @@ async def table_handler(message: Message):
             reverse=True,
         )
 
-        lines = ["🏆 Таблица «Отец прогнозов»", ""]
+        if not rows:
+            await message.answer("Таблица пока пустая.")
+            return
+
+        lines = [
+            "🏆 Таблица «Отец прогнозов»",
+            "№ Игрок — Очки | 🎯 | ✅ | 🟢 | 🔴 | 📋",
+            "",
+        ]
 
         for index, row in enumerate(rows, start=1):
+            name = row["name"]
+
+            # Чтобы длинные имена не ломали таблицу
+            if len(name) > 16:
+                name = name[:15] + "…"
+
             lines.append(
-                f"{index}. {row['name']} — {row['points']} очк. "
-                f"🎯 {row['exact_scores']} | ✅ {row['outcomes']} | "
-                f"🟢 {row['advancement_plus']} | 🔴 {row['advancement_minus']} | "
-                f"🏆 {row['tournament_points']} | "
-                f"📋 {row['predictions_count']}"
+                f"{index}. {name} — {row['points']} | "
+                f"{row['exact_scores']} | "
+                f"{row['outcomes']} | "
+                f"{row['advancement_plus']} | "
+                f"{row['advancement_minus']} | "
+                f"{row['total_predictions']}"
             )
 
         lines.append("")
