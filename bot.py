@@ -5,9 +5,10 @@ import io
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, BaseMiddleware
+from typing import Any, Awaitable, Callable
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -16,6 +17,7 @@ from app.wc2026_forecast_context import build_wc2026_openai_context
 
 from app.db import SessionLocal
 from app.models import (
+    CommandLog,
     Match,
     Prediction,
     ReminderLog,
@@ -264,6 +266,45 @@ class MatchPredictionForm(StatesGroup):
 class AdminResultForm(StatesGroup):
     custom_score = State()
 
+class CommandLoggingMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, Message):
+            command = extract_command_from_text(event.text)
+
+            if command:
+                db = SessionLocal()
+
+                try:
+                    user = None
+
+                    if event.from_user:
+                        user, _ = get_or_create_user(db, event.from_user)
+
+                    log = CommandLog(
+                        user_id=user.id if user else None,
+                        telegram_id=event.from_user.id if event.from_user else None,
+                        display_name=user.display_name if user else None,
+                        command=command,
+                        full_text=event.text,
+                    )
+
+                    db.add(log)
+                    db.commit()
+
+                except Exception as error:
+                    db.rollback()
+                    print(f"Failed to log command: {error}")
+
+                finally:
+                    db.close()
+
+        return await handler(event, data)
+
 def get_tournament_starts_at():
     dt = datetime.fromisoformat(
         TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
@@ -283,7 +324,7 @@ if not TOKEN:
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-
+dp.message.middleware(CommandLoggingMiddleware())
 
 def get_or_create_user(db, telegram_user):
     admin_status = is_admin_telegram_id(telegram_user.id)
@@ -407,6 +448,108 @@ def format_datetime(dt):
 
     local_dt = dt.astimezone(APP_TIMEZONE)
     return local_dt.strftime("%d.%m.%Y %H:%M")
+
+def get_today_moscow_range_utc() -> tuple[datetime, datetime]:
+    now_moscow = datetime.now(APP_TIMEZONE)
+
+    start_moscow = now_moscow.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+    end_moscow = start_moscow + timedelta(days=1)
+
+    return (
+        start_moscow.astimezone(timezone.utc),
+        end_moscow.astimezone(timezone.utc),
+    )
+
+def build_command_stats_for_period(
+    db,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
+    limit_users: int = 20,
+) -> list[dict]:
+    query = db.query(CommandLog)
+
+    if start_at:
+        query = query.filter(CommandLog.created_at >= start_at)
+
+    if end_at:
+        query = query.filter(CommandLog.created_at < end_at)
+
+    logs = query.order_by(CommandLog.created_at.desc()).all()
+
+    stats_by_user = {}
+
+    for log in logs:
+        key = log.user_id or f"tg:{log.telegram_id}"
+
+        if key not in stats_by_user:
+            stats_by_user[key] = {
+                "display_name": log.display_name or f"Telegram {log.telegram_id}",
+                "telegram_id": log.telegram_id,
+                "total": 0,
+                "commands": {},
+                "last_command": None,
+                "last_at": None,
+            }
+
+        row = stats_by_user[key]
+
+        row["total"] += 1
+        row["commands"][log.command] = row["commands"].get(log.command, 0) + 1
+
+        if row["last_at"] is None or log.created_at > row["last_at"]:
+            row["last_at"] = log.created_at
+            row["last_command"] = log.command
+
+    rows = list(stats_by_user.values())
+
+    rows.sort(
+        key=lambda item: item["total"],
+        reverse=True,
+    )
+
+    return rows[:limit_users]
+
+
+def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
+    lines = [title]
+
+    if not rows:
+        lines.append("Нет данных.")
+        return lines
+
+    for index, row in enumerate(rows, start=1):
+        commands_sorted = sorted(
+            row["commands"].items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+
+        top_commands = ", ".join(
+            f"{command} {count}"
+            for command, count in commands_sorted[:5]
+        )
+
+        last_text = ""
+
+        if row["last_at"] and row["last_command"]:
+            last_text = (
+                f"\n   последний: {row['last_command']} "
+                f"в {format_datetime(row['last_at'])}"
+            )
+
+        lines.append(
+            f"{index}. {row['display_name']} — {row['total']} выз."
+            f"{last_text}\n"
+            f"   {top_commands}"
+        )
+
+    return lines
 
 def is_user_admin(user: User) -> bool:
     return bool(user.is_admin)
@@ -1518,6 +1661,19 @@ def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarku
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def extract_command_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+
+    first_part = text.strip().split()[0]
+
+    if not first_part.startswith("/"):
+        return None
+
+    # Если команда пришла как /start@bot_name
+    command = first_part.split("@")[0]
+
+    return command.lower()
 
 @dp.message(Command("forecast"))
 async def forecast_handler(message: Message):
@@ -2804,6 +2960,9 @@ async def admin_handler(message: Message):
             "/admin_sync_results\n\n"
             "Оповещения админа:\n"
             "новые регистрации, прогнозы на матч и турнир включаются через ADMIN_NOTIFY_ENABLED\n\n"
+            "Статистика команд:\n"
+            "/admin_command_stats\n"
+            "/admin_command_stats_user Имя или TelegramID\n\n"
         )
 
     finally:
@@ -5159,6 +5318,193 @@ async def admin_notify_test_handler(message: Message):
             f"ADMIN_NOTIFY_ENABLED: {ADMIN_NOTIFY_ENABLED}\n"
             f"ADMIN_TELEGRAM_IDS: {admin_ids}"
         )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_command_stats"))
+async def admin_command_stats_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        today_start_utc, today_end_utc = get_today_moscow_range_utc()
+
+        today_rows = build_command_stats_for_period(
+            db=db,
+            start_at=today_start_utc,
+            end_at=today_end_utc,
+            limit_users=20,
+        )
+
+        total_rows = build_command_stats_for_period(
+            db=db,
+            start_at=None,
+            end_at=None,
+            limit_users=20,
+        )
+
+        now_moscow = datetime.now(APP_TIMEZONE)
+
+        lines = [
+            "📊 Статистика вызовов команд",
+            f"Сегодня по Москве: {now_moscow.strftime('%d.%m.%Y')}",
+            "",
+        ]
+
+        lines.extend(
+            format_command_stats_block(
+                "За сегодня:",
+                today_rows,
+            )
+        )
+
+        lines.append("")
+        lines.extend(
+            format_command_stats_block(
+                "Всего:",
+                total_rows,
+            )
+        )
+
+        await send_long_message(message, lines)
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_command_stats_user"))
+async def admin_command_stats_user_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        admin_user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(admin_user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        payload = message.text.replace("/admin_command_stats_user", "", 1).strip()
+
+        if not payload:
+            await message.answer(
+                "Формат:\n\n"
+                "/admin_command_stats_user TelegramID\n\n"
+                "или:\n"
+                "/admin_command_stats_user Имя"
+            )
+            return
+
+        user_query = db.query(User)
+
+        target_user = None
+
+        if payload.isdigit():
+            target_user = user_query.filter(
+                User.telegram_id == int(payload)
+            ).first()
+        else:
+            target_user = user_query.filter(
+                User.display_name.ilike(f"%{payload}%")
+            ).first()
+
+        if not target_user:
+            await message.answer("Пользователь не найден.")
+            return
+
+        today_start_utc, today_end_utc = get_today_moscow_range_utc()
+
+        today_logs = (
+            db.query(CommandLog)
+            .filter(
+                CommandLog.user_id == target_user.id,
+                CommandLog.created_at >= today_start_utc,
+                CommandLog.created_at < today_end_utc,
+            )
+            .order_by(CommandLog.created_at.desc())
+            .all()
+        )
+
+        total_logs = (
+            db.query(CommandLog)
+            .filter(CommandLog.user_id == target_user.id)
+            .order_by(CommandLog.created_at.desc())
+            .all()
+        )
+
+        def summarize_logs(logs: list[CommandLog]) -> dict:
+            commands = {}
+
+            for log in logs:
+                commands[log.command] = commands.get(log.command, 0) + 1
+
+            return {
+                "total": len(logs),
+                "commands": sorted(
+                    commands.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                ),
+                "last": logs[:10],
+            }
+
+        today_summary = summarize_logs(today_logs)
+        total_summary = summarize_logs(total_logs)
+
+        lines = [
+            "📊 Статистика пользователя",
+            "",
+            f"Пользователь: {target_user.display_name}",
+            f"Telegram ID: {target_user.telegram_id}",
+            "",
+            f"Сегодня: {today_summary['total']} выз.",
+        ]
+
+        if today_summary["commands"]:
+            lines.append(
+                ", ".join(
+                    f"{command} {count}"
+                    for command, count in today_summary["commands"]
+                )
+            )
+        else:
+            lines.append("Нет вызовов сегодня.")
+
+        lines.extend(
+            [
+                "",
+                f"Всего: {total_summary['total']} выз.",
+            ]
+        )
+
+        if total_summary["commands"]:
+            lines.append(
+                ", ".join(
+                    f"{command} {count}"
+                    for command, count in total_summary["commands"][:10]
+                )
+            )
+
+        lines.extend(
+            [
+                "",
+                "Последние 10 вызовов:",
+            ]
+        )
+
+        if not total_summary["last"]:
+            lines.append("Нет данных.")
+        else:
+            for log in total_summary["last"]:
+                lines.append(
+                    f"{format_datetime(log.created_at)} — {log.command}"
+                )
+
+        await message.answer("\n".join(lines))
 
     finally:
         db.close()

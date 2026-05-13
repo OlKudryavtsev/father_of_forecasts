@@ -1,13 +1,4 @@
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
-)
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -182,3 +173,19 @@ class ReminderLog(Base):
             name="uq_reminder_user_match_type_key",
         ),
     )
+
+class CommandLog(Base):
+    __tablename__ = "command_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    telegram_id = Column(BigInteger, nullable=True)
+    display_name = Column(String, nullable=True)
+
+    command = Column(String, nullable=False)
+    full_text = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
