@@ -2841,9 +2841,6 @@ def format_world_cup_fact(fact: WorldCupFact) -> str:
     if fact.spicy_comment:
         lines.extend(["", f"🔥 {fact.spicy_comment}"])
 
-    if fact.source_text:
-        lines.extend(["", f"Источник: {fact.source_text}"])
-
     return "\n".join(lines)
 
 def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
@@ -2887,7 +2884,7 @@ def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
 
     return random.choice(facts)
 
-FACTS_SEED_PATH = Path("data/world_cup_facts_seed.json")
+FACTS_SEED_PATH = Path("scripts/data/world_cup_facts_seed.json")
 
 
 def import_world_cup_facts_from_seed(db) -> dict:
