@@ -108,9 +108,12 @@ USER_HELP_TEXT = (
     "/table — таблица участников\n"
     "/summary — твоя статистика\n"
     "/ai_summary — ИИ-разбор твоей игры\n"
-    "/fact — случайный факт о чемпионатах мира\n"
-    "/fact wc2026 — факт про ЧМ-2026\n"
-    "/fact record — рекорды ЧМ\n"
+    "/fact — факт о ЧМ с выбором категории\n"
+    "/fact record — сразу факт про рекорды\n"
+    "/fact wc2026 — сразу факт про ЧМ-2026\n"
+    "/quiz — мини-квиз с выбором категории\n"
+    "/quiz team — вопрос про сборные\n"
+    "/quiz_stats — твоя статистика квиза\n"
 )
 
 TEAM_FLAGS = {
@@ -362,6 +365,18 @@ DEFAULT_REPEAT_START_MESSAGES = [
 
 WC2026_START_DATE = date(2026, 6, 11)
 QUIZ_SEED_PATH = Path("data/world_cup_quiz_seed.json")
+
+FACT_QUIZ_CATEGORIES = {
+    "any": "🎲 Любая категория",
+    "wc2026": "🏆 ЧМ-2026",
+    "history": "📜 История",
+    "record": "📊 Рекорды",
+    "team": "👥 Сборные",
+    "player": "⭐ Игроки",
+    "host": "🏟 Хозяева",
+    "trophy": "🏆 Трофеи",
+    "funny": "😂 Курьезы",
+}
 
 def get_admin_telegram_ids() -> list[int]:
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
@@ -840,6 +855,64 @@ def build_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
+def build_category_keyboard(prefix: str) -> InlineKeyboardMarkup:
+    """
+    prefix:
+    - fact_category
+    - quiz_category
+    """
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎲 Любая категория",
+                    callback_data=f"{prefix}:any",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏆 ЧМ-2026",
+                    callback_data=f"{prefix}:wc2026",
+                ),
+                InlineKeyboardButton(
+                    text="📜 История",
+                    callback_data=f"{prefix}:history",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📊 Рекорды",
+                    callback_data=f"{prefix}:record",
+                ),
+                InlineKeyboardButton(
+                    text="👥 Сборные",
+                    callback_data=f"{prefix}:team",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⭐ Игроки",
+                    callback_data=f"{prefix}:player",
+                ),
+                InlineKeyboardButton(
+                    text="🏟 Хозяева",
+                    callback_data=f"{prefix}:host",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏆 Трофеи",
+                    callback_data=f"{prefix}:trophy",
+                ),
+                InlineKeyboardButton(
+                    text="😂 Курьезы",
+                    callback_data=f"{prefix}:funny",
+                ),
+            ],
+        ]
+    )
 
 def build_admin_result_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
@@ -3282,6 +3355,83 @@ async def send_long_message(message: Message, lines: list[str], chunk_size: int 
 
     for chunk in chunks:
         await message.answer(chunk)
+
+
+async def send_fact_by_category(
+    message: Message,
+    db,
+    category: str | None,
+    delivery_type: str = "manual",
+):
+    query = db.query(WorldCupFact).filter(
+        WorldCupFact.is_active == True,
+        WorldCupFact.needs_verification == False,
+    )
+
+    if category:
+        query = query.filter(WorldCupFact.category == category)
+
+    facts = query.all()
+
+    if not facts:
+        await message.answer(
+            "Фактов по такой категории пока нет.\n\n"
+            "Попробуй выбрать другую категорию: /fact"
+        )
+        return
+
+    fact = random.choice(facts)
+
+    user, _ = get_or_create_user(db, message.from_user)
+
+    db.add(
+        FactDeliveryLog(
+            fact_id=fact.id,
+            user_id=user.id,
+            telegram_id=user.telegram_id,
+            delivery_type=delivery_type,
+        )
+    )
+    db.commit()
+
+    category_text = FACT_QUIZ_CATEGORIES.get(category or "any", "🎲 Любая категория")
+
+    await message.answer(
+        f"{category_text}\n\n"
+        f"{format_world_cup_fact(fact)}"
+    )
+
+
+async def send_quiz_by_category(
+    message: Message,
+    db,
+    category: str | None,
+):
+    query = db.query(QuizQuestion).filter(
+        QuizQuestion.is_active == True,
+    )
+
+    if category:
+        query = query.filter(QuizQuestion.category == category)
+
+    questions = query.all()
+
+    if not questions:
+        await message.answer(
+            "Вопросов по такой категории пока нет.\n\n"
+            "Попробуй выбрать другую категорию: /quiz"
+        )
+        return
+
+    question = random.choice(questions)
+
+    category_text = FACT_QUIZ_CATEGORIES.get(category or "any", "🎲 Любая категория")
+
+    await message.answer(
+        f"{category_text}\n\n"
+        f"{format_quiz_question(question)}",
+        reply_markup=build_quiz_keyboard(question),
+    )
 
 
 @dp.message(Command("tournament_set"))
@@ -6099,40 +6249,25 @@ async def fact_handler(message: Message):
 
     try:
         parts = message.text.split(maxsplit=1)
-        category = parts[1].strip().lower() if len(parts) > 1 else None
 
-        query = db.query(WorldCupFact).filter(
-            WorldCupFact.is_active == True,
-            WorldCupFact.needs_verification == False,
-        )
-
-        if category:
-            query = query.filter(WorldCupFact.category == category)
-
-        facts = query.all()
-
-        if not facts:
+        if len(parts) == 1:
             await message.answer(
-                "Фактов по такой категории пока нет.\n\n"
-                "Попробуй просто /fact"
+                "📚 Выбери категорию факта:",
+                reply_markup=build_category_keyboard("fact_category"),
             )
             return
 
-        fact = random.choice(facts)
+        category = parts[1].strip().lower()
 
-        user, _ = get_or_create_user(db, message.from_user)
+        if category == "any":
+            category = None
 
-        log = FactDeliveryLog(
-            fact_id=fact.id,
-            user_id=user.id,
-            telegram_id=user.telegram_id,
+        await send_fact_by_category(
+            message=message,
+            db=db,
+            category=category,
             delivery_type="manual",
         )
-
-        db.add(log)
-        db.commit()
-
-        await message.answer(format_world_cup_fact(fact))
 
     finally:
         db.close()
@@ -6233,29 +6368,23 @@ async def quiz_handler(message: Message):
 
     try:
         parts = message.text.split(maxsplit=1)
-        category = parts[1].strip().lower() if len(parts) > 1 else None
 
-        query = db.query(QuizQuestion).filter(
-            QuizQuestion.is_active == True,
-        )
-
-        if category:
-            query = query.filter(QuizQuestion.category == category)
-
-        questions = query.all()
-
-        if not questions:
+        if len(parts) == 1:
             await message.answer(
-                "Вопросов по такой категории пока нет.\n\n"
-                "Попробуй просто /quiz"
+                "❓ Выбери категорию квиза:",
+                reply_markup=build_category_keyboard("quiz_category"),
             )
             return
 
-        question = random.choice(questions)
+        category = parts[1].strip().lower()
 
-        await message.answer(
-            format_quiz_question(question),
-            reply_markup=build_quiz_keyboard(question),
+        if category == "any":
+            category = None
+
+        await send_quiz_by_category(
+            message=message,
+            db=db,
+            category=category,
         )
 
     finally:
@@ -6464,7 +6593,110 @@ async def admin_quiz_stats_handler(message: Message):
 
     finally:
         db.close()
-        
+
+@dp.callback_query(lambda callback: callback.data.startswith("fact_category:"))
+async def fact_category_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        category = callback.data.split(":")[1]
+
+        if category == "any":
+            category = None
+
+        query = db.query(WorldCupFact).filter(
+            WorldCupFact.is_active == True,
+            WorldCupFact.needs_verification == False,
+        )
+
+        if category:
+            query = query.filter(WorldCupFact.category == category)
+
+        facts = query.all()
+
+        if not facts:
+            await callback.message.answer(
+                "Фактов по такой категории пока нет.\n\n"
+                "Попробуй другую категорию: /fact"
+            )
+            await callback.answer()
+            return
+
+        fact = random.choice(facts)
+
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        db.add(
+            FactDeliveryLog(
+                fact_id=fact.id,
+                user_id=user.id,
+                telegram_id=user.telegram_id,
+                delivery_type="manual",
+            )
+        )
+        db.commit()
+
+        category_text = FACT_QUIZ_CATEGORIES.get(
+            category or "any",
+            "🎲 Любая категория",
+        )
+
+        await callback.message.answer(
+            f"{category_text}\n\n"
+            f"{format_world_cup_fact(fact)}"
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
+
+
+@dp.callback_query(lambda callback: callback.data.startswith("quiz_category:"))
+async def quiz_category_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        category = callback.data.split(":")[1]
+
+        if category == "any":
+            category = None
+
+        query = db.query(QuizQuestion).filter(
+            QuizQuestion.is_active == True,
+        )
+
+        if category:
+            query = query.filter(QuizQuestion.category == category)
+
+        questions = query.all()
+
+        if not questions:
+            await callback.message.answer(
+                "Вопросов по такой категории пока нет.\n\n"
+                "Попробуй другую категорию: /quiz"
+            )
+            await callback.answer()
+            return
+
+        question = random.choice(questions)
+
+        category_text = FACT_QUIZ_CATEGORIES.get(
+            category or "any",
+            "🎲 Любая категория",
+        )
+
+        await callback.message.answer(
+            f"{category_text}\n\n"
+            f"{format_quiz_question(question)}",
+            reply_markup=build_quiz_keyboard(question),
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
+
 
 async def main():
     if reminders_enabled():
