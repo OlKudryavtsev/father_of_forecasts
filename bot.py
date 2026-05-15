@@ -33,6 +33,9 @@ from app.models import (
     QuizAnswer,
     HistoricalArchiveCard,
     HistoricalArchiveDeliveryLog,
+    GroupQuizSession,
+    GroupQuizAnswer,
+
 )
 from app.admin import is_admin_telegram_id
 
@@ -387,6 +390,8 @@ GROUP_ALLOWED_COMMANDS = {
     "/rules",
     "/fact",
     "/quiz",
+    "/quiz_finish",
+    "/quiz_table",
     "/chat_id",
     "/archive",
 
@@ -408,7 +413,7 @@ PRIVATE_ONLY_COMMANDS_HINT = (
 GROUP_ALLOWED_CALLBACK_PREFIXES = {
     "fact_category:",
     "quiz_category:",
-    "quiz_answer:",
+    "group_quiz_answer:",
     "archive_category:",
 }
 
@@ -551,6 +556,8 @@ def get_tournament_starts_at():
 def is_tournament_started() -> bool:
     return datetime.now(timezone.utc) >= get_tournament_starts_at()
 
+def is_group_chat(message: Message) -> bool:
+    return message.chat.type in {"group", "supergroup"}
 
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
@@ -1170,6 +1177,33 @@ def build_archive_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="⚔️ Дерби",
                     callback_data="archive_category:rivalry",
+                ),
+            ],
+        ]
+    )
+
+
+def build_group_quiz_keyboard(session_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="A",
+                    callback_data=f"group_quiz_answer:{session_id}:A",
+                ),
+                InlineKeyboardButton(
+                    text="B",
+                    callback_data=f"group_quiz_answer:{session_id}:B",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="C",
+                    callback_data=f"group_quiz_answer:{session_id}:C",
+                ),
+                InlineKeyboardButton(
+                    text="D",
+                    callback_data=f"group_quiz_answer:{session_id}:D",
                 ),
             ],
         ]
@@ -2128,6 +2162,216 @@ def format_archive_card(card: HistoricalArchiveCard) -> str:
         f"{card.text}"
     )
 
+
+def format_group_quiz_question(question: QuizQuestion) -> str:
+    category_text = FACT_QUIZ_CATEGORIES.get(
+        question.category or "any",
+        question.category or "История ЧМ",
+    )
+
+    year_text = (
+        f"ЧМ-{question.tournament_year}"
+        if question.tournament_year
+        else "История ЧМ"
+    )
+
+    return (
+        "❓ Квиз от Отца прогнозов\n\n"
+        f"Категория: {category_text}\n"
+        f"Тема: {year_text}\n\n"
+        f"{question.question_text}\n\n"
+        f"A) {question.option_a}\n"
+        f"B) {question.option_b}\n"
+        f"C) {question.option_c}\n"
+        f"D) {question.option_d}\n\n"
+        "Отвечайте кнопками ниже. Ответы пока скрыты."
+    )
+
+
+def get_random_quiz_question(db, category: str | None = None) -> QuizQuestion | None:
+    query = db.query(QuizQuestion).filter(
+        QuizQuestion.is_active == True,
+    )
+
+    if category:
+        query = query.filter(QuizQuestion.category == category)
+
+    questions = query.all()
+
+    if not questions:
+        return None
+
+    return random.choice(questions)
+
+
+async def private_quiz_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split(maxsplit=1)
+
+        if len(parts) == 1:
+            await message.answer(
+                "❓ Выбери категорию квиза:",
+                reply_markup=build_category_keyboard("quiz_category"),
+            )
+            return
+
+        category = parts[1].strip().lower()
+
+        if category == "any":
+            category = None
+
+        await send_quiz_by_category(
+            message=message,
+            db=db,
+            category=category,
+        )
+
+    finally:
+        db.close()
+
+
+async def group_quiz_start_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        existing_session = db.query(GroupQuizSession).filter(
+            GroupQuizSession.chat_id == message.chat.id,
+            GroupQuizSession.status == "open",
+        ).first()
+
+        if existing_session:
+            await message.answer(
+                "В этом чате уже идет квиз ❓\n\n"
+                "Сначала завершите текущий вопрос: /quiz_finish"
+            )
+            return
+
+        parts = message.text.split(maxsplit=1)
+        category = parts[1].strip().lower() if len(parts) > 1 else None
+
+        if category == "any":
+            category = None
+
+        question = get_random_quiz_question(db, category=category)
+
+        if not question:
+            await message.answer(
+                "Вопросов по такой категории пока нет.\n\n"
+                "Попробуй просто /quiz"
+            )
+            return
+
+        session = GroupQuizSession(
+            chat_id=message.chat.id,
+            quiz_question_id=question.id,
+            status="open",
+            started_by_user_id=user.id,
+            category=category,
+        )
+
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+        sent_message = await message.answer(
+            format_group_quiz_question(question),
+            reply_markup=build_group_quiz_keyboard(session.id),
+        )
+
+        session.message_id = sent_message.message_id
+        db.commit()
+
+    finally:
+        db.close()
+
+def finish_group_quiz_and_build_result_text(db, session: GroupQuizSession) -> str:
+    question = session.question
+
+    answers = db.query(GroupQuizAnswer).filter(
+        GroupQuizAnswer.session_id == session.id,
+    ).all()
+
+    session.status = "finished"
+    session.finished_at = datetime.now(timezone.utc)
+    db.commit()
+
+    option_texts = {
+        "A": question.option_a,
+        "B": question.option_b,
+        "C": question.option_c,
+        "D": question.option_d,
+    }
+
+    correct_option = question.correct_option.upper()
+    correct_text = option_texts[correct_option]
+
+    correct_answers = [
+        answer.display_name
+        for answer in answers
+        if answer.is_correct
+    ]
+
+    wrong_answers = [
+        f"{answer.display_name} ({answer.selected_option})"
+        for answer in answers
+        if not answer.is_correct
+    ]
+
+    lines = [
+        "🏁 Квиз завершен",
+        "",
+        f"Вопрос: {question.question_text}",
+        "",
+        f"Правильный ответ: {correct_option}) {correct_text}",
+    ]
+
+    if question.explanation:
+        lines.extend(["", question.explanation])
+
+    lines.extend(["", "✅ Верно ответили:"])
+
+    if correct_answers:
+        lines.append(", ".join(correct_answers))
+    else:
+        lines.append("Никто. Очень мощно, господа.")
+
+    lines.extend(["", "❌ Мимо:"])
+
+    if wrong_answers:
+        lines.append(", ".join(wrong_answers))
+    else:
+        lines.append("Никто.")
+
+    if not answers:
+        lines.extend(
+            [
+                "",
+                "🔥 Отец прогнозов:",
+                "Вопрос был настолько сложный, что чат сделал вид, будто занят.",
+            ]
+        )
+    elif correct_answers:
+        lines.extend(
+            [
+                "",
+                "🔥 Отец прогнозов:",
+                "Кто ответил верно — красавчики. Кто мимо — добро пожаловать в зону прогнозов 1:1.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "🔥 Отец прогнозов:",
+                "Коллективный ноль. Архив Отца прогнозов уже заинтересовался.",
+            ]
+        )
+
+    return "\n".join(lines)
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -6575,31 +6819,11 @@ async def admin_daily_fact_preview_handler(message: Message):
 
 @dp.message(Command("quiz"))
 async def quiz_handler(message: Message):
-    db = SessionLocal()
+    if is_group_chat(message):
+        await group_quiz_start_handler(message)
+        return
 
-    try:
-        parts = message.text.split(maxsplit=1)
-
-        if len(parts) == 1:
-            await message.answer(
-                "❓ Выбери категорию квиза:",
-                reply_markup=build_category_keyboard("quiz_category"),
-            )
-            return
-
-        category = parts[1].strip().lower()
-
-        if category == "any":
-            category = None
-
-        await send_quiz_by_category(
-            message=message,
-            db=db,
-            category=category,
-        )
-
-    finally:
-        db.close()
+    await private_quiz_handler(message)
 
 
 @dp.message(Command("admin_import_quiz"))
@@ -7035,6 +7259,174 @@ async def chat_id_handler(message: Message):
         f"chat_id: {message.chat.id}\n"
         f"type: {message.chat.type}"
     )
+
+@dp.callback_query(lambda callback: callback.data.startswith("group_quiz_answer:"))
+async def group_quiz_answer_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        _, session_id_text, selected_option = callback.data.split(":")
+        session_id = int(session_id_text)
+
+        session = db.query(GroupQuizSession).filter(
+            GroupQuizSession.id == session_id
+        ).first()
+
+        if not session:
+            await callback.answer(
+                "Квиз не найден.",
+                show_alert=True,
+            )
+            return
+
+        if session.status != "open":
+            await callback.answer(
+                "Этот вопрос уже завершен.",
+                show_alert=True,
+            )
+            return
+
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        existing_answer = db.query(GroupQuizAnswer).filter(
+            GroupQuizAnswer.session_id == session.id,
+            GroupQuizAnswer.user_id == user.id,
+        ).first()
+
+        if existing_answer:
+            await callback.answer(
+                "Ты уже ответил на этот вопрос. Переобуться не получится 😈",
+                show_alert=True,
+            )
+            return
+
+        question = session.question
+
+        selected_option = selected_option.upper()
+        correct_option = question.correct_option.upper()
+        is_correct = selected_option == correct_option
+
+        answer = GroupQuizAnswer(
+            session_id=session.id,
+            quiz_question_id=question.id,
+            user_id=user.id,
+            telegram_id=user.telegram_id,
+            display_name=user.display_name,
+            selected_option=selected_option,
+            is_correct=is_correct,
+        )
+
+        db.add(answer)
+        db.commit()
+
+        await callback.answer(
+            "Ответ принят ✅",
+            show_alert=False,
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("quiz_finish"))
+async def group_quiz_finish_handler(message: Message):
+    if not is_group_chat(message):
+        await message.answer("Эта команда нужна для группового квиза.")
+        return
+
+    db = SessionLocal()
+
+    try:
+        session = db.query(GroupQuizSession).filter(
+            GroupQuizSession.chat_id == message.chat.id,
+            GroupQuizSession.status == "open",
+        ).first()
+
+        if not session:
+            await message.answer("В этом чате сейчас нет активного квиза.")
+            return
+
+        text = finish_group_quiz_and_build_result_text(db, session)
+
+        await message.answer(text)
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("quiz_table"))
+async def group_quiz_table_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        query = db.query(GroupQuizAnswer)
+
+        if is_group_chat(message):
+            session_ids = [
+                row.id
+                for row in db.query(GroupQuizSession)
+                .filter(GroupQuizSession.chat_id == message.chat.id)
+                .all()
+            ]
+
+            if not session_ids:
+                await message.answer("В этом чате еще не было групповых квизов.")
+                return
+
+            query = query.filter(GroupQuizAnswer.session_id.in_(session_ids))
+
+        answers = query.all()
+
+        if not answers:
+            await message.answer("Ответов по квизу пока нет.")
+            return
+
+        stats = {}
+
+        for answer in answers:
+            key = answer.user_id
+
+            if key not in stats:
+                stats[key] = {
+                    "name": answer.display_name or f"User {answer.telegram_id}",
+                    "total": 0,
+                    "correct": 0,
+                }
+
+            stats[key]["total"] += 1
+
+            if answer.is_correct:
+                stats[key]["correct"] += 1
+
+        rows = list(stats.values())
+
+        rows.sort(
+            key=lambda row: (
+                row["correct"],
+                row["correct"] / row["total"],
+                row["total"],
+            ),
+            reverse=True,
+        )
+
+        lines = [
+            "🏆 Рейтинг группового квиза",
+            "",
+        ]
+
+        for index, row in enumerate(rows, start=1):
+            accuracy = row["correct"] / row["total"] * 100
+
+            lines.append(
+                f"{index}. {row['name']} — "
+                f"{row['correct']}/{row['total']} "
+                f"({accuracy:.0f}%)"
+            )
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
 
 
 async def main():

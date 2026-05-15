@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "language": "ru",
   "created_for": "Telegram bot «Отец прогнозов»",
-  "description": "Seed-файл вопросов для мини-квиза по чемпионатам мира. Вопросы основаны на базе фактов Пикана и дополнительных проверенных фактах.",
-  "questions_count": 60,
+  "description": "Расширенный seed-файл вопросов для мини-квиза по чемпионатам мира: базовые вопросы + дополнительные по категориям и сложности.",
+  "questions_count": 140,
   "questions": [
     {
       "id": "quiz_001",
@@ -964,6 +964,1366 @@
       "tournament_year": null,
       "is_active": true,
       "source_text": "Факты Пикана"
+    },
+    {
+      "id": "quiz_wc2026_001",
+      "question_text": "Сколько матчей запланировано на ЧМ-2026?",
+      "options": {
+        "A": "64",
+        "B": "80",
+        "C": "96",
+        "D": "104"
+      },
+      "correct_option": "D",
+      "explanation": "На ЧМ-2026 запланировано 104 матча.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_002",
+      "question_text": "Какая страна примет больше всего городов-хозяев ЧМ-2026?",
+      "options": {
+        "A": "Канада",
+        "B": "Мексика",
+        "C": "США",
+        "D": "Все поровну"
+      },
+      "correct_option": "C",
+      "explanation": "В США будет 11 городов-хозяев, в Мексике — 3, в Канаде — 2.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_003",
+      "question_text": "В каком городе пройдет матч открытия ЧМ-2026?",
+      "options": {
+        "A": "Торонто",
+        "B": "Мехико",
+        "C": "Лос-Анджелес",
+        "D": "Нью-Йорк"
+      },
+      "correct_option": "B",
+      "explanation": "Матч открытия пройдет в Мехико на стадионе «Ацтека».",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_004",
+      "question_text": "Какой формат группового этапа будет на ЧМ-2026?",
+      "options": {
+        "A": "8 групп по 6 команд",
+        "B": "12 групп по 4 команды",
+        "C": "16 групп по 3 команды",
+        "D": "6 групп по 8 команд"
+      },
+      "correct_option": "B",
+      "explanation": "Финальный формат ЧМ-2026 — 12 групп по 4 команды.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_005",
+      "question_text": "Сколько лучших третьих мест выйдут в плей-офф ЧМ-2026?",
+      "options": {
+        "A": "4",
+        "B": "6",
+        "C": "8",
+        "D": "12"
+      },
+      "correct_option": "C",
+      "explanation": "В плей-офф выйдут 8 лучших команд, занявших третьи места.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_006",
+      "question_text": "Какая стадия впервые появится в плей-офф ЧМ-2026?",
+      "options": {
+        "A": "1/16 финала",
+        "B": "1/32 финала",
+        "C": "Финальная группа",
+        "D": "Раунд wild card"
+      },
+      "correct_option": "A",
+      "explanation": "Из-за расширения турнира появится стадия 1/16 финала.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_007",
+      "question_text": "Какая страна из хозяев ЧМ-2026 уже принимала турнир дважды?",
+      "options": {
+        "A": "Канада",
+        "B": "Мексика",
+        "C": "США",
+        "D": "Ни одна"
+      },
+      "correct_option": "B",
+      "explanation": "Мексика принимала ЧМ в 1970 и 1986 годах.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_008",
+      "question_text": "Какой стадион FIFA называет New York New Jersey Stadium?",
+      "options": {
+        "A": "Rose Bowl",
+        "B": "MetLife Stadium",
+        "C": "AT&T Stadium",
+        "D": "SoFi Stadium"
+      },
+      "correct_option": "B",
+      "explanation": "Финал ЧМ-2026 пройдет на New York New Jersey Stadium, известном как MetLife Stadium.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_009",
+      "question_text": "Почему ЧМ-2026 исторический по числу участников?",
+      "options": {
+        "A": "Впервые сыграют 40 сборных",
+        "B": "Впервые сыграют 48 сборных",
+        "C": "Впервые сыграют 64 сборные",
+        "D": "Сыграют только чемпионы континентов"
+      },
+      "correct_option": "B",
+      "explanation": "ЧМ-2026 станет первым турниром с 48 сборными.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_wc2026_010",
+      "question_text": "Сколько стран-хозяек будет у ЧМ-2026?",
+      "options": {
+        "A": "1",
+        "B": "2",
+        "C": "3",
+        "D": "4"
+      },
+      "correct_option": "C",
+      "explanation": "ЧМ-2026 пройдет в Канаде, Мексике и США.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_001",
+      "question_text": "В каком году прошел первый чемпионат мира?",
+      "options": {
+        "A": "1924",
+        "B": "1930",
+        "C": "1934",
+        "D": "1950"
+      },
+      "correct_option": "B",
+      "explanation": "Первый чемпионат мира прошел в 1930 году в Уругвае.",
+      "category": "history",
+      "tournament_year": 1930,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_002",
+      "question_text": "Какая страна выиграла первый чемпионат мира?",
+      "options": {
+        "A": "Бразилия",
+        "B": "Аргентина",
+        "C": "Уругвай",
+        "D": "Италия"
+      },
+      "correct_option": "C",
+      "explanation": "Уругвай выиграл домашний ЧМ-1930.",
+      "category": "history",
+      "tournament_year": 1930,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_003",
+      "question_text": "Почему ЧМ-1942 и ЧМ-1946 не состоялись?",
+      "options": {
+        "A": "Из-за финансового кризиса",
+        "B": "Из-за Второй мировой войны",
+        "C": "Из-за бойкота сборных",
+        "D": "Из-за смены формата"
+      },
+      "correct_option": "B",
+      "explanation": "Турниры 1942 и 1946 годов не проводились из-за Второй мировой войны.",
+      "category": "history",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_004",
+      "question_text": "На каком ЧМ чемпион определялся в финальной группе, а не отдельным финалом?",
+      "options": {
+        "A": "1930",
+        "B": "1950",
+        "C": "1974",
+        "D": "1982"
+      },
+      "correct_option": "B",
+      "explanation": "На ЧМ-1950 чемпион определялся в финальной группе.",
+      "category": "history",
+      "tournament_year": 1950,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_005",
+      "question_text": "Какой матч известен как «Мараканасо»?",
+      "options": {
+        "A": "Бразилия — Германия 1:7",
+        "B": "Бразилия — Уругвай 1:2",
+        "C": "Аргентина — Англия 2:1",
+        "D": "Италия — Франция 1:1"
+      },
+      "correct_option": "B",
+      "explanation": "В 1950 году Уругвай обыграл Бразилию 2:1 на «Маракане».",
+      "category": "history",
+      "tournament_year": 1950,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_006",
+      "question_text": "На каком ЧМ впервые использовались желтые и красные карточки?",
+      "options": {
+        "A": "1966",
+        "B": "1970",
+        "C": "1974",
+        "D": "1982"
+      },
+      "correct_option": "B",
+      "explanation": "Желтые и красные карточки впервые использовались на ЧМ-1970.",
+      "category": "history",
+      "tournament_year": 1970,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_007",
+      "question_text": "Какой финал ЧМ впервые решился в серии пенальти?",
+      "options": {
+        "A": "1986",
+        "B": "1990",
+        "C": "1994",
+        "D": "2006"
+      },
+      "correct_option": "C",
+      "explanation": "Финал ЧМ-1994 Бразилия — Италия впервые решился по пенальти.",
+      "category": "history",
+      "tournament_year": 1994,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_008",
+      "question_text": "Какой ЧМ стал первым, проведенным в Азии?",
+      "options": {
+        "A": "1998",
+        "B": "2002",
+        "C": "2010",
+        "D": "2022"
+      },
+      "correct_option": "B",
+      "explanation": "ЧМ-2002 прошел в Южной Корее и Японии.",
+      "category": "history",
+      "tournament_year": 2002,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_009",
+      "question_text": "Какой ЧМ стал первым, проведенным в ноябре-декабре?",
+      "options": {
+        "A": "2010",
+        "B": "2014",
+        "C": "2018",
+        "D": "2022"
+      },
+      "correct_option": "D",
+      "explanation": "ЧМ-2022 в Катаре стал первым турниром, прошедшим в ноябре-декабре.",
+      "category": "history",
+      "tournament_year": 2022,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_history_010",
+      "question_text": "Кто выиграл ЧМ-1986?",
+      "options": {
+        "A": "Аргентина",
+        "B": "Германия",
+        "C": "Бразилия",
+        "D": "Италия"
+      },
+      "correct_option": "A",
+      "explanation": "Аргентина выиграла ЧМ-1986.",
+      "category": "history",
+      "tournament_year": 1986,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_001",
+      "question_text": "Какая сборная имеет рекорд по числу титулов ЧМ?",
+      "options": {
+        "A": "Италия",
+        "B": "Германия",
+        "C": "Бразилия",
+        "D": "Аргентина"
+      },
+      "correct_option": "C",
+      "explanation": "Бразилия выигрывала ЧМ 5 раз.",
+      "category": "record",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_002",
+      "question_text": "Сколько голов забил Мирослав Клозе на чемпионатах мира?",
+      "options": {
+        "A": "14",
+        "B": "15",
+        "C": "16",
+        "D": "17"
+      },
+      "correct_option": "C",
+      "explanation": "Мирослав Клозе — лучший бомбардир ЧМ с 16 голами.",
+      "category": "record",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_003",
+      "question_text": "Кто забил больше всех голов на одном чемпионате мира?",
+      "options": {
+        "A": "Герд Мюллер",
+        "B": "Жюст Фонтен",
+        "C": "Роналдо",
+        "D": "Килиан Мбаппе"
+      },
+      "correct_option": "B",
+      "explanation": "Жюст Фонтен забил 13 голов на ЧМ-1958.",
+      "category": "record",
+      "tournament_year": 1958,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_004",
+      "question_text": "Кто забил пять голов в одном матче ЧМ?",
+      "options": {
+        "A": "Олег Саленко",
+        "B": "Эйсебио",
+        "C": "Ромарио",
+        "D": "Гари Линекер"
+      },
+      "correct_option": "A",
+      "explanation": "Олег Саленко забил 5 голов Камеруну на ЧМ-1994.",
+      "category": "record",
+      "tournament_year": 1994,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_005",
+      "question_text": "Какой был самый быстрый гол в истории ЧМ?",
+      "options": {
+        "A": "5,4 секунды",
+        "B": "8,1 секунды",
+        "C": "10,8 секунды",
+        "D": "13,2 секунды"
+      },
+      "correct_option": "C",
+      "explanation": "Хакан Шукюр забил через 10,8 секунды на ЧМ-2002.",
+      "category": "record",
+      "tournament_year": 2002,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_006",
+      "question_text": "Кто является самым возрастным автором гола на ЧМ?",
+      "options": {
+        "A": "Роже Милла",
+        "B": "Эссам Эль-Хадари",
+        "C": "Криштиану Роналду",
+        "D": "Дино Дзофф"
+      },
+      "correct_option": "A",
+      "explanation": "Роже Милла забил на ЧМ-1994 в возрасте 42 лет и 39 дней.",
+      "category": "record",
+      "tournament_year": 1994,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_007",
+      "question_text": "Кто является самым юным автором гола на ЧМ?",
+      "options": {
+        "A": "Майкл Оуэн",
+        "B": "Пеле",
+        "C": "Килиан Мбаппе",
+        "D": "Джулиан Грин"
+      },
+      "correct_option": "B",
+      "explanation": "Пеле забил на ЧМ-1958 в возрасте 17 лет и 239 дней.",
+      "category": "record",
+      "tournament_year": 1958,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_008",
+      "question_text": "Сколько финалов ЧМ решались по пенальти до ЧМ-2026?",
+      "options": {
+        "A": "1",
+        "B": "2",
+        "C": "3",
+        "D": "4"
+      },
+      "correct_option": "C",
+      "explanation": "Финалы по пенальти были в 1994, 2006 и 2022 годах.",
+      "category": "record",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_009",
+      "question_text": "Какая сборная не проигрывала серии пенальти на ЧМ?",
+      "options": {
+        "A": "Италия",
+        "B": "Германия",
+        "C": "Англия",
+        "D": "Франция"
+      },
+      "correct_option": "B",
+      "explanation": "Германия выиграла все свои серии пенальти на ЧМ.",
+      "category": "record",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_record_010",
+      "question_text": "Какой счет является самой крупной победой в истории ЧМ среди предложенных?",
+      "options": {
+        "A": "7:0",
+        "B": "8:0",
+        "C": "9:0",
+        "D": "10:1"
+      },
+      "correct_option": "D",
+      "explanation": "Венгрия победила Сальвадор 10:1 на ЧМ-1982.",
+      "category": "record",
+      "tournament_year": 1982,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_001",
+      "question_text": "Какая сборная участвовала во всех финальных турнирах ЧМ?",
+      "options": {
+        "A": "Германия",
+        "B": "Бразилия",
+        "C": "Италия",
+        "D": "Аргентина"
+      },
+      "correct_option": "B",
+      "explanation": "Бразилия — единственная сборная, игравшая на всех ЧМ.",
+      "category": "team",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_002",
+      "question_text": "Какая сборная трижды играла в финале ЧМ и ни разу его не выиграла?",
+      "options": {
+        "A": "Хорватия",
+        "B": "Швеция",
+        "C": "Нидерланды",
+        "D": "Венгрия"
+      },
+      "correct_option": "C",
+      "explanation": "Нидерланды проиграли финалы 1974, 1978 и 2010 годов.",
+      "category": "team",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_003",
+      "question_text": "Какая сборная стала первой африканской командой в полуфинале ЧМ?",
+      "options": {
+        "A": "Гана",
+        "B": "Сенегал",
+        "C": "Марокко",
+        "D": "Камерун"
+      },
+      "correct_option": "C",
+      "explanation": "Марокко дошло до полуфинала ЧМ-2022.",
+      "category": "team",
+      "tournament_year": 2022,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_004",
+      "question_text": "Какая сборная стала первой азиатской командой в полуфинале ЧМ?",
+      "options": {
+        "A": "Япония",
+        "B": "Южная Корея",
+        "C": "Северная Корея",
+        "D": "Саудовская Аравия"
+      },
+      "correct_option": "B",
+      "explanation": "Южная Корея дошла до полуфинала ЧМ-2002.",
+      "category": "team",
+      "tournament_year": 2002,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_005",
+      "question_text": "Какая сборная семь раз подряд вылетала в 1/8 финала с 1994 по 2018 год?",
+      "options": {
+        "A": "Мексика",
+        "B": "Швейцария",
+        "C": "США",
+        "D": "Япония"
+      },
+      "correct_option": "A",
+      "explanation": "Мексика семь турниров подряд завершала путь в 1/8 финала.",
+      "category": "team",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_006",
+      "question_text": "Какая сборная не проиграла ни одного матча на ЧМ-2010, но не вышла из группы?",
+      "options": {
+        "A": "Парагвай",
+        "B": "Словения",
+        "C": "Новая Зеландия",
+        "D": "Швейцария"
+      },
+      "correct_option": "C",
+      "explanation": "Новая Зеландия трижды сыграла вничью и не вышла из группы.",
+      "category": "team",
+      "tournament_year": 2010,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_007",
+      "question_text": "Какая сборная выиграла ЧМ-2006?",
+      "options": {
+        "A": "Франция",
+        "B": "Италия",
+        "C": "Германия",
+        "D": "Бразилия"
+      },
+      "correct_option": "B",
+      "explanation": "Италия выиграла ЧМ-2006 по пенальти против Франции.",
+      "category": "team",
+      "tournament_year": 2006,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_008",
+      "question_text": "Какая сборная выиграла ЧМ-2018?",
+      "options": {
+        "A": "Франция",
+        "B": "Хорватия",
+        "C": "Бельгия",
+        "D": "Германия"
+      },
+      "correct_option": "A",
+      "explanation": "Франция стала чемпионом мира в 2018 году.",
+      "category": "team",
+      "tournament_year": 2018,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_009",
+      "question_text": "Какая сборная была первым чемпионом мира?",
+      "options": {
+        "A": "Аргентина",
+        "B": "Бразилия",
+        "C": "Уругвай",
+        "D": "Италия"
+      },
+      "correct_option": "C",
+      "explanation": "Уругвай выиграл первый ЧМ в 1930 году.",
+      "category": "team",
+      "tournament_year": 1930,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_team_010",
+      "question_text": "Какая сборная выиграла четыре медали ЧМ подряд с 2002 по 2014 год?",
+      "options": {
+        "A": "Бразилия",
+        "B": "Германия",
+        "C": "Италия",
+        "D": "Франция"
+      },
+      "correct_option": "B",
+      "explanation": "Германия взяла серебро-2002, бронзу-2006, бронзу-2010 и золото-2014.",
+      "category": "team",
+      "tournament_year": null,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_001",
+      "question_text": "Кто единственный футболист, трижды выигравший ЧМ как игрок?",
+      "options": {
+        "A": "Пеле",
+        "B": "Марадона",
+        "C": "Месси",
+        "D": "Клозе"
+      },
+      "correct_option": "A",
+      "explanation": "Пеле выигрывал ЧМ в 1958, 1962 и 1970 годах.",
+      "category": "player",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_002",
+      "question_text": "Кто первым забивал на пяти чемпионатах мира?",
+      "options": {
+        "A": "Лионель Месси",
+        "B": "Криштиану Роналду",
+        "C": "Мирослав Клозе",
+        "D": "Рафаэль Маркес"
+      },
+      "correct_option": "B",
+      "explanation": "Криштиану Роналду забивал на ЧМ 2006, 2010, 2014, 2018 и 2022 годов.",
+      "category": "player",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_003",
+      "question_text": "Кто забил хет-трик в финале ЧМ-2022?",
+      "options": {
+        "A": "Лионель Месси",
+        "B": "Килиан Мбаппе",
+        "C": "Анхель Ди Мария",
+        "D": "Оливье Жиру"
+      },
+      "correct_option": "B",
+      "explanation": "Килиан Мбаппе забил три гола Франции в финале ЧМ-2022.",
+      "category": "player",
+      "tournament_year": 2022,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_004",
+      "question_text": "Кто забил два гола в финале ЧМ-1998?",
+      "options": {
+        "A": "Роналдо",
+        "B": "Зинедин Зидан",
+        "C": "Тьерри Анри",
+        "D": "Эммануэль Пети"
+      },
+      "correct_option": "B",
+      "explanation": "Зинедин Зидан забил два гола Бразилии в финале ЧМ-1998.",
+      "category": "player",
+      "tournament_year": 1998,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_005",
+      "question_text": "Кто был капитаном Аргентины на победном ЧМ-1986?",
+      "options": {
+        "A": "Диего Марадона",
+        "B": "Марио Кемпес",
+        "C": "Габриэль Батистута",
+        "D": "Хорхе Вальдано"
+      },
+      "correct_option": "A",
+      "explanation": "Диего Марадона был лидером и капитаном Аргентины на ЧМ-1986.",
+      "category": "player",
+      "tournament_year": 1986,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_006",
+      "question_text": "Кто выиграл ЧМ как игрок в 1974 году и как тренер в 1990 году?",
+      "options": {
+        "A": "Марио Загалло",
+        "B": "Франц Беккенбауэр",
+        "C": "Дидье Дешам",
+        "D": "Витторио Поццо"
+      },
+      "correct_option": "B",
+      "explanation": "Франц Беккенбауэр выиграл ЧМ как игрок и как тренер.",
+      "category": "player",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_007",
+      "question_text": "Кто выиграл ЧМ как игрок в 1998 году и как тренер в 2018 году?",
+      "options": {
+        "A": "Зинедин Зидан",
+        "B": "Дидье Дешам",
+        "C": "Лоран Блан",
+        "D": "Раймон Доменек"
+      },
+      "correct_option": "B",
+      "explanation": "Дидье Дешам стал чемпионом мира как игрок и как тренер.",
+      "category": "player",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_008",
+      "question_text": "Кто выходил на поле на пяти чемпионатах мира среди вариантов?",
+      "options": {
+        "A": "Лотар Маттеус",
+        "B": "Андрей Шевченко",
+        "C": "Роберто Баджо",
+        "D": "Зинедин Зидан"
+      },
+      "correct_option": "A",
+      "explanation": "Лотар Маттеус играл на пяти чемпионатах мира.",
+      "category": "player",
+      "tournament_year": null,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_009",
+      "question_text": "Кто стал лучшим бомбардиром ЧМ-2002?",
+      "options": {
+        "A": "Ривалдо",
+        "B": "Роналдо",
+        "C": "Мирослав Клозе",
+        "D": "Оливер Бирхофф"
+      },
+      "correct_option": "B",
+      "explanation": "Роналдо стал лучшим бомбардиром ЧМ-2002.",
+      "category": "player",
+      "tournament_year": 2002,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_player_010",
+      "question_text": "Кто был лучшим бомбардиром ЧМ-2014?",
+      "options": {
+        "A": "Томас Мюллер",
+        "B": "Лионель Месси",
+        "C": "Хамес Родригес",
+        "D": "Неймар"
+      },
+      "correct_option": "C",
+      "explanation": "Хамес Родригес забил 6 голов и стал лучшим бомбардиром ЧМ-2014.",
+      "category": "player",
+      "tournament_year": 2014,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_001",
+      "question_text": "Как назывался первый трофей чемпионата мира?",
+      "options": {
+        "A": "Кубок мира ФИФА",
+        "B": "Кубок Жюля Риме",
+        "C": "Кубок конфедераций",
+        "D": "Золотой кубок"
+      },
+      "correct_option": "B",
+      "explanation": "До 1970 года вручался Кубок Жюля Риме.",
+      "category": "trophy",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_002",
+      "question_text": "Какая сборная получила Кубок Жюля Риме навсегда?",
+      "options": {
+        "A": "Италия",
+        "B": "Германия",
+        "C": "Бразилия",
+        "D": "Уругвай"
+      },
+      "correct_option": "C",
+      "explanation": "Бразилия получила трофей навсегда после третьего титула в 1970 году.",
+      "category": "trophy",
+      "tournament_year": 1970,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_003",
+      "question_text": "Что случилось с Кубком Жюля Риме в 1983 году?",
+      "options": {
+        "A": "Его продали",
+        "B": "Его похитили",
+        "C": "Его передали в музей",
+        "D": "Его разбили"
+      },
+      "correct_option": "B",
+      "explanation": "Кубок Жюля Риме был похищен в Бразилии и не найден.",
+      "category": "trophy",
+      "tournament_year": 1983,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_004",
+      "question_text": "С какого года вручается современный Кубок мира ФИФА?",
+      "options": {
+        "A": "1966",
+        "B": "1970",
+        "C": "1974",
+        "D": "1982"
+      },
+      "correct_option": "C",
+      "explanation": "Современный трофей вручается с ЧМ-1974.",
+      "category": "trophy",
+      "tournament_year": 1974,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_005",
+      "question_text": "Какой приз получает лучший бомбардир ЧМ?",
+      "options": {
+        "A": "Золотой мяч",
+        "B": "Золотая бутса",
+        "C": "Золотая перчатка",
+        "D": "Приз Fair Play"
+      },
+      "correct_option": "B",
+      "explanation": "Лучший бомбардир турнира получает Золотую бутсу.",
+      "category": "trophy",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_006",
+      "question_text": "Какой приз получает лучший игрок ЧМ?",
+      "options": {
+        "A": "Золотой мяч",
+        "B": "Золотая бутса",
+        "C": "Золотая перчатка",
+        "D": "Кубок Риме"
+      },
+      "correct_option": "A",
+      "explanation": "Лучший игрок турнира получает Золотой мяч.",
+      "category": "trophy",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_007",
+      "question_text": "Какой приз получает лучший вратарь ЧМ?",
+      "options": {
+        "A": "Золотая бутса",
+        "B": "Золотая перчатка",
+        "C": "Золотой мяч",
+        "D": "Серебряный щит"
+      },
+      "correct_option": "B",
+      "explanation": "Лучший вратарь турнира получает Золотую перчатку.",
+      "category": "trophy",
+      "tournament_year": null,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_008",
+      "question_text": "Что означает приз Fair Play на ЧМ?",
+      "options": {
+        "A": "Лучший бомбардир",
+        "B": "Лучший молодой игрок",
+        "C": "Команда за честную игру",
+        "D": "Лучший тренер"
+      },
+      "correct_option": "C",
+      "explanation": "Приз Fair Play вручается команде за честную игру.",
+      "category": "trophy",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_009",
+      "question_text": "С какого года вручается приз лучшему молодому игроку ЧМ?",
+      "options": {
+        "A": "1994",
+        "B": "1998",
+        "C": "2002",
+        "D": "2006"
+      },
+      "correct_option": "D",
+      "explanation": "Приз лучшему молодому игроку появился в 2006 году.",
+      "category": "trophy",
+      "tournament_year": 2006,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_trophy_010",
+      "question_text": "Передается ли современный Кубок мира ФИФА победителю навсегда?",
+      "options": {
+        "A": "Да, после трех титулов",
+        "B": "Да, после пяти титулов",
+        "C": "Нет",
+        "D": "Только чемпиону Европы"
+      },
+      "correct_option": "C",
+      "explanation": "Современный Кубок мира ФИФА не передается победителю на вечное хранение.",
+      "category": "trophy",
+      "tournament_year": null,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_001",
+      "question_text": "Какая страна принимала первый чемпионат мира?",
+      "options": {
+        "A": "Бразилия",
+        "B": "Уругвай",
+        "C": "Италия",
+        "D": "Франция"
+      },
+      "correct_option": "B",
+      "explanation": "Первый ЧМ прошел в Уругвае в 1930 году.",
+      "category": "host",
+      "tournament_year": 1930,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_002",
+      "question_text": "Какая страна стала чемпионом мира на домашнем ЧМ-1934?",
+      "options": {
+        "A": "Уругвай",
+        "B": "Италия",
+        "C": "Германия",
+        "D": "Бразилия"
+      },
+      "correct_option": "B",
+      "explanation": "Италия выиграла домашний ЧМ-1934.",
+      "category": "host",
+      "tournament_year": 1934,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_003",
+      "question_text": "Кто выиграл домашний ЧМ-1966?",
+      "options": {
+        "A": "Англия",
+        "B": "Германия",
+        "C": "Португалия",
+        "D": "Италия"
+      },
+      "correct_option": "A",
+      "explanation": "Англия выиграла домашний ЧМ-1966.",
+      "category": "host",
+      "tournament_year": 1966,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_004",
+      "question_text": "Какая страна выиграла домашний ЧМ-1978?",
+      "options": {
+        "A": "Бразилия",
+        "B": "Аргентина",
+        "C": "Уругвай",
+        "D": "Испания"
+      },
+      "correct_option": "B",
+      "explanation": "Аргентина выиграла ЧМ-1978 на домашнем турнире.",
+      "category": "host",
+      "tournament_year": 1978,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_005",
+      "question_text": "Какая сборная выиграла домашний ЧМ-1998?",
+      "options": {
+        "A": "Франция",
+        "B": "Бразилия",
+        "C": "Италия",
+        "D": "Германия"
+      },
+      "correct_option": "A",
+      "explanation": "Франция стала чемпионом мира на домашнем ЧМ-1998.",
+      "category": "host",
+      "tournament_year": 1998,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_006",
+      "question_text": "Какая сборная-хозяйка первой не вышла из группы?",
+      "options": {
+        "A": "Катар",
+        "B": "ЮАР",
+        "C": "Россия",
+        "D": "США"
+      },
+      "correct_option": "B",
+      "explanation": "ЮАР не вышла из группы на домашнем ЧМ-2010.",
+      "category": "host",
+      "tournament_year": 2010,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_007",
+      "question_text": "Какая сборная-хозяйка первой проиграла все матчи группы?",
+      "options": {
+        "A": "ЮАР",
+        "B": "Катар",
+        "C": "США",
+        "D": "Япония"
+      },
+      "correct_option": "B",
+      "explanation": "Катар проиграл все три матча группы на домашнем ЧМ-2022.",
+      "category": "host",
+      "tournament_year": 2022,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_008",
+      "question_text": "Какие страны совместно приняли ЧМ-2002?",
+      "options": {
+        "A": "Китай и Япония",
+        "B": "Южная Корея и Япония",
+        "C": "США и Мексика",
+        "D": "Бельгия и Нидерланды"
+      },
+      "correct_option": "B",
+      "explanation": "ЧМ-2002 прошел в Южной Корее и Японии.",
+      "category": "host",
+      "tournament_year": 2002,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_009",
+      "question_text": "Где прошел первый чемпионат мира в Африке?",
+      "options": {
+        "A": "Марокко",
+        "B": "Египет",
+        "C": "ЮАР",
+        "D": "Нигерия"
+      },
+      "correct_option": "C",
+      "explanation": "Первый африканский ЧМ прошел в ЮАР в 2010 году.",
+      "category": "host",
+      "tournament_year": 2010,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_host_010",
+      "question_text": "Какая страна примет матчи ЧМ в третий раз в 2026 году?",
+      "options": {
+        "A": "США",
+        "B": "Мексика",
+        "C": "Канада",
+        "D": "Бразилия"
+      },
+      "correct_option": "B",
+      "explanation": "Мексика уже принимала ЧМ в 1970 и 1986 годах.",
+      "category": "host",
+      "tournament_year": 2026,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_001",
+      "question_text": "Какая собака нашла украденный Кубок Жюля Риме в 1966 году?",
+      "options": {
+        "A": "Пиклз",
+        "B": "Вилли",
+        "C": "Закуми",
+        "D": "Фулеко"
+      },
+      "correct_option": "A",
+      "explanation": "Кубок нашла собака по кличке Пиклз.",
+      "category": "funny",
+      "tournament_year": 1966,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_002",
+      "question_text": "Какой звук особенно запомнился болельщикам на ЧМ-2010?",
+      "options": {
+        "A": "Кастаньеты",
+        "B": "Вувузелы",
+        "C": "Барабаны тайко",
+        "D": "Свистки судей"
+      },
+      "correct_option": "B",
+      "explanation": "ЧМ-2010 в ЮАР запомнился звуком вувузел.",
+      "category": "funny",
+      "tournament_year": 2010,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_003",
+      "question_text": "Какая команда вылетела с ЧМ-2018 по fair play?",
+      "options": {
+        "A": "Япония",
+        "B": "Сенегал",
+        "C": "Польша",
+        "D": "Колумбия"
+      },
+      "correct_option": "B",
+      "explanation": "Сенегал уступил Японии по показателю fair play.",
+      "category": "funny",
+      "tournament_year": 2018,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_004",
+      "question_text": "Какая сборная не проиграла ни одного матча на ЧМ-2010, но не вышла из группы?",
+      "options": {
+        "A": "Новая Зеландия",
+        "B": "Италия",
+        "C": "Швейцария",
+        "D": "Словения"
+      },
+      "correct_option": "A",
+      "explanation": "Новая Зеландия сыграла три ничьи и не прошла дальше.",
+      "category": "funny",
+      "tournament_year": 2010,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_005",
+      "question_text": "На каком ЧМ игрок Заира выбежал из стенки и выбил мяч до розыгрыша штрафного?",
+      "options": {
+        "A": "1966",
+        "B": "1974",
+        "C": "1982",
+        "D": "1990"
+      },
+      "correct_option": "B",
+      "explanation": "Этот курьезный эпизод произошел на ЧМ-1974 в матче с Бразилией.",
+      "category": "funny",
+      "tournament_year": 1974,
+      "difficulty": "hard",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_006",
+      "question_text": "Как назывался спорный мяч ЧМ-2010?",
+      "options": {
+        "A": "Telstar",
+        "B": "Jabulani",
+        "C": "Brazuca",
+        "D": "Teamgeist"
+      },
+      "correct_option": "B",
+      "explanation": "Мяч Jabulani вызвал много споров на ЧМ-2010.",
+      "category": "funny",
+      "tournament_year": 2010,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_007",
+      "question_text": "Какой талисман был первым в истории чемпионатов мира?",
+      "options": {
+        "A": "Лев Вилли",
+        "B": "Волк Забивака",
+        "C": "Леопард Закуми",
+        "D": "Броненосец Фулеко"
+      },
+      "correct_option": "A",
+      "explanation": "Первым талисманом был львенок Вилли на ЧМ-1966.",
+      "category": "funny",
+      "tournament_year": 1966,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_008",
+      "question_text": "Какой талисман был у ЧМ-2018?",
+      "options": {
+        "A": "Закуми",
+        "B": "Фулеко",
+        "C": "Забивака",
+        "D": "Голео"
+      },
+      "correct_option": "C",
+      "explanation": "Талисманом ЧМ-2018 был волк Забивака.",
+      "category": "funny",
+      "tournament_year": 2018,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_009",
+      "question_text": "Кого Луи ван Гал выпустил перед серией пенальти с Коста-Рикой на ЧМ-2014?",
+      "options": {
+        "A": "Тима Крула",
+        "B": "Эдвина ван дер Сара",
+        "C": "Мемфиса Депая",
+        "D": "Яспера Силлессена"
+      },
+      "correct_option": "A",
+      "explanation": "Тим Крул вышел специально на серию пенальти и помог Нидерландам пройти дальше.",
+      "category": "funny",
+      "tournament_year": 2014,
+      "difficulty": "medium",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
+    },
+    {
+      "id": "quiz_funny_010",
+      "question_text": "Какой голкипер стал героем необычной замены Нидерландов перед пенальти на ЧМ-2014?",
+      "options": {
+        "A": "Тим Крул",
+        "B": "Мануэль Нойер",
+        "C": "Уго Льорис",
+        "D": "Джанлуиджи Буффон"
+      },
+      "correct_option": "A",
+      "explanation": "Тим Крул был выпущен перед серией пенальти против Коста-Рики.",
+      "category": "funny",
+      "tournament_year": 2014,
+      "difficulty": "easy",
+      "is_active": true,
+      "source_text": "Дополнительная база фактов"
     }
   ]
 }

@@ -329,3 +329,51 @@ class HistoricalArchiveDeliveryLog(Base):
 
     archive_card = relationship("HistoricalArchiveCard")
     user = relationship("User")
+
+
+class GroupQuizSession(Base):
+    __tablename__ = "group_quiz_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    chat_id = Column(BigInteger, nullable=False)
+    quiz_question_id = Column(Integer, ForeignKey("quiz_questions.id"), nullable=False)
+
+    status = Column(String, nullable=False, default="open")
+
+    started_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    message_id = Column(BigInteger, nullable=True)
+
+    category = Column(String, nullable=True)
+
+    question = relationship("QuizQuestion")
+    started_by = relationship("User")
+
+
+class GroupQuizAnswer(Base):
+    __tablename__ = "group_quiz_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    session_id = Column(Integer, ForeignKey("group_quiz_sessions.id"), nullable=False)
+    quiz_question_id = Column(Integer, ForeignKey("quiz_questions.id"), nullable=False)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    telegram_id = Column(BigInteger, nullable=True)
+    display_name = Column(String, nullable=True)
+
+    selected_option = Column(String, nullable=False)
+    is_correct = Column(Boolean, nullable=False)
+
+    answered_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    session = relationship("GroupQuizSession")
+    question = relationship("QuizQuestion")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", name="uq_group_quiz_session_user"),
+    )
