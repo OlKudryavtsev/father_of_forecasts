@@ -1,9 +1,9 @@
 {
-  "version": 2,
+  "version": 3,
   "language": "ru",
   "created_for": "Telegram bot «Отец прогнозов»",
-  "description": "Нормализованный seed-файл фактов о ЧМ: осмысленные заголовки, очищенный текст, без технических источников в пользовательском выводе.",
-  "facts_count": 92,
+  "description": "Расширенный seed-файл фактов о ЧМ: нормализованные факты + дополнительные факты по 10 в каждую категорию.",
+  "facts_count": 172,
   "facts": [
     {
       "id": "pikan_001",
@@ -1485,6 +1485,1286 @@
         "extra",
         "verified",
         "normalized"
+      ]
+    },
+    {
+      "id": "add_wc2026_001",
+      "title": "Первый ЧМ на 48 сборных",
+      "fact_text": "ЧМ-2026 станет первым чемпионатом мира, в финальной стадии которого сыграют 48 сборных.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_002",
+      "title": "104 матча вместо 64",
+      "fact_text": "На ЧМ-2026 запланировано 104 матча — значительно больше, чем на турнирах с форматом на 32 команды.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_003",
+      "title": "Три страны-хозяйки",
+      "fact_text": "ЧМ-2026 впервые пройдет сразу в трех странах: США, Мексике и Канаде.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_004",
+      "title": "16 городов турнира",
+      "fact_text": "Матчи ЧМ-2026 примут 16 городов: 11 в США, 3 в Мексике и 2 в Канаде.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_005",
+      "title": "Матч открытия на «Ацтеке»",
+      "fact_text": "Матч открытия ЧМ-2026 пройдет на стадионе «Ацтека» в Мехико.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_006",
+      "title": "Финал в Нью-Джерси",
+      "fact_text": "Финал ЧМ-2026 пройдет на New York New Jersey Stadium, известном как MetLife Stadium.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_007",
+      "title": "12 групп по 4 команды",
+      "fact_text": "Групповой этап ЧМ-2026 будет состоять из 12 групп по 4 команды.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_008",
+      "title": "Лучшие третьи места тоже проходят",
+      "fact_text": "В плей-офф ЧМ-2026 выйдут победители групп, вторые места и 8 лучших команд, занявших третьи места.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_009",
+      "title": "Новая стадия 1/16 финала",
+      "fact_text": "Из-за расширения турнира в плей-офф ЧМ-2026 появится стадия 1/16 финала.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_wc2026_010",
+      "title": "Мексика — трехкратный хозяин",
+      "fact_text": "Мексика станет первой страной, которая примет матчи чемпионата мира в третий раз: после 1970 и 1986 годов.",
+      "category": "wc2026",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Отец прогнозов предупреждает: новый формат — новые способы красиво ошибиться.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "wc2026"
+      ]
+    },
+    {
+      "id": "add_history_001",
+      "title": "Первый чемпионат мира",
+      "fact_text": "Первый чемпионат мира прошел в 1930 году в Уругвае, и хозяева стали первыми чемпионами.",
+      "category": "history",
+      "tournament_year": 1930,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_002",
+      "title": "ЧМ не проводили из-за войны",
+      "fact_text": "Чемпионаты мира 1942 и 1946 годов не проводились из-за Второй мировой войны.",
+      "category": "history",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_003",
+      "title": "Финал без финала",
+      "fact_text": "На ЧМ-1950 не было отдельного финала: чемпион определялся в финальной группе.",
+      "category": "history",
+      "tournament_year": 1950,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_004",
+      "title": "«Мараканасо»",
+      "fact_text": "В 1950 году Уругвай обыграл Бразилию 2:1 на «Маракане» в решающем матче турнира.",
+      "category": "history",
+      "tournament_year": 1950,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_005",
+      "title": "Первый ЧМ с телетрансляциями",
+      "fact_text": "ЧМ-1954 стал первым чемпионатом мира, матчи которого транслировались по телевидению.",
+      "category": "history",
+      "tournament_year": 1954,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_006",
+      "title": "Англия выиграла дома",
+      "fact_text": "Англия выиграла свой единственный чемпионат мира в 1966 году на домашнем турнире.",
+      "category": "history",
+      "tournament_year": 1966,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_007",
+      "title": "Карточки появились в 1970 году",
+      "fact_text": "Желтые и красные карточки впервые использовались на чемпионате мира 1970 года.",
+      "category": "history",
+      "tournament_year": 1970,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_008",
+      "title": "Первый финал по пенальти",
+      "fact_text": "Первым финалом чемпионата мира, решенным в серии пенальти, стал финал 1994 года Бразилия — Италия.",
+      "category": "history",
+      "tournament_year": 1994,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_009",
+      "title": "Первый ЧМ в Азии",
+      "fact_text": "ЧМ-2002 стал первым чемпионатом мира, проведенным в Азии.",
+      "category": "history",
+      "tournament_year": 2002,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_history_010",
+      "title": "Первый зимний ЧМ",
+      "fact_text": "ЧМ-2022 в Катаре стал первым чемпионатом мира, проведенным в ноябре-декабре.",
+      "category": "history",
+      "tournament_year": 2022,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "История ЧМ учит: уверенность до матча — самый короткий путь к нулю очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "history"
+      ]
+    },
+    {
+      "id": "add_record_001",
+      "title": "Бразилия — 5 титулов",
+      "fact_text": "Бразилия выиграла чемпионат мира 5 раз — это рекорд турнира.",
+      "category": "record",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_002",
+      "title": "Германия чаще всех играла в финалах",
+      "fact_text": "Германия выходила в финал чемпионата мира 8 раз — больше любой другой сборной.",
+      "category": "record",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_003",
+      "title": "Клозе — 16 голов",
+      "fact_text": "Мирослав Клозе забил 16 голов на чемпионатах мира — это рекорд турнира.",
+      "category": "record",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_004",
+      "title": "Фонтен — 13 голов за турнир",
+      "fact_text": "Жюст Фонтен забил 13 голов на ЧМ-1958 — рекорд одного чемпионата мира.",
+      "category": "record",
+      "tournament_year": 1958,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_005",
+      "title": "Саленко — 5 голов в одном матче",
+      "fact_text": "Олег Саленко забил 5 голов в матче Россия — Камерун на ЧМ-1994.",
+      "category": "record",
+      "tournament_year": 1994,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_006",
+      "title": "Самый быстрый гол",
+      "fact_text": "Хакан Шукюр забил самый быстрый гол в истории ЧМ: через 10,8 секунды в матче Турция — Южная Корея в 2002 году.",
+      "category": "record",
+      "tournament_year": 2002,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_007",
+      "title": "Месси — больше всех матчей",
+      "fact_text": "Лионель Месси провел больше всех матчей в истории чемпионатов мира.",
+      "category": "record",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_008",
+      "title": "Эль-Хадари — самый возрастной игрок",
+      "fact_text": "Эссам Эль-Хадари стал самым возрастным игроком ЧМ: 45 лет и 161 день.",
+      "category": "record",
+      "tournament_year": 2018,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_009",
+      "title": "Пеле — самый юный автор гола",
+      "fact_text": "Пеле забил на чемпионате мира в возрасте 17 лет и 239 дней.",
+      "category": "record",
+      "tournament_year": 1958,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_record_010",
+      "title": "Три финала по пенальти",
+      "fact_text": "Финалы ЧМ решались по пенальти трижды: в 1994, 2006 и 2022 годах.",
+      "category": "record",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Рекорды красивы. Но точный счет в нашей таблице всё равно вкуснее.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "record"
+      ]
+    },
+    {
+      "id": "add_team_001",
+      "title": "Бразилия играла на всех ЧМ",
+      "fact_text": "Бразилия — единственная сборная, участвовавшая во всех финальных турнирах чемпионата мира.",
+      "category": "team",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_002",
+      "title": "Нидерланды — три финала без титула",
+      "fact_text": "Нидерланды трижды играли в финалах ЧМ — 1974, 1978 и 2010 — и ни разу не выиграли.",
+      "category": "team",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_003",
+      "title": "Хорватия и медали",
+      "fact_text": "Хорватия брала медали на ЧМ-1998, ЧМ-2018 и ЧМ-2022.",
+      "category": "team",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_004",
+      "title": "Марокко — первый полуфинал Африки",
+      "fact_text": "Марокко стало первой африканской сборной, дошедшей до полуфинала ЧМ.",
+      "category": "team",
+      "tournament_year": 2022,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_005",
+      "title": "Южная Корея — первый полуфинал Азии",
+      "fact_text": "Южная Корея стала первой азиатской сборной, дошедшей до полуфинала ЧМ.",
+      "category": "team",
+      "tournament_year": 2002,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_006",
+      "title": "Мексика и серия 1/8",
+      "fact_text": "Мексика семь турниров подряд, с 1994 по 2018 год, вылетала в 1/8 финала.",
+      "category": "team",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_007",
+      "title": "Новая Зеландия без поражений",
+      "fact_text": "Новая Зеландия не проиграла ни одного матча на ЧМ-2010, но не вышла из группы.",
+      "category": "team",
+      "tournament_year": 2010,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_008",
+      "title": "Германия и медальная серия",
+      "fact_text": "Германия завоевывала медали на четырех чемпионатах мира подряд с 2002 по 2014 год.",
+      "category": "team",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_009",
+      "title": "Италия — четыре титула",
+      "fact_text": "Италия выигрывала чемпионат мира четыре раза: в 1934, 1938, 1982 и 2006 годах.",
+      "category": "team",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_team_010",
+      "title": "Уругвай — первый чемпион",
+      "fact_text": "Уругвай стал первым чемпионом мира, выиграв домашний турнир 1930 года.",
+      "category": "team",
+      "tournament_year": 1930,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Сборные меняются, а боль от неправильного исхода остается.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "team"
+      ]
+    },
+    {
+      "id": "add_player_001",
+      "title": "Пеле — три чемпионства",
+      "fact_text": "Пеле — единственный футболист, трижды становившийся чемпионом мира как игрок.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_002",
+      "title": "Криштиану забивал на пяти ЧМ",
+      "fact_text": "Криштиану Роналду стал первым игроком, забивавшим на пяти чемпионатах мира.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_003",
+      "title": "Мбаппе и финалы",
+      "fact_text": "Килиан Мбаппе забил четыре гола в финалах чемпионатов мира: один в 2018 году и три в 2022-м.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_004",
+      "title": "Месси и рекорд матчей",
+      "fact_text": "Лионель Месси стал рекордсменом по количеству матчей на чемпионатах мира.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_005",
+      "title": "Зидан и два гола в финале",
+      "fact_text": "Зинедин Зидан забил два гола в финале ЧМ-1998 против Бразилии.",
+      "category": "player",
+      "tournament_year": 1998,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_006",
+      "title": "Марадона и 1986 год",
+      "fact_text": "Диего Марадона был капитаном Аргентины, выигравшей ЧМ-1986.",
+      "category": "player",
+      "tournament_year": 1986,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_007",
+      "title": "Беккенбауэр как игрок и тренер",
+      "fact_text": "Франц Беккенбауэр выигрывал ЧМ как игрок в 1974 году и как тренер в 1990 году.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_008",
+      "title": "Дешам как игрок и тренер",
+      "fact_text": "Дидье Дешам выигрывал ЧМ как игрок в 1998 году и как тренер в 2018 году.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_009",
+      "title": "Загалло как игрок и тренер",
+      "fact_text": "Марио Загалло выигрывал чемпионат мира как игрок и как тренер сборной Бразилии.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_player_010",
+      "title": "Маттеус и пять турниров",
+      "fact_text": "Лотар Маттеус выходил на поле на пяти чемпионатах мира.",
+      "category": "player",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Великие игроки пишут историю. Участники — иногда объяснительные после 0 очков.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "player"
+      ]
+    },
+    {
+      "id": "add_trophy_001",
+      "title": "Кубок Жюля Риме",
+      "fact_text": "С 1930 по 1970 год победителю чемпионата мира вручался Кубок Жюля Риме.",
+      "category": "trophy",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_002",
+      "title": "Бразилия получила Кубок Риме навсегда",
+      "fact_text": "После третьего титула в 1970 году Бразилия получила Кубок Жюля Риме на вечное хранение.",
+      "category": "trophy",
+      "tournament_year": 1970,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_003",
+      "title": "Кубок Риме украли",
+      "fact_text": "В 1983 году Кубок Жюля Риме был похищен в Бразилии и так и не найден.",
+      "category": "trophy",
+      "tournament_year": 1983,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_004",
+      "title": "Современный кубок с 1974 года",
+      "fact_text": "С 1974 года победителю вручается современный Кубок мира ФИФА.",
+      "category": "trophy",
+      "tournament_year": 1974,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_005",
+      "title": "Кубок не остается у победителя",
+      "fact_text": "Современный Кубок мира ФИФА не передается победителю навсегда.",
+      "category": "trophy",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_006",
+      "title": "Золотой мяч ЧМ",
+      "fact_text": "Золотой мяч вручается лучшему игроку финального турнира чемпионата мира.",
+      "category": "trophy",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_007",
+      "title": "Золотая бутса",
+      "fact_text": "Золотая бутса вручается лучшему бомбардиру чемпионата мира.",
+      "category": "trophy",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_008",
+      "title": "Золотая перчатка",
+      "fact_text": "Золотая перчатка вручается лучшему вратарю чемпионата мира.",
+      "category": "trophy",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_009",
+      "title": "Приз Fair Play",
+      "fact_text": "На чемпионатах мира вручается приз Fair Play команде за честную игру.",
+      "category": "trophy",
+      "tournament_year": null,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_trophy_010",
+      "title": "Лучший молодой игрок",
+      "fact_text": "С 2006 года на ЧМ вручается приз лучшему молодому игроку турнира.",
+      "category": "trophy",
+      "tournament_year": 2006,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Трофеи блестят. Таблица после неудачного тура — нет.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "trophy"
+      ]
+    },
+    {
+      "id": "add_host_001",
+      "title": "Уругвай выиграл дома",
+      "fact_text": "Уругвай выиграл первый чемпионат мира, который сам же и принимал в 1930 году.",
+      "category": "host",
+      "tournament_year": 1930,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_002",
+      "title": "Италия выиграла домашний ЧМ",
+      "fact_text": "Италия выиграла чемпионат мира 1934 года на домашнем турнире.",
+      "category": "host",
+      "tournament_year": 1934,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_003",
+      "title": "Англия выиграла дома в 1966",
+      "fact_text": "Англия стала чемпионом мира на домашнем турнире 1966 года.",
+      "category": "host",
+      "tournament_year": 1966,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_004",
+      "title": "Аргентина выиграла дома",
+      "fact_text": "Аргентина выиграла чемпионат мира 1978 года, который проходил у нее дома.",
+      "category": "host",
+      "tournament_year": 1978,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_005",
+      "title": "Франция выиграла дома",
+      "fact_text": "Франция выиграла домашний чемпионат мира 1998 года.",
+      "category": "host",
+      "tournament_year": 1998,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_006",
+      "title": "ЮАР не вышла из группы",
+      "fact_text": "ЮАР в 2010 году стала первым хозяином ЧМ, не вышедшим из группы.",
+      "category": "host",
+      "tournament_year": 2010,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_007",
+      "title": "Катар без очков",
+      "fact_text": "Катар в 2022 году стал первым хозяином ЧМ, проигравшим все матчи группы.",
+      "category": "host",
+      "tournament_year": 2022,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_008",
+      "title": "ЧМ-2002 с двумя хозяевами",
+      "fact_text": "ЧМ-2002 впервые прошел сразу в двух странах: Южной Корее и Японии.",
+      "category": "host",
+      "tournament_year": 2002,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_009",
+      "title": "Первый ЧМ в Африке",
+      "fact_text": "ЧМ-2010 в ЮАР стал первым чемпионатом мира на африканском континенте.",
+      "category": "host",
+      "tournament_year": 2010,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_host_010",
+      "title": "ЧМ-2026 с тремя хозяевами",
+      "fact_text": "ЧМ-2026 станет первым мужским чемпионатом мира с тремя странами-хозяйками.",
+      "category": "host",
+      "tournament_year": 2026,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Домашний турнир помогает, но прогноз за тебя не поставит.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "host"
+      ]
+    },
+    {
+      "id": "add_funny_001",
+      "title": "Пиклз нашел кубок",
+      "fact_text": "В 1966 году украденный Кубок Жюля Риме нашла собака по кличке Пиклз.",
+      "category": "funny",
+      "tournament_year": 1966,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_002",
+      "title": "Вувузелы ЧМ-2010",
+      "fact_text": "ЧМ-2010 запомнился не только футболом, но и звуком вувузел на стадионах ЮАР.",
+      "category": "funny",
+      "tournament_year": 2010,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_003",
+      "title": "Сенегал вылетел по fair play",
+      "fact_text": "Сенегал на ЧМ-2018 вылетел из группы из-за большего числа желтых карточек, чем у Японии.",
+      "category": "funny",
+      "tournament_year": 2018,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_004",
+      "title": "Новая Зеландия без поражений и без плей-офф",
+      "fact_text": "Новая Зеландия не проиграла ни разу на ЧМ-2010, но все равно не вышла из группы.",
+      "category": "funny",
+      "tournament_year": 2010,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_005",
+      "title": "Заир и штрафной Бразилии",
+      "fact_text": "На ЧМ-1974 игрок Заира выбежал из стенки и выбил мяч до розыгрыша штрафного Бразилии.",
+      "category": "funny",
+      "tournament_year": 1974,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_006",
+      "title": "Jabulani и споры",
+      "fact_text": "Мяч Jabulani на ЧМ-2010 вызвал много споров среди игроков и вратарей.",
+      "category": "funny",
+      "tournament_year": 2010,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_007",
+      "title": "Кувейт и отмененный гол",
+      "fact_text": "На ЧМ-1982 матч Франция — Кувейт запомнился спорным эпизодом, когда гол Франции был отменен после протеста кувейтской стороны.",
+      "category": "funny",
+      "tournament_year": 1982,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_008",
+      "title": "Танец Роже Миллы",
+      "fact_text": "Роже Милла на ЧМ-1990 прославился празднованием голов танцем у углового флажка.",
+      "category": "funny",
+      "tournament_year": 1990,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_009",
+      "title": "Первый талисман — лев Вилли",
+      "fact_text": "Первым талисманом чемпионата мира стал львенок Вилли на ЧМ-1966.",
+      "category": "funny",
+      "tournament_year": 1966,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
+      ]
+    },
+    {
+      "id": "add_funny_010",
+      "title": "Тим Крул вышел на пенальти",
+      "fact_text": "На ЧМ-2014 тренер Нидерландов Луи ван Гал выпустил Тима Крула перед серией пенальти с Коста-Рикой, и Крул помог выиграть серию.",
+      "category": "funny",
+      "tournament_year": 2014,
+      "source_text": "Дополнительная база фактов",
+      "source_url": null,
+      "spicy_comment": "Футбол — игра серьезная. Пока не начинается настоящий цирк.",
+      "needs_verification": false,
+      "is_active": true,
+      "tags": [
+        "extra_v3",
+        "funny"
       ]
     }
   ]
