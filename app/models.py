@@ -200,3 +200,42 @@ class CommandLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User")
+
+class WorldCupFact(Base):
+    __tablename__ = "world_cup_facts"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    external_id = Column(String, unique=True, nullable=True)
+
+    title = Column(String, nullable=False)
+    fact_text = Column(Text, nullable=False)
+
+    category = Column(String, nullable=True)
+    tournament_year = Column(Integer, nullable=True)
+
+    source_text = Column(String, nullable=True)
+    source_url = Column(Text, nullable=True)
+
+    spicy_comment = Column(Text, nullable=True)
+
+    needs_verification = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class FactDeliveryLog(Base):
+    __tablename__ = "fact_delivery_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    fact_id = Column(Integer, ForeignKey("world_cup_facts.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    telegram_id = Column(BigInteger, nullable=True)
+
+    delivery_type = Column(String, nullable=False)
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    fact = relationship("WorldCupFact")
+    user = relationship("User")

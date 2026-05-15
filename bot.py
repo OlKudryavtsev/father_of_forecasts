@@ -5,6 +5,8 @@ import io
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import random
+import json
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from typing import Any, Awaitable, Callable
@@ -25,6 +27,8 @@ from app.models import (
     TournamentPrediction,
     TournamentResult,
     User,
+    WorldCupFact,
+    FactDeliveryLog,
 )
 from app.admin import is_admin_telegram_id
 
@@ -45,6 +49,10 @@ TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
 MATCHDAY_TIMEZONE_NAME = os.getenv("MATCHDAY_TIMEZONE", "America/New_York")
 MATCHDAY_TIMEZONE = ZoneInfo(MATCHDAY_TIMEZONE_NAME)
+DAILY_FACTS_ENABLED = os.getenv("DAILY_FACTS_ENABLED", "false").lower() == "true"
+DAILY_FACT_HOUR = int(os.getenv("DAILY_FACT_HOUR", "9"))
+DAILY_FACT_MINUTE = int(os.getenv("DAILY_FACT_MINUTE", "0"))
+DAILY_FACT_TIMEZONE = ZoneInfo(os.getenv("DAILY_FACT_TIMEZONE", "Europe/Moscow"))
 
 ADMIN_NOTIFY_ENABLED = os.getenv("ADMIN_NOTIFY_ENABLED", "true").lower() == "true"
 
@@ -99,6 +107,9 @@ USER_HELP_TEXT = (
     "/table — таблица участников\n"
     "/summary — твоя статистика\n"
     "/ai_summary — ИИ-разбор твоей игры\n"
+    "/fact — случайный факт о чемпионатах мира\n"
+    "/fact wc2026 — факт про ЧМ-2026\n"
+    "/fact record — рекорды ЧМ\n"
 )
 
 TEAM_FLAGS = {
@@ -2814,6 +2825,184 @@ def build_user_summary_context(db, user: User) -> dict:
             "predict": "/predict",
         },
     }
+
+def format_world_cup_fact(fact: WorldCupFact) -> str:
+    year_text = f"ЧМ-{fact.tournament_year}" if fact.tournament_year else "История ЧМ"
+
+    lines = [
+        "📚 Факт от Отца прогнозов",
+        "",
+        f"🏷 {fact.title}",
+        f"🗓 {year_text}",
+        "",
+        fact.fact_text,
+    ]
+
+    if fact.spicy_comment:
+        lines.extend(["", f"🔥 {fact.spicy_comment}"])
+
+    if fact.source_text:
+        lines.extend(["", f"Источник: {fact.source_text}"])
+
+    return "\n".join(lines)
+
+def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
+    now_local = datetime.now(DAILY_FACT_TIMEZONE)
+
+    start_local = now_local.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+    end_local = start_local + timedelta(days=1)
+
+    start_utc = start_local.astimezone(timezone.utc)
+    end_utc = end_local.astimezone(timezone.utc)
+
+    sent_fact_ids_today = [
+        row.fact_id
+        for row in db.query(FactDeliveryLog)
+        .filter(
+            FactDeliveryLog.delivery_type == "daily",
+            FactDeliveryLog.sent_at >= start_utc,
+            FactDeliveryLog.sent_at < end_utc,
+        )
+        .all()
+    ]
+
+    query = db.query(WorldCupFact).filter(
+        WorldCupFact.is_active == True,
+        WorldCupFact.needs_verification == False,
+    )
+
+    if sent_fact_ids_today:
+        query = query.filter(WorldCupFact.id.notin_(sent_fact_ids_today))
+
+    facts = query.all()
+
+    if not facts:
+        return None
+
+    return random.choice(facts)
+
+FACTS_SEED_PATH = Path("data/world_cup_facts_seed.json")
+
+
+def import_world_cup_facts_from_seed(db) -> dict:
+    if not FACTS_SEED_PATH.exists():
+        raise FileNotFoundError(f"Файл не найден: {FACTS_SEED_PATH}")
+
+    payload = json.loads(
+        FACTS_SEED_PATH.read_text(encoding="utf-8")
+    )
+
+    facts = payload.get("facts", [])
+
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for item in facts:
+        external_id = item.get("id")
+
+        if not external_id:
+            skipped += 1
+            continue
+
+        fact = db.query(WorldCupFact).filter(
+            WorldCupFact.external_id == external_id
+        ).first()
+
+        if not fact:
+            fact = WorldCupFact(external_id=external_id)
+            db.add(fact)
+            created += 1
+        else:
+            updated += 1
+
+        fact.title = item.get("title") or "Факт о ЧМ"
+        fact.fact_text = item.get("fact_text") or ""
+        fact.category = item.get("category")
+        fact.tournament_year = item.get("tournament_year")
+        fact.source_text = item.get("source_text")
+        fact.source_url = item.get("source_url")
+        fact.spicy_comment = item.get("spicy_comment")
+        fact.needs_verification = bool(item.get("needs_verification", False))
+        fact.is_active = bool(item.get("is_active", True))
+
+    db.commit()
+
+    return {
+        "total": len(facts),
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+    }
+
+async def daily_facts_loop():
+    if not DAILY_FACTS_ENABLED:
+        print("Daily facts are disabled")
+        return
+
+    print(
+        "Daily facts loop started. "
+        f"Time: {DAILY_FACT_HOUR:02d}:{DAILY_FACT_MINUTE:02d} "
+        f"{DAILY_FACT_TIMEZONE}"
+    )
+
+    last_sent_date = None
+
+    while True:
+        now_local = datetime.now(DAILY_FACT_TIMEZONE)
+
+        should_send = (
+            now_local.hour == DAILY_FACT_HOUR
+            and now_local.minute == DAILY_FACT_MINUTE
+            and last_sent_date != now_local.date()
+        )
+
+        if should_send:
+            db = SessionLocal()
+
+            try:
+                fact = get_random_fact_not_sent_today(db)
+
+                if fact:
+                    users = db.query(User).all()
+
+                    text = format_world_cup_fact(fact)
+
+                    for user in users:
+                        try:
+                            await bot.send_message(
+                                chat_id=user.telegram_id,
+                                text=text,
+                            )
+
+                            db.add(
+                                FactDeliveryLog(
+                                    fact_id=fact.id,
+                                    user_id=user.id,
+                                    telegram_id=user.telegram_id,
+                                    delivery_type="daily",
+                                )
+                            )
+                            db.commit()
+
+                        except Exception as error:
+                            print(
+                                f"Failed to send daily fact "
+                                f"to {user.telegram_id}: {error}"
+                            )
+
+                last_sent_date = now_local.date()
+
+            finally:
+                db.close()
+
+        await asyncio.sleep(30)
 
 async def notify_admins(text: str, exclude_telegram_id: int | None = None):
     if not ADMIN_NOTIFY_ENABLED:
@@ -5617,9 +5806,119 @@ async def admin_command_stats_user_handler(message: Message):
     finally:
         db.close()
 
+@dp.message(Command("fact"))
+async def fact_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split(maxsplit=1)
+        category = parts[1].strip().lower() if len(parts) > 1 else None
+
+        query = db.query(WorldCupFact).filter(
+            WorldCupFact.is_active == True,
+            WorldCupFact.needs_verification == False,
+        )
+
+        if category:
+            query = query.filter(WorldCupFact.category == category)
+
+        facts = query.all()
+
+        if not facts:
+            await message.answer(
+                "Фактов по такой категории пока нет.\n\n"
+                "Попробуй просто /fact"
+            )
+            return
+
+        fact = random.choice(facts)
+
+        user, _ = get_or_create_user(db, message.from_user)
+
+        log = FactDeliveryLog(
+            fact_id=fact.id,
+            user_id=user.id,
+            telegram_id=user.telegram_id,
+            delivery_type="manual",
+        )
+
+        db.add(log)
+        db.commit()
+
+        await message.answer(format_world_cup_fact(fact))
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_facts_count"))
+async def admin_facts_count_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        total = db.query(WorldCupFact).count()
+        active = db.query(WorldCupFact).filter(WorldCupFact.is_active == True).count()
+        verified = db.query(WorldCupFact).filter(
+            WorldCupFact.is_active == True,
+            WorldCupFact.needs_verification == False,
+        ).count()
+
+        await message.answer(
+            "📚 Факты ЧМ\n\n"
+            f"Всего: {total}\n"
+            f"Активных: {active}\n"
+            f"Готовых к показу: {verified}"
+        )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_import_facts"))
+async def admin_import_facts_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            result = import_world_cup_facts_from_seed(db)
+        except Exception as error:
+            db.rollback()
+            print(f"Facts import error: {error}")
+
+            await message.answer(
+                "Не удалось импортировать факты ❌\n\n"
+                f"Ошибка: {error}"
+            )
+            return
+
+        await message.answer(
+            "Факты импортированы ✅\n\n"
+            f"Всего в seed-файле: {result['total']}\n"
+            f"Создано: {result['created']}\n"
+            f"Обновлено: {result['updated']}\n"
+            f"Пропущено: {result['skipped']}\n\n"
+            "Проверить: /admin_facts_count\n"
+            "Случайный факт: /fact"
+        )
+
+    finally:
+        db.close()
+
 async def main():
     if reminders_enabled():
         asyncio.create_task(reminders_loop())
+    if DAILY_FACTS_ENABLED:
+        asyncio.create_task(daily_facts_loop())
 
     await dp.start_polling(bot)
 
