@@ -2,7 +2,7 @@ import asyncio
 import os
 import csv
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
 import random
 import json
@@ -358,6 +358,8 @@ DEFAULT_REPEAT_START_MESSAGES = [
     "Ты снова здесь. Значит, вера в 2:1 еще жива. /predict",
     "Отец прогнозов напоминает: матч начинается — прогнозы закрываются, паника открывается. /missing",
 ]
+
+WC2026_START_DATE = date(2026, 6, 11)
 
 def get_admin_telegram_ids() -> list[int]:
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
@@ -2937,6 +2939,87 @@ def import_world_cup_facts_from_seed(db) -> dict:
         "updated": updated,
         "skipped": skipped,
     }
+
+
+
+
+def plural_days_ru(value: int) -> str:
+    if 11 <= value % 100 <= 14:
+        return "дней"
+
+    last_digit = value % 10
+
+    if last_digit == 1:
+        return "день"
+
+    if 2 <= last_digit <= 4:
+        return "дня"
+
+    return "дней"
+
+
+def get_days_until_wc2026() -> int:
+    today = datetime.now(DAILY_FACT_TIMEZONE).date()
+    return max((WC2026_START_DATE - today).days, 0)
+
+
+def build_quiz_teaser_for_fact(fact: WorldCupFact) -> str:
+    if fact.tournament_year:
+        return f"Какой факт связан с ЧМ-{fact.tournament_year}?"
+
+    category_questions = {
+        "wc2026": "Что необычного будет в формате ЧМ-2026?",
+        "record": "Какой рекорд чемпионатов мира связан с этим фактом?",
+        "team": "Какая сборная связана с этим фактом?",
+        "player": "Какой футболист связан с этим фактом?",
+        "trophy": "Какой трофей или награда связаны с этим фактом?",
+        "host": "Какая страна или турнир связаны с этим фактом?",
+        "history": "Что произошло в истории чемпионатов мира?",
+        "funny": "Какой необычный эпизод связан с этим фактом?",
+    }
+
+    return category_questions.get(
+        fact.category,
+        "Что интересного произошло в истории чемпионатов мира?",
+    )
+
+
+def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
+    days_left = get_days_until_wc2026()
+
+    if days_left == 0:
+        countdown_text = "⏳ ЧМ-2026 стартует сегодня!"
+    else:
+        day_word = plural_days_ru(days_left)
+        countdown_text = f"⏳ До ЧМ-2026 осталось {days_left} {day_word}"
+
+    lines = [
+        countdown_text,
+        "",
+        "📚 Факт дня:",
+        fact.fact_text,
+    ]
+
+    if fact.spicy_comment:
+        lines.extend(
+            [
+                "",
+                "🔥 Отец прогнозов:",
+                fact.spicy_comment,
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "❓ Мини-вопрос:",
+            build_quiz_teaser_for_fact(fact),
+            "",
+            "Ответ: /quiz",
+        ]
+    )
+
+    return "\n".join(lines)
 
 async def daily_facts_loop():
     if not DAILY_FACTS_ENABLED:
@@ -5907,6 +5990,28 @@ async def admin_import_facts_handler(message: Message):
             "Проверить: /admin_facts_count\n"
             "Случайный факт: /fact"
         )
+
+    finally:
+        db.close()
+
+@dp.message(Command("admin_daily_fact_preview"))
+async def admin_daily_fact_preview_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        fact = get_random_fact_not_sent_today(db)
+
+        if not fact:
+            await message.answer("Нет доступных фактов для предпросмотра.")
+            return
+
+        await message.answer(format_daily_world_cup_rubric(fact))
 
     finally:
         db.close()
