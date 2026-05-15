@@ -60,6 +60,19 @@ DAILY_FACT_HOUR = int(os.getenv("DAILY_FACT_HOUR", "9"))
 DAILY_FACT_MINUTE = int(os.getenv("DAILY_FACT_MINUTE", "0"))
 DAILY_FACT_TIMEZONE = ZoneInfo(os.getenv("DAILY_FACT_TIMEZONE", "Europe/Moscow"))
 
+DAILY_FACT_TARGET = os.getenv("DAILY_FACT_TARGET", "private").lower()
+GROUP_CHAT_ID_RAW = os.getenv("GROUP_CHAT_ID", "").strip()
+
+
+def get_group_chat_id() -> int | None:
+    if not GROUP_CHAT_ID_RAW:
+        return None
+
+    try:
+        return int(GROUP_CHAT_ID_RAW)
+    except ValueError:
+        return None
+
 ADMIN_NOTIFY_ENABLED = os.getenv("ADMIN_NOTIFY_ENABLED", "true").lower() == "true"
 
 TOURNAMENT_CODE = os.getenv("TOURNAMENT_CODE", "wc2026")
@@ -2380,6 +2393,39 @@ def finish_group_quiz_and_build_result_text(db, session: GroupQuizSession) -> st
 
     return "\n".join(lines)
 
+async def send_daily_fact_to_group(db, fact: WorldCupFact):
+    group_chat_id = get_group_chat_id()
+
+    if not group_chat_id:
+        print("GROUP_CHAT_ID is not set or invalid")
+        return
+
+    text = format_daily_world_cup_rubric(fact)
+
+    try:
+        await bot.send_message(
+            chat_id=group_chat_id,
+            text=text,
+        )
+
+        db.add(
+            FactDeliveryLog(
+                fact_id=fact.id,
+                user_id=None,
+                telegram_id=None,
+                chat_id=group_chat_id,
+                delivery_type="daily_group",
+            )
+        )
+
+        db.commit()
+
+        print(f"Daily fact sent to group chat {group_chat_id}")
+
+    except Exception as error:
+        db.rollback()
+        print(f"Failed to send daily fact to group {group_chat_id}: {error}")
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
@@ -3453,12 +3499,14 @@ def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
     sent_fact_ids_today = [
         row.fact_id
         for row in db.query(FactDeliveryLog)
-            .filter(
-            FactDeliveryLog.delivery_type == "daily",
+        .filter(
+            FactDeliveryLog.delivery_type.in_(
+                ["daily", "daily_group", "daily_private"]
+            ),
             FactDeliveryLog.sent_at >= start_utc,
             FactDeliveryLog.sent_at < end_utc,
         )
-            .all()
+        .all()
     ]
 
     query = db.query(WorldCupFact).filter(
@@ -3710,6 +3758,35 @@ def import_quiz_questions_from_seed(db) -> dict:
     }
 
 
+async def send_daily_fact_to_private_users(db, fact: WorldCupFact):
+    users = db.query(User).all()
+    text = format_daily_world_cup_rubric(fact)
+
+    for user in users:
+        try:
+            await bot.send_message(
+                chat_id=user.telegram_id,
+                text=text,
+            )
+
+            db.add(
+                FactDeliveryLog(
+                    fact_id=fact.id,
+                    user_id=user.id,
+                    telegram_id=user.telegram_id,
+                    delivery_type="daily_private",
+                )
+            )
+
+            db.commit()
+
+        except Exception as error:
+            db.rollback()
+            print(
+                f"Failed to send daily fact "
+                f"to {user.telegram_id}: {error}"
+            )
+
 async def daily_facts_loop():
     if not DAILY_FACTS_ENABLED:
         print("Daily facts are disabled")
@@ -3739,32 +3816,15 @@ async def daily_facts_loop():
                 fact = get_random_fact_not_sent_today(db)
 
                 if fact:
-                    users = db.query(User).all()
+                    if DAILY_FACT_TARGET == "group":
+                        await send_daily_fact_to_group(db, fact)
 
-                    text = format_world_cup_fact(fact)
+                    elif DAILY_FACT_TARGET == "both":
+                        await send_daily_fact_to_group(db, fact)
+                        await send_daily_fact_to_private_users(db, fact)
 
-                    for user in users:
-                        try:
-                            await bot.send_message(
-                                chat_id=user.telegram_id,
-                                text=text,
-                            )
-
-                            db.add(
-                                FactDeliveryLog(
-                                    fact_id=fact.id,
-                                    user_id=user.id,
-                                    telegram_id=user.telegram_id,
-                                    delivery_type="daily",
-                                )
-                            )
-                            db.commit()
-
-                        except Exception as error:
-                            print(
-                                f"Failed to send daily fact "
-                                f"to {user.telegram_id}: {error}"
-                            )
+                    else:
+                        await send_daily_fact_to_private_users(db, fact)
 
                 last_sent_date = now_local.date()
 
@@ -7435,6 +7495,32 @@ async def group_quiz_table_handler(message: Message):
     finally:
         db.close()
 
+
+@dp.message(Command("admin_send_daily_fact_group"))
+async def admin_send_daily_fact_group_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        fact = get_random_fact_not_sent_today(db)
+
+        if not fact:
+            await message.answer("Нет доступных фактов для отправки.")
+            return
+
+        await send_daily_fact_to_group(db, fact)
+
+        await message.answer(
+            "Ежедневная рубрика отправлена в групповой чат ✅"
+        )
+
+    finally:
+        db.close()
 
 async def main():
     if reminders_enabled():

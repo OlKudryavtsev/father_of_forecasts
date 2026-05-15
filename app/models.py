@@ -240,6 +240,8 @@ class FactDeliveryLog(Base):
     fact = relationship("WorldCupFact")
     user = relationship("User")
 
+    chat_id = Column(BigInteger, nullable=True)
+
 class QuizQuestion(Base):
     __tablename__ = "quiz_questions"
 
