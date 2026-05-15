@@ -286,3 +286,46 @@ class QuizAnswer(Base):
 
     question = relationship("QuizQuestion")
     user = relationship("User")
+
+class HistoricalArchiveCard(Base):
+    __tablename__ = "historical_archive_cards"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    external_id = Column(String, unique=True, nullable=False)
+
+    title = Column(String, nullable=False)
+    text = Column(Text, nullable=False)
+
+    card_type = Column(String, nullable=True)
+    tournament_code = Column(String, nullable=True)
+
+    related_name = Column(String, nullable=True)
+    related_telegram_id = Column(BigInteger, nullable=True)
+
+    is_public = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class HistoricalArchiveDeliveryLog(Base):
+    __tablename__ = "historical_archive_delivery_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    archive_card_id = Column(
+        Integer,
+        ForeignKey("historical_archive_cards.id"),
+        nullable=False,
+    )
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    telegram_id = Column(BigInteger, nullable=True)
+    chat_id = Column(BigInteger, nullable=True)
+
+    delivery_type = Column(String, nullable=False)
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    archive_card = relationship("HistoricalArchiveCard")
+    user = relationship("User")

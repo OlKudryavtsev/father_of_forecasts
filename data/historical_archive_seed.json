@@ -1,0 +1,628 @@
+{
+  "version": 1,
+  "language": "ru",
+  "created_for": "Telegram bot «Отец прогнозов»",
+  "description": "Публичные архивные карточки по турнирам Отец прогнозов ЧМ-2022 и ЧЕ-2024.",
+  "cards_count": 40,
+  "cards": [
+    {
+      "id": "archive_001",
+      "title": "Катарский диктатор",
+      "text": "ЧМ-2022. Олег набрал 64 очка и выиграл турнир с большим отрывом.\n\nОтец прогнозов: иногда человек не играет в прогнозы, а проводит силовую операцию против таблицы.",
+      "card_type": "hall_of_fame",
+      "tournament_code": "wc2022",
+      "related_name": "Олег",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "winner",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_002",
+      "title": "Долгосроковый киллер",
+      "text": "ЧЕ-2024. Макс был вторым по матчевым прогнозам с 52 очками, но долгосрочный прогноз принес еще +15. Итог — 67 очков и победа в общем зачете.\n\nОтец прогнозов: долгосрок — это не формальность, а тихий нож в спину таблице.",
+      "card_type": "longterm_drama",
+      "tournament_code": "euro2024",
+      "related_name": "Макс",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "winner",
+        "longterm",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_003",
+      "title": "Лучший по матчам, но жизнь несправедлива",
+      "text": "ЧЕ-2024. КоляКоля был лучшим по матчевым прогнозам: 59 очков. Но после учета долгосрочных прогнозов Макс обошел его в общем зачете.\n\nОтец прогнозов: иногда ты выигрываешь футбол, но проигрываешь бухгалтерию.",
+      "card_type": "longterm_drama",
+      "tournament_code": "euro2024",
+      "related_name": "КоляКоля",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "longterm",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_004",
+      "title": "Тихий камбэк",
+      "text": "ЧЕ-2024. Вадик набрал 36 очков по матчам, но долгосрочные прогнозы подняли его до 48.5 и зоны 3/4 места.\n\nОтец прогнозов: пока одни шумят про xG, Вадик молча подкладывает долгосрок под таблицу.",
+      "card_type": "personal_roast",
+      "tournament_code": "euro2024",
+      "related_name": "Вадик",
+      "related_telegram_id": 147860673,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "longterm",
+        "vadik",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_005",
+      "title": "Фора в 15 прогнозов",
+      "text": "ЧМ-2022. Вадик пропустил 15 прогнозов и все равно набрал 27 очков.\n\nОтец прогнозов: это не провал, это был режим сложности «начать турнир с минус пятнадцати ходов».",
+      "card_type": "personal_roast",
+      "tournament_code": "wc2022",
+      "related_name": "Вадик",
+      "related_telegram_id": 147860673,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "vadik",
+        "missed",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_006",
+      "title": "Бронзовый вайб Пикана",
+      "text": "ЧМ-2022. Пикан набрал 41 очко и разделил 3/4 место с Антонио.\n\nОтец прогнозов: немецкий расчет, интеровская вера и локомотивская тревожность тогда дали рабочий результат.",
+      "card_type": "personal_roast",
+      "tournament_code": "wc2022",
+      "related_name": "Пикан",
+      "related_telegram_id": 244378697,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "pikan",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_007",
+      "title": "Итальянская зона рядом с медалями",
+      "text": "ЧМ-2022. Антонио набрал 41 очко и разделил 3/4 место с Пиканом.\n\nОтец прогнозов: временами солидно, временами нервно — почти как хороший вечер Динамо и Интера одновременно.",
+      "card_type": "personal_roast",
+      "tournament_code": "wc2022",
+      "related_name": "Антонио",
+      "related_telegram_id": 342304476,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "antonio",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_008",
+      "title": "Миланская близость к вершине",
+      "text": "ЧЕ-2024. Саня шел третьим по матчевым прогнозам с 41 очком, но после долгосрочных прогнозов оказался пятым.\n\nОтец прогнозов: красиво начать мало — надо еще пережить бухгалтерию долгосрока.",
+      "card_type": "personal_roast",
+      "tournament_code": "euro2024",
+      "related_name": "Саня",
+      "related_telegram_id": 186972507,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "sanya",
+        "longterm",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_009",
+      "title": "Все против Саудовской Аравии. И все мимо",
+      "text": "ЧМ-2022. Аргентина — Саудовская Аравия 1:2.\nВсе участники получили 0 очков.\n\nОтец прогнозов: когда Месси проигрывает саудитам, страдает не только Аргентина, но и Excel.",
+      "card_type": "collective_fail",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_010",
+      "title": "Германия — Япония: привет Пикану",
+      "text": "ЧМ-2022. Германия — Япония 1:2.\nВсе участники получили 0 очков.\n\nОтец прогнозов: Германия подвела прогнозы, Пикан — эмоции, таблица — всех.",
+      "card_type": "collective_fail",
+      "tournament_code": "wc2022",
+      "related_name": "Пикан",
+      "related_telegram_id": 244378697,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "germany",
+        "pikan",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_011",
+      "title": "Англия — США: ноль футбола, ноль очков",
+      "text": "ЧМ-2022. Англия — США 0:0.\nВсе участники получили 0 очков.\n\nОтец прогнозов: матч, который закончился так, будто обе команды тоже забыли поставить прогноз.",
+      "card_type": "collective_fail",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_012",
+      "title": "Япония — Испания: второй удар по фаворитам",
+      "text": "ЧМ-2022. Япония — Испания 2:1.\nВсе участники получили 0 очков.\n\nОтец прогнозов: Япония решила, что одного сломанного прогноза с Германией мало.",
+      "card_type": "collective_fail",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_013",
+      "title": "Бельгия — Марокко: коллективный холодный душ",
+      "text": "ЧМ-2022. Бельгия — Марокко 0:2.\nВсе участники получили 0 очков.\n\nОтец прогнозов: Марокко приехало не за опытом, а за чужими нервами.",
+      "card_type": "collective_fail",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "morocco",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_014",
+      "title": "Румыния — Украина: Евро тоже умеет бить больно",
+      "text": "ЧЕ-2024. Румыния — Украина 3:0.\nВсе участники получили 0 очков.\n\nОтец прогнозов: коллективный провал такого уровня обычно называют «мы все так и думали, просто не поставили».",
+      "card_type": "collective_fail",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_015",
+      "title": "Бельгия — Словакия: сюрприз без предупреждения",
+      "text": "ЧЕ-2024. Бельгия — Словакия 0:1.\nВсе участники получили 0 очков.\n\nОтец прогнозов: иногда фаворит выходит на поле, а таблица уже смеется.",
+      "card_type": "collective_fail",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_016",
+      "title": "Грузия — Португалия: грузинский удар по прогнозам",
+      "text": "ЧЕ-2024. Грузия — Португалия 2:0.\nВсе участники получили 0 очков.\n\nОтец прогнозов: Португалия отдыхала, Грузия играла, Excel плакал.",
+      "card_type": "collective_fail",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_017",
+      "title": "Нидерланды — Австрия: оранжевый хаос",
+      "text": "ЧЕ-2024. Нидерланды — Австрия 2:3.\nВсе участники получили 0 очков.\n\nОтец прогнозов: Австрия устроила такой прессинг, что прогнозы тоже не вышли из обороны.",
+      "card_type": "collective_fail",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_fail",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_018",
+      "title": "Когда все что-то поняли",
+      "text": "ЧМ-2022. Бразилия — Швейцария 1:0.\nВсе участники набрали очки.\n\nОтец прогнозов: редкий момент коллективного просветления. Не привыкать, но приятно.",
+      "card_type": "collective_success",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_success",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_019",
+      "title": "Катар — Сенегал: коллективная польза",
+      "text": "ЧМ-2022. Катар — Сенегал 1:3.\nВсе участники набрали очки.\n\nОтец прогнозов: когда хозяин турнира помогает всем участникам таблицы, кроме себя.",
+      "card_type": "collective_success",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_success",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_020",
+      "title": "Германия — Шотландия: Евро началось понятно",
+      "text": "ЧЕ-2024. Германия — Шотландия 5:1.\nВсе участники набрали очки.\n\nОтец прогнозов: иногда фаворит делает то, чего от него ждут. Редкое и подозрительное удовольствие.",
+      "card_type": "collective_success",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_success",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_021",
+      "title": "Италия — Албания: аккуратная классика",
+      "text": "ЧЕ-2024. Италия — Албания 2:1.\nВсе участники набрали очки.\n\nОтец прогнозов: матч, где даже хаос решил взять выходной.",
+      "card_type": "collective_success",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_success",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_022",
+      "title": "Албания — Испания: один ноль, много пользы",
+      "text": "ЧЕ-2024. Албания — Испания 0:1.\nВсе участники набрали очки.\n\nОтец прогнозов: Испания выиграла минимально, участники — максимально спокойно.",
+      "card_type": "collective_success",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "collective_success",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_023",
+      "title": "Король точных счетов ЧМ-2022",
+      "text": "ЧМ-2022. Олег взял 7 точных счетов и 4 прогноза по 4 очка.\n\nОтец прогнозов: когда человек не угадывает — он просто дает остальным надежду.",
+      "card_type": "achievement",
+      "tournament_code": "wc2022",
+      "related_name": "Олег",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "achievement",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_024",
+      "title": "КоляКоля и матчевый пик ЧЕ-2024",
+      "text": "ЧЕ-2024. КоляКоля набрал 59 очков только за матчевые прогнозы — лучший результат турнира без долгосрока.\n\nОтец прогнозов: сильный турнир, но долгосрок пришел как VAR в плохой момент.",
+      "card_type": "achievement",
+      "tournament_code": "euro2024",
+      "related_name": "КоляКоля",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "achievement",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_025",
+      "title": "Макс и долгосрок +15",
+      "text": "ЧЕ-2024. Макс получил +15 за долгосрочные прогнозы и выиграл общий зачет.\n\nОтец прогнозов: прогноз на турнир — это не галочка перед стартом, а оружие позднего поражения.",
+      "card_type": "achievement",
+      "tournament_code": "euro2024",
+      "related_name": "Макс",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "achievement",
+        "longterm",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_026",
+      "title": "Антонио и риск проходов",
+      "text": "ЧМ-2022. Антонио шесть раз получил -1 за неугаданный проход, но все равно финишировал в зоне 3/4 места.\n\nОтец прогнозов: риск — благородное дело. Иногда еще и слегка болезненное.",
+      "card_type": "achievement",
+      "tournament_code": "wc2022",
+      "related_name": "Антонио",
+      "related_telegram_id": 342304476,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "risk",
+        "antonio",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_027",
+      "title": "Пикан — мастер одного очка",
+      "text": "ЧМ-2022. Пикан 24 раза набрал по 1 очку — больше всех в турнире.\n\nОтец прогнозов: точный счет — роскошь, исход — рабочая лошадь.",
+      "card_type": "achievement",
+      "tournament_code": "wc2022",
+      "related_name": "Пикан",
+      "related_telegram_id": 244378697,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "pikan",
+        "one_point",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_028",
+      "title": "Вадик и 22 исхода",
+      "text": "ЧЕ-2024. Вадик 22 раза набрал по 1 очку за исход — больше всех на турнире.\n\nОтец прогнозов: точный счет не обязателен, если ты стабильно цепляешь крошки со стола фаворитов.",
+      "card_type": "achievement",
+      "tournament_code": "euro2024",
+      "related_name": "Вадик",
+      "related_telegram_id": 147860673,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "vadik",
+        "one_point",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_029",
+      "title": "Саня и пять точных на Евро",
+      "text": "ЧЕ-2024. Саня взял 5 точных счетов и закончил матчевую часть третьим.\n\nОтец прогнозов: Миланская школа — быть рядом с вершиной и держать интригу до таблицы.",
+      "card_type": "achievement",
+      "tournament_code": "euro2024",
+      "related_name": "Саня",
+      "related_telegram_id": 186972507,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "sanya",
+        "exact",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_030",
+      "title": "Олег и провал долгосрока без провала",
+      "text": "ЧЕ-2024. Олег набрал 36 очков по матчам, но долгосрочный прогноз поднял его до 48.5 и зоны 3/4 места.\n\nОтец прогнозов: иногда таблица говорит «плохо», а долгосрок отвечает «сейчас поправим».",
+      "card_type": "achievement",
+      "tournament_code": "euro2024",
+      "related_name": "Олег",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "oleg",
+        "longterm",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_031",
+      "title": "Финал Евро: одним медаль, другим терапия",
+      "text": "ЧЕ-2024. Финал Испания — Англия 2:1.\nВадик, КоляКоля и Макс взяли по 4 очка. Олег и Антонио ушли в минус.\n\nОтец прогнозов: финал — это когда одним медаль, другим терапия.",
+      "card_type": "legend_match",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "final",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_032",
+      "title": "Финал ЧМ-2022: осторожная ничья",
+      "text": "ЧМ-2022. Финал Аргентина — Франция 3:3.\nБольшинство участников не угадали точный счет, но ничейный исход спас часть прогнозов.\n\nОтец прогнозов: иногда 1:1 — это не трусость, а философия выживания.",
+      "card_type": "legend_match",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "final",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_033",
+      "title": "Катар — Эквадор: первый точный удар",
+      "text": "ЧМ-2022. Катар — Эквадор 0:2.\nАнтонио взял точный счет уже в первом матче турнира.\n\nОтец прогнозов: хороший старт — это когда Excel еще не успел прогреться, а ты уже забрал 3 очка.",
+      "card_type": "legend_match",
+      "tournament_code": "wc2022",
+      "related_name": "Антонио",
+      "related_telegram_id": 342304476,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "antonio",
+        "exact",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_034",
+      "title": "Бельгия — Румыния: квартет точности",
+      "text": "ЧЕ-2024. Бельгия — Румыния 2:0.\nАнтонио, КоляКоля, Пикан и Саня взяли точный счет.\n\nОтец прогнозов: редкий момент, когда половина чата внезапно стала экспертами.",
+      "card_type": "legend_match",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "exact",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_035",
+      "title": "ЧМ-2022: десять коллективных нулей",
+      "text": "ЧМ-2022 подарил 10 матчей, где все участники получили 0 очков.\n\nОтец прогнозов: это не слабая аналитика, это коллективное искусство синхронного падения.",
+      "card_type": "collective_fail",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "summary",
+        "collective_fail",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_036",
+      "title": "ЧЕ-2024: семь коллективных нулей",
+      "text": "ЧЕ-2024 дал 7 матчей, где все участники получили 0 очков.\n\nОтец прогнозов: прогресс по сравнению с ЧМ-2022 есть. Но до статуса экспертов еще больно близко.",
+      "card_type": "collective_fail",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "summary",
+        "collective_fail",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_037",
+      "title": "ЧЕ-2024: пятнадцать коллективных попаданий",
+      "text": "На ЧЕ-2024 было 15 матчей, где все участники набрали хотя бы по одному очку.\n\nОтец прогнозов: иногда толпа действительно бывает мудрой. Недолго, но бывает.",
+      "card_type": "collective_success",
+      "tournament_code": "euro2024",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "summary",
+        "collective_success",
+        "euro2024"
+      ]
+    },
+    {
+      "id": "archive_038",
+      "title": "ЧМ-2022: десять коллективных попаданий",
+      "text": "На ЧМ-2022 было 10 матчей, где все участники набрали хотя бы по одному очку.\n\nОтец прогнозов: даже в хаосе Катара иногда наступало коллективное просветление.",
+      "card_type": "collective_success",
+      "tournament_code": "wc2022",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "summary",
+        "collective_success",
+        "wc2022"
+      ]
+    },
+    {
+      "id": "archive_039",
+      "title": "Макс: из тяжелого ЧМ в победители Евро",
+      "text": "ЧМ-2022. Макс набрал 31 очко и финишировал шестым.\nЧЕ-2024. Макс выиграл общий зачет с 67 очками.\n\nОтец прогнозов: вот что значит не удалять бота после неудачного турнира.",
+      "card_type": "comeback",
+      "tournament_code": "multi",
+      "related_name": "Макс",
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "comeback",
+        "max"
+      ]
+    },
+    {
+      "id": "archive_040",
+      "title": "Пикан vs Саня: дерби одного очка",
+      "text": "ЧМ-2022. Пикан набрал 41 очко, Саня — 40.\nЧЕ-2024. Саня набрал 41 очко, Пикан — 39.\n\nОтец прогнозов: дерби равное. Как будто оба боятся случайно стать фаворитом.",
+      "card_type": "rivalry",
+      "tournament_code": "multi",
+      "related_name": null,
+      "related_telegram_id": null,
+      "is_public": true,
+      "is_active": true,
+      "tags": [
+        "rivalry",
+        "pikan",
+        "sanya"
+      ]
+    }
+  ]
+}

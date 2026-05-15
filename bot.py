@@ -31,6 +31,8 @@ from app.models import (
     FactDeliveryLog,
     QuizQuestion,
     QuizAnswer,
+    HistoricalArchiveCard,
+    HistoricalArchiveDeliveryLog,
 )
 from app.admin import is_admin_telegram_id
 
@@ -365,6 +367,7 @@ DEFAULT_REPEAT_START_MESSAGES = [
 
 WC2026_START_DATE = date(2026, 6, 11)
 QUIZ_SEED_PATH = Path("data/world_cup_quiz_seed.json")
+HISTORICAL_ARCHIVE_SEED_PATH = Path("data/historical_archive_seed.json")
 
 FACT_QUIZ_CATEGORIES = {
     "any": "🎲 Любая категория",
@@ -377,6 +380,46 @@ FACT_QUIZ_CATEGORIES = {
     "trophy": "🏆 Трофеи",
     "funny": "😂 Курьезы",
 }
+
+GROUP_ALLOWED_COMMANDS = {
+    "/start",
+    "/help",
+    "/rules",
+    "/fact",
+    "/quiz",
+    "/chat_id",
+    "/archive",
+
+    # если уже добавишь позже:
+    "/roast",
+}
+
+PRIVATE_ONLY_COMMANDS_HINT = (
+    "Эта команда доступна только в личке с ботом.\n\n"
+    "В общем чате можно использовать:\n"
+    "/fact — факты о ЧМ\n"
+    "/quiz — квиз о ЧМ\n"
+    "/rules — правила\n"
+    "/help — как играть\n\n"
+    "Для прогнозов открой личный чат с ботом."
+)
+
+GROUP_ALLOWED_CALLBACK_PREFIXES = {
+    "fact_category:",
+    "quiz_category:",
+    "quiz_answer:",
+    "archive_category:",
+}
+
+PLAYOFF_STAGES = {
+    "round_of_32",
+    "round_of_16",
+    "quarterfinal",
+    "semifinal",
+    "third_place",
+    "final",
+}
+
 
 def get_admin_telegram_ids() -> list[int]:
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
@@ -447,6 +490,52 @@ class CommandLoggingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class GroupCommandAccessMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler,
+        event,
+        data,
+    ):
+        if isinstance(event, Message):
+            command = extract_command_from_text(event.text)
+
+            if command and event.chat.type != "private":
+                if command not in GROUP_ALLOWED_COMMANDS:
+                    await event.answer(PRIVATE_ONLY_COMMANDS_HINT)
+                    return
+
+        return await handler(event, data)
+
+
+class GroupCallbackAccessMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler,
+        event,
+        data,
+    ):
+        if isinstance(event, CallbackQuery):
+            message = event.message
+
+            if message and message.chat.type != "private":
+                callback_data = event.data or ""
+
+                is_allowed = any(
+                    callback_data.startswith(prefix)
+                    for prefix in GROUP_ALLOWED_CALLBACK_PREFIXES
+                )
+
+                if not is_allowed:
+                    await event.answer(
+                        "Эта кнопка работает только в личке с ботом.",
+                        show_alert=True,
+                    )
+                    return
+
+        return await handler(event, data)
+
+
 def get_tournament_starts_at():
     dt = datetime.fromisoformat(
         TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
@@ -467,7 +556,9 @@ if not TOKEN:
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+dp.message.middleware(GroupCommandAccessMiddleware())
 dp.message.middleware(CommandLoggingMiddleware())
+dp.callback_query.middleware(GroupCallbackAccessMiddleware())
 
 
 def get_or_create_user(db, telegram_user):
@@ -511,15 +602,6 @@ def get_or_create_user(db, telegram_user):
 
     return new_user, True
 
-
-PLAYOFF_STAGES = {
-    "round_of_32",
-    "round_of_16",
-    "quarterfinal",
-    "semifinal",
-    "third_place",
-    "final",
-}
 
 
 def is_playoff_match(match: Match) -> bool:
@@ -704,6 +786,8 @@ def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
 def is_user_admin(user: User) -> bool:
     return bool(user.is_admin)
 
+def is_private_chat(message: Message) -> bool:
+    return message.chat.type == "private"
 
 def ensure_admin_or_reply(user: User) -> bool:
     return bool(user.is_admin)
@@ -1035,6 +1119,57 @@ def build_advancement_keyboard(
                         f"predict_adv:{match_id}:{pred_home}:{pred_away}:none"
                     ),
                 )
+            ],
+        ]
+    )
+
+
+def build_archive_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎲 Любая карточка",
+                    callback_data="archive_category:any",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🇶🇦 ЧМ-2022",
+                    callback_data="archive_category:wc2022",
+                ),
+                InlineKeyboardButton(
+                    text="🇩🇪 ЧЕ-2024",
+                    callback_data="archive_category:euro2024",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🤦 Коллективные нули",
+                    callback_data="archive_category:collective_fail",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Коллективные попадания",
+                    callback_data="archive_category:collective_success",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎭 Долгосрок-драма",
+                    callback_data="archive_category:longterm_drama",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏅 Достижения",
+                    callback_data="archive_category:achievement",
+                ),
+                InlineKeyboardButton(
+                    text="⚔️ Дерби",
+                    callback_data="archive_category:rivalry",
+                ),
             ],
         ]
     )
@@ -1907,49 +2042,7 @@ def extract_command_from_text(text: str | None) -> str | None:
     return command.lower()
 
 
-@dp.message(Command("forecast"))
-async def forecast_handler(message: Message):
-    db = SessionLocal()
 
-    try:
-        parts = message.text.split()
-
-        if len(parts) == 1:
-            matches = get_nearest_matchday_matches(db)
-
-            if not matches:
-                await message.answer("Нет будущих матчей для прогноза.")
-                return
-
-            await message.answer(
-                "Выбери матч для прогноза Отца прогнозов:",
-                reply_markup=build_forecast_matches_keyboard(matches),
-            )
-            return
-
-        if len(parts) != 2 or not parts[1].isdigit():
-            await message.answer(
-                "Формат:\n\n"
-                "/forecast\n\n"
-                "или:\n"
-                "/forecast ID\n\n"
-                "Например:\n"
-                "/forecast 12"
-            )
-            return
-
-        match_id = int(parts[1])
-
-        match = db.query(Match).filter(Match.id == match_id).first()
-
-        if not match:
-            await message.answer("Матч с таким ID не найден.")
-            return
-
-        await message.answer(build_forecast_text(db, match))
-
-    finally:
-        db.close()
 
 
 def get_start_message_for_user(user: User, created: bool) -> str:
@@ -1967,13 +2060,86 @@ def get_start_message_for_user(user: User, created: bool) -> str:
     return random.choice(repeat_messages)
 
 
+def import_historical_archive_from_seed(db) -> dict:
+    if not HISTORICAL_ARCHIVE_SEED_PATH.exists():
+        raise FileNotFoundError(
+            f"Файл не найден: {HISTORICAL_ARCHIVE_SEED_PATH}"
+        )
+
+    payload = json.loads(
+        HISTORICAL_ARCHIVE_SEED_PATH.read_text(encoding="utf-8")
+    )
+
+    cards = payload.get("cards", [])
+
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for item in cards:
+        external_id = item.get("id")
+
+        if not external_id:
+            skipped += 1
+            continue
+
+        card = db.query(HistoricalArchiveCard).filter(
+            HistoricalArchiveCard.external_id == external_id
+        ).first()
+
+        if not card:
+            card = HistoricalArchiveCard(external_id=external_id)
+            db.add(card)
+            created += 1
+        else:
+            updated += 1
+
+        card.title = item.get("title") or "Архив Отца прогнозов"
+        card.text = item.get("text") or ""
+        card.card_type = item.get("card_type")
+        card.tournament_code = item.get("tournament_code")
+        card.related_name = item.get("related_name")
+        card.related_telegram_id = item.get("related_telegram_id")
+        card.is_public = bool(item.get("is_public", True))
+        card.is_active = bool(item.get("is_active", True))
+
+    db.commit()
+
+    return {
+        "total": len(cards),
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+    }
+
+
+def format_archive_card(card: HistoricalArchiveCard) -> str:
+    tournament_title = {
+        "wc2022": "ЧМ-2022",
+        "euro2024": "ЧЕ-2024",
+        "multi": "Архив турниров",
+    }.get(card.tournament_code, "Архив турниров")
+
+    return (
+        "🔥 Архив Отца прогнозов\n\n"
+        f"🏷 {card.title}\n"
+        f"🗓 {tournament_title}\n\n"
+        f"{card.text}"
+    )
+
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     db = SessionLocal()
 
     try:
         user, created = get_or_create_user(db, message.from_user)
-
+        if message.chat.type != "private":
+            await message.answer(
+                "Я тут для развлечений: /fact, /quiz, /archive...\n\n"
+                "Прогнозы, таблицы и личная статистика — только в личке со мной."
+            )
+            return
         await message.answer(
             get_start_message_for_user(user, created)
         )
@@ -2184,6 +2350,50 @@ async def predict_handler(message: Message):
     finally:
         db.close()
 
+
+@dp.message(Command("forecast"))
+async def forecast_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split()
+
+        if len(parts) == 1:
+            matches = get_nearest_matchday_matches(db)
+
+            if not matches:
+                await message.answer("Нет будущих матчей для прогноза.")
+                return
+
+            await message.answer(
+                "Выбери матч для прогноза Отца прогнозов:",
+                reply_markup=build_forecast_matches_keyboard(matches),
+            )
+            return
+
+        if len(parts) != 2 or not parts[1].isdigit():
+            await message.answer(
+                "Формат:\n\n"
+                "/forecast\n\n"
+                "или:\n"
+                "/forecast ID\n\n"
+                "Например:\n"
+                "/forecast 12"
+            )
+            return
+
+        match_id = int(parts[1])
+
+        match = db.query(Match).filter(Match.id == match_id).first()
+
+        if not match:
+            await message.answer("Матч с таким ID не найден.")
+            return
+
+        await message.answer(build_forecast_text(db, match))
+
+    finally:
+        db.close()
 
 @dp.message(Command("mybets"))
 async def mybets_handler(message: Message):
@@ -6696,6 +6906,134 @@ async def quiz_category_callback(callback: CallbackQuery):
 
     finally:
         db.close()
+
+
+@dp.message(Command("admin_import_archive"))
+async def admin_import_archive_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            result = import_historical_archive_from_seed(db)
+        except Exception as error:
+            db.rollback()
+            print(f"Archive import error: {error}")
+
+            await message.answer(
+                "Не удалось импортировать архив ❌\n\n"
+                f"Ошибка: {error}"
+            )
+            return
+
+        await message.answer(
+            "Архив импортирован ✅\n\n"
+            f"Всего в seed-файле: {result['total']}\n"
+            f"Создано: {result['created']}\n"
+            f"Обновлено: {result['updated']}\n"
+            f"Пропущено: {result['skipped']}\n\n"
+            "Проверить: /archive"
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("archive"))
+async def archive_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split(maxsplit=1)
+        filter_value = parts[1].strip().lower() if len(parts) > 1 else None
+
+        query = db.query(HistoricalArchiveCard).filter(
+            HistoricalArchiveCard.is_active == True,
+            HistoricalArchiveCard.is_public == True,
+        )
+
+        if filter_value:
+            # Можно фильтровать по турниру или типу:
+            # /archive wc2022
+            # /archive euro2024
+            # /archive collective_fail
+            query = query.filter(
+                (HistoricalArchiveCard.tournament_code == filter_value)
+                | (HistoricalArchiveCard.card_type == filter_value)
+            )
+
+        cards = query.all()
+
+        if not cards:
+            await message.answer(
+                "Архивных карточек по такому фильтру пока нет.\n\n"
+                "Попробуй просто /archive"
+            )
+            return
+
+        card = random.choice(cards)
+
+        user, _ = get_or_create_user(db, message.from_user)
+
+        db.add(
+            HistoricalArchiveDeliveryLog(
+                archive_card_id=card.id,
+                user_id=user.id,
+                telegram_id=user.telegram_id,
+                chat_id=message.chat.id,
+                delivery_type="manual",
+            )
+        )
+        db.commit()
+
+        await message.answer(format_archive_card(card))
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("admin_archive_count"))
+async def admin_archive_count_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        total = db.query(HistoricalArchiveCard).count()
+        active = db.query(HistoricalArchiveCard).filter(
+            HistoricalArchiveCard.is_active == True
+        ).count()
+        public = db.query(HistoricalArchiveCard).filter(
+            HistoricalArchiveCard.is_active == True,
+            HistoricalArchiveCard.is_public == True,
+        ).count()
+
+        await message.answer(
+            "🔥 Архив Отца прогнозов\n\n"
+            f"Всего карточек: {total}\n"
+            f"Активных: {active}\n"
+            f"Публичных активных: {public}"
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("chat_id"))
+async def chat_id_handler(message: Message):
+    await message.answer(
+        f"chat_id: {message.chat.id}\n"
+        f"type: {message.chat.type}"
+    )
 
 
 async def main():
