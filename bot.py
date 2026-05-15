@@ -414,11 +414,16 @@ GROUP_ALLOWED_COMMANDS = {
     "/quiz",
     "/quiz_finish",
     "/quiz_table",
-    "/chat_id",
     "/archive",
+    "/chat_id",
 
-    # если уже добавишь позже:
-    "/roast",
+    # Добавляем:
+    "/matches_all",
+    "/forecast",
+    "/match",
+    "/predictions",
+    "/table",
+    "/tournament_predictions",
 }
 
 PRIVATE_ONLY_COMMANDS_HINT = (
@@ -426,10 +431,16 @@ PRIVATE_ONLY_COMMANDS_HINT = (
     "В общем чате можно использовать:\n"
     "/fact — факты о ЧМ\n"
     "/quiz — квиз о ЧМ\n"
-    "/archive - архивный факт с прошлых Отцов прогноза\n"
+    "/archive — архив прошлых турниров\n"
+    "/matches_all — все будущие матчи\n"
+    "/match — карточка матча\n"
+    "/predictions — прогнозы по матчу\n"
+    "/forecast — прогноз Отца прогнозов\n"
+    "/table — таблица\n"
+    "/tournament_predictions — турнирные прогнозы\n"
     "/rules — правила\n"
     "/help — как играть\n\n"
-    "Для прогнозов открой личный чат с ботом."
+    "Делать и менять свои прогнозы лучше в личке: /predict"
 )
 
 GROUP_ALLOWED_CALLBACK_PREFIXES = {
@@ -437,6 +448,9 @@ GROUP_ALLOWED_CALLBACK_PREFIXES = {
     "quiz_category:",
     "group_quiz_answer:",
     "archive_category:",
+
+    # Добавляем:
+    "forecast_match:",
 }
 
 PLAYOFF_STAGES = {
@@ -581,6 +595,9 @@ def is_tournament_started() -> bool:
 def is_group_chat(message: Message) -> bool:
     return message.chat.type in {"group", "supergroup"}
 
+def is_forecast_bot_user(user: User) -> bool:
+    return getattr(user, "telegram_id", None) == 0
+
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
 
@@ -699,6 +716,31 @@ def format_match(match: Match):
         f"{group_text}\n"
         f"Старт: {start_text}"
     )
+
+
+def format_match_short_for_group(match: Match) -> str:
+    home_name = get_team_name_ru(match.home_team)
+    away_name = get_team_name_ru(match.away_team)
+
+    home_flag = get_team_flag(match.home_team_api_name or match.home_team)
+    away_flag = get_team_flag(match.away_team_api_name or match.away_team)
+
+    group_text = (
+        f"Группа {match.group_code}"
+        if match.group_code
+        else "Плей-офф"
+    )
+
+    round_text = (
+        f"Тур {match.round_number}"
+        if match.round_number
+        else ""
+    )
+
+    return (
+        f"#{match.id}. {group_text}. {round_text}. "
+        f"{home_name} {home_flag} — {away_flag} {away_name}"
+    ).replace("..", ".")
 
 
 def format_datetime(dt):
@@ -1393,6 +1435,11 @@ async def save_tournament_prediction_and_notify_admins(
             exclude_telegram_id=user.telegram_id,
         )
 
+        await notify_group_tournament_prediction_saved(
+            user=user,
+            is_update=was_update,
+        )
+
     return success, text
 
 
@@ -1443,6 +1490,12 @@ async def save_prediction_and_notify_admins(
             f"Прогноз: {pred_home}:{pred_away}"
             f"{advancement_text}",
             exclude_telegram_id=user.telegram_id,
+        )
+
+        await notify_group_prediction_saved(
+            user=user,
+            match=match,
+            is_update=was_update,
         )
 
     return success, text
@@ -2443,18 +2496,55 @@ async def send_daily_fact_to_group(db, fact: WorldCupFact):
         db.rollback()
         print(f"Failed to send daily fact to group {group_chat_id}: {error}")
 
+
+async def notify_group_prediction_saved(
+    user: User,
+    match: Match,
+    is_update: bool = False,
+):
+    if is_forecast_bot_user(user):
+        return
+    action_text = "обновил прогноз" if is_update else "сделал прогноз"
+
+    await notify_group_chat(
+        "✍️ Прогноз зафиксирован\n\n"
+        f"{user.display_name} {action_text} на матч:\n"
+        f"{format_match_short_for_group(match)}\n\n"
+        "Сам прогноз пока скрыт. "
+        "Отец прогнозов уважает тайну до стартового свистка."
+    )
+
+async def notify_group_tournament_prediction_saved(
+    user: User,
+    is_update: bool = False,
+):
+    if is_forecast_bot_user(user):
+        return
+
+    action_text = "обновил турнирный прогноз" if is_update else "сделал турнирный прогноз"
+
+    await notify_group_chat(
+        "🏆 Турнирный прогноз зафиксирован\n\n"
+        f"{user.display_name} {action_text} на ЧМ-2026.\n\n"
+        "Детали пока не раскрываем. "
+        "Пусть интрига живет хотя бы до первого спорного VAR."
+    )
+
 @dp.message(Command("start"))
 async def start_handler(message: Message):
+    # В группе /start не регистрируем как полноценный личный старт
+    if message.chat.type != "private":
+        await message.answer(
+            "Я тут для развлечений и общей статистики: /fact, /quiz, /archive, /table.\n\n"
+            "Прогнозы лучше делать в личке с ботом: /predict"
+        )
+        return
+
     db = SessionLocal()
 
     try:
         user, created = get_or_create_user(db, message.from_user)
-        if message.chat.type != "private":
-            await message.answer(
-                "Я тут для развлечений: /fact, /quiz, /archive...\n\n"
-                "Прогнозы, таблицы и личная статистика — только в личке со мной."
-            )
-            return
+
         await message.answer(
             get_start_message_for_user(user, created)
         )
@@ -2463,15 +2553,23 @@ async def start_handler(message: Message):
             username_text = (
                 f"@{message.from_user.username}"
                 if message.from_user.username
-                else "не указан"
+                else "без username"
             )
 
+            # Старое уведомление админам, если оно есть
             await notify_admins(
                 "🆕 Новый участник зарегистрировался\n\n"
                 f"Имя: {user.display_name}\n"
                 f"Telegram ID: {user.telegram_id}\n"
                 f"Username: {username_text}",
                 exclude_telegram_id=user.telegram_id,
+            )
+
+            # Новое уведомление в общий чат
+            await notify_group_chat(
+                "🆕 Новый участник зашел в турнир\n\n"
+                f"{user.display_name} зарегистрировался в «Отце прогнозов».\n\n"
+                "Отец прогнозов одобрительно открыл Excel, хотя Excel уже не нужен."
             )
 
     finally:
@@ -3877,6 +3975,22 @@ async def notify_admins(text: str, exclude_telegram_id: int | None = None):
                 f"Failed to send admin notification "
                 f"to {admin_telegram_id}: {error}"
             )
+
+
+async def notify_group_chat(text: str):
+    group_chat_id = get_group_chat_id()
+
+    if not group_chat_id:
+        print("GROUP_CHAT_ID is not set")
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=group_chat_id,
+            text=text,
+        )
+    except Exception as error:
+        print(f"Failed to send message to group chat {group_chat_id}: {error}")
 
 
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
@@ -7541,6 +7655,8 @@ async def admin_send_daily_fact_group_handler(message: Message):
 
     finally:
         db.close()
+
+
 
 async def main():
     if reminders_enabled():
