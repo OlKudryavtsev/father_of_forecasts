@@ -399,6 +399,7 @@ PRIVATE_ONLY_COMMANDS_HINT = (
     "В общем чате можно использовать:\n"
     "/fact — факты о ЧМ\n"
     "/quiz — квиз о ЧМ\n"
+    "/archive - архивный факт с прошлых Отцов прогноза\n"
     "/rules — правила\n"
     "/help — как играть\n\n"
     "Для прогнозов открой личный чат с ботом."
@@ -3225,7 +3226,7 @@ def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
     return random.choice(facts)
 
 
-FACTS_SEED_PATH = Path("scripts/data/world_cup_facts_seed.json")
+FACTS_SEED_PATH = Path("/data/world_cup_facts_seed.json")
 
 
 def import_world_cup_facts_from_seed(db) -> dict:
