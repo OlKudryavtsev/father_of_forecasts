@@ -3226,7 +3226,7 @@ def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
     return random.choice(facts)
 
 
-FACTS_SEED_PATH = Path("/data/world_cup_facts_seed.json")
+FACTS_SEED_PATH = Path("data/world_cup_facts_seed.json")
 
 
 def import_world_cup_facts_from_seed(db) -> dict:
