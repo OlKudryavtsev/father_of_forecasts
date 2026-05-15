@@ -725,22 +725,22 @@ def format_match_short_for_group(match: Match) -> str:
     home_flag = get_team_flag(match.home_team_api_name or match.home_team)
     away_flag = get_team_flag(match.away_team_api_name or match.away_team)
 
-    group_text = (
-        f"Группа {match.group_code}"
-        if match.group_code
-        else "Плей-офф"
-    )
+    if match.group_code:
+        group_text = f"Группа {match.group_code}"
+    else:
+        group_text = "Плей-офф"
 
-    round_text = (
-        f"Тур {match.round_number}"
-        if match.round_number
-        else ""
-    )
+    match_round = match.match_round or get_default_match_round(match.stage)
+
+    if match.stage == "group":
+        round_text = f"Тур {match_round}"
+    else:
+        round_text = f"Стадия {match_round}"
 
     return (
         f"#{match.id}. {group_text}. {round_text}. "
         f"{home_name} {home_flag} — {away_flag} {away_name}"
-    ).replace("..", ".")
+    )
 
 
 def format_datetime(dt):
