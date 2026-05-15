@@ -239,3 +239,50 @@ class FactDeliveryLog(Base):
 
     fact = relationship("WorldCupFact")
     user = relationship("User")
+
+class QuizQuestion(Base):
+    __tablename__ = "quiz_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    external_id = Column(String, unique=True, nullable=True)
+
+    question_text = Column(Text, nullable=False)
+
+    option_a = Column(Text, nullable=False)
+    option_b = Column(Text, nullable=False)
+    option_c = Column(Text, nullable=False)
+    option_d = Column(Text, nullable=False)
+
+    correct_option = Column(String, nullable=False)
+
+    explanation = Column(Text, nullable=True)
+
+    category = Column(String, nullable=True)
+    tournament_year = Column(Integer, nullable=True)
+
+    source_fact_id = Column(Integer, ForeignKey("world_cup_facts.id"), nullable=True)
+
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    source_fact = relationship("WorldCupFact")
+
+
+class QuizAnswer(Base):
+    __tablename__ = "quiz_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    quiz_question_id = Column(Integer, ForeignKey("quiz_questions.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    telegram_id = Column(BigInteger, nullable=True)
+
+    selected_option = Column(String, nullable=False)
+    is_correct = Column(Boolean, nullable=False)
+
+    answered_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    question = relationship("QuizQuestion")
+    user = relationship("User")

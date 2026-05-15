@@ -29,6 +29,8 @@ from app.models import (
     User,
     WorldCupFact,
     FactDeliveryLog,
+    QuizQuestion,
+    QuizAnswer,
 )
 from app.admin import is_admin_telegram_id
 
@@ -43,7 +45,6 @@ from app.wc2026_sync import (
     sync_wc2026_schedule,
 )
 from app.fifa_rankings import FifaRankingsStore
-
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
@@ -360,6 +361,7 @@ DEFAULT_REPEAT_START_MESSAGES = [
 ]
 
 WC2026_START_DATE = date(2026, 6, 11)
+QUIZ_SEED_PATH = Path("data/world_cup_quiz_seed.json")
 
 def get_admin_telegram_ids() -> list[int]:
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
@@ -374,24 +376,28 @@ def get_admin_telegram_ids() -> list[int]:
 
     return admin_ids
 
+
 class TournamentPredictionForm(StatesGroup):
     champion = State()
     runner_up = State()
     third_place = State()
     top_scorer = State()
 
+
 class MatchPredictionForm(StatesGroup):
     custom_score = State()
+
 
 class AdminResultForm(StatesGroup):
     custom_score = State()
 
+
 class CommandLoggingMiddleware(BaseMiddleware):
     async def __call__(
-        self,
-        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
-        data: dict[str, Any],
+            self,
+            handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+            event: TelegramObject,
+            data: dict[str, Any],
     ) -> Any:
         if isinstance(event, Message):
             command = extract_command_from_text(event.text)
@@ -425,6 +431,7 @@ class CommandLoggingMiddleware(BaseMiddleware):
 
         return await handler(event, data)
 
+
 def get_tournament_starts_at():
     dt = datetime.fromisoformat(
         TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
@@ -439,12 +446,14 @@ def get_tournament_starts_at():
 def is_tournament_started() -> bool:
     return datetime.now(timezone.utc) >= get_tournament_starts_at()
 
+
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 dp.message.middleware(CommandLoggingMiddleware())
+
 
 def get_or_create_user(db, telegram_user):
     admin_status = is_admin_telegram_id(telegram_user.id)
@@ -486,6 +495,7 @@ def get_or_create_user(db, telegram_user):
     db.refresh(new_user)
 
     return new_user, True
+
 
 PLAYOFF_STAGES = {
     "round_of_32",
@@ -531,6 +541,7 @@ def format_advancement_prediction(prediction: Prediction, match: Match) -> str:
 
     return "проход: не указан"
 
+
 def parse_score(score_text: str):
     normalized = score_text.replace("-", ":").replace(" ", "")
 
@@ -562,12 +573,14 @@ def format_match(match: Match):
         f"Старт: {start_text}"
     )
 
+
 def format_datetime(dt):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
 
     local_dt = dt.astimezone(APP_TIMEZONE)
     return local_dt.strftime("%d.%m.%Y %H:%M")
+
 
 def get_today_moscow_range_utc() -> tuple[datetime, datetime]:
     now_moscow = datetime.now(APP_TIMEZONE)
@@ -586,11 +599,12 @@ def get_today_moscow_range_utc() -> tuple[datetime, datetime]:
         end_moscow.astimezone(timezone.utc),
     )
 
+
 def build_command_stats_for_period(
-    db,
-    start_at: datetime | None = None,
-    end_at: datetime | None = None,
-    limit_users: int = 20,
+        db,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+        limit_users: int = 20,
 ) -> list[dict]:
     query = db.query(CommandLog)
 
@@ -671,8 +685,10 @@ def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
 
     return lines
 
+
 def is_user_admin(user: User) -> bool:
     return bool(user.is_admin)
+
 
 def ensure_admin_or_reply(user: User) -> bool:
     return bool(user.is_admin)
@@ -702,6 +718,7 @@ def parse_admin_match_payload(text: str):
     starts_at = starts_at.astimezone(timezone.utc)
 
     return home_team, away_team, starts_at, stage, match_round, tournament_code
+
 
 def parse_admin_edit_match_payload(text: str):
     payload = text.replace("/admin_edit_match", "", 1).strip()
@@ -743,6 +760,7 @@ def parse_match_id_command(text: str, command: str) -> int:
 
     return int(payload)
 
+
 def parse_result_payload(text: str):
     parts = text.split()
 
@@ -764,6 +782,7 @@ def parse_result_payload(text: str):
 
     return match_id, score_home, score_away, winner_side
 
+
 def build_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
 
@@ -778,6 +797,7 @@ def build_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
         )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def build_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
     common_scores = [
@@ -820,6 +840,7 @@ def build_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
 def build_admin_result_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
 
@@ -834,6 +855,7 @@ def build_admin_result_matches_keyboard(matches: list[Match]) -> InlineKeyboardM
         )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def build_admin_result_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
     common_scores = [
@@ -882,10 +904,10 @@ def build_admin_result_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
 
 
 def build_admin_result_winner_keyboard(
-    match_id: int,
-    score_home: int,
-    score_away: int,
-    match: Match,
+        match_id: int,
+        score_home: int,
+        score_away: int,
+        match: Match,
 ) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -910,10 +932,10 @@ def build_admin_result_winner_keyboard(
 
 
 def build_advancement_keyboard(
-    match_id: int,
-    pred_home: int,
-    pred_away: int,
-    match: Match,
+        match_id: int,
+        pred_home: int,
+        pred_away: int,
+        match: Match,
 ) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -944,14 +966,15 @@ def build_advancement_keyboard(
         ]
     )
 
+
 def save_prediction(
-    db,
-    user: User,
-    match: Match,
-    pred_home: int,
-    pred_away: int,
-    advancement_bet_enabled: bool = False,
-    predicted_advancing_side: str | None = None,
+        db,
+        user: User,
+        match: Match,
+        pred_home: int,
+        pred_away: int,
+        advancement_bet_enabled: bool = False,
+        predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
     now = datetime.now(timezone.utc)
 
@@ -1009,13 +1032,14 @@ def save_prediction(
 
     return True, text
 
+
 def save_tournament_prediction(
-    db,
-    user: User,
-    champion: str,
-    runner_up: str,
-    third_place: str,
-    top_scorer: str,
+        db,
+        user: User,
+        champion: str,
+        runner_up: str,
+        third_place: str,
+        top_scorer: str,
 ) -> tuple[bool, str]:
     existing_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
@@ -1066,13 +1090,14 @@ def save_tournament_prediction(
         f"Бомбардир: {top_scorer}",
     )
 
+
 async def save_tournament_prediction_and_notify_admins(
-    db,
-    user: User,
-    champion: str,
-    runner_up: str,
-    third_place: str,
-    top_scorer: str,
+        db,
+        user: User,
+        champion: str,
+        runner_up: str,
+        third_place: str,
+        top_scorer: str,
 ) -> tuple[bool, str]:
     existing_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
@@ -1105,14 +1130,15 @@ async def save_tournament_prediction_and_notify_admins(
 
     return success, text
 
+
 async def save_prediction_and_notify_admins(
-    db,
-    user: User,
-    match: Match,
-    pred_home: int,
-    pred_away: int,
-    advancement_bet_enabled: bool = False,
-    predicted_advancing_side: str | None = None,
+        db,
+        user: User,
+        match: Match,
+        pred_home: int,
+        pred_away: int,
+        advancement_bet_enabled: bool = False,
+        predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
     existing_prediction = db.query(Prediction).filter(
         Prediction.user_id == user.id,
@@ -1156,6 +1182,7 @@ async def save_prediction_and_notify_admins(
 
     return success, text
 
+
 def get_available_matches_query(db):
     now = datetime.now(timezone.utc)
 
@@ -1188,7 +1215,7 @@ def get_nearest_matchday_matches(db) -> list[Match]:
         match
         for match in all_future_matches
         if match.starts_at.astimezone(MATCHDAY_TIMEZONE).date()
-        == first_matchday_date
+           == first_matchday_date
     ]
 
 
@@ -1216,6 +1243,7 @@ def format_match(match: Match):
         f"{venue_text}"
     )
 
+
 def get_default_match_round(stage: str) -> str:
     mapping = {
         "group": "1",
@@ -1228,6 +1256,7 @@ def get_default_match_round(stage: str) -> str:
     }
 
     return mapping.get(stage, stage)
+
 
 def parse_csv_matches(csv_text: str) -> list[dict]:
     csv_text = csv_text.replace("\ufeff", "").strip()
@@ -1378,6 +1407,7 @@ def import_matches_from_rows(db, rows: list[dict]) -> dict:
         "total": len(imported_matches),
     }
 
+
 def reminders_enabled() -> bool:
     return os.getenv("REMINDERS_ENABLED", "false").lower() == "true"
 
@@ -1435,11 +1465,11 @@ def user_has_prediction(db, user: User, match: Match) -> bool:
 
 
 def reminder_was_sent(
-    db,
-    user: User,
-    match: Match,
-    reminder_type: str,
-    reminder_key: str,
+        db,
+        user: User,
+        match: Match,
+        reminder_type: str,
+        reminder_key: str,
 ) -> bool:
     existing_log = db.query(ReminderLog).filter(
         ReminderLog.user_id == user.id,
@@ -1452,11 +1482,11 @@ def reminder_was_sent(
 
 
 def mark_reminder_sent(
-    db,
-    user: User,
-    match: Match,
-    reminder_type: str,
-    reminder_key: str,
+        db,
+        user: User,
+        match: Match,
+        reminder_type: str,
+        reminder_key: str,
 ):
     log = ReminderLog(
         user_id=user.id,
@@ -1470,11 +1500,11 @@ def mark_reminder_sent(
 
 
 def apply_match_result_from_admin(
-    db,
-    match: Match,
-    score_home: int,
-    score_away: int,
-    winner_side: str | None = None,
+        db,
+        match: Match,
+        score_home: int,
+        score_away: int,
+        winner_side: str | None = None,
 ) -> list[str]:
     if is_playoff_match(match) and winner_side is None:
         raise ValueError("Playoff match requires winner_side")
@@ -1547,6 +1577,7 @@ def apply_match_result_from_admin(
 
     return lines
 
+
 def build_predictions_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
 
@@ -1562,29 +1593,31 @@ def build_predictions_matches_keyboard(matches: list[Match]) -> InlineKeyboardMa
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def get_recent_and_upcoming_matches(db, limit: int = 20) -> list[Match]:
     now = datetime.now(timezone.utc)
 
     # Берем последние завершенные/начавшиеся и ближайшие будущие
     past_matches = (
         db.query(Match)
-        .filter(Match.starts_at <= now)
-        .order_by(Match.starts_at.desc())
-        .limit(5)
-        .all()
+            .filter(Match.starts_at <= now)
+            .order_by(Match.starts_at.desc())
+            .limit(5)
+            .all()
     )
 
     future_matches = (
         db.query(Match)
-        .filter(Match.starts_at > now)
-        .order_by(Match.starts_at)
-        .limit(limit - len(past_matches))
-        .all()
+            .filter(Match.starts_at > now)
+            .order_by(Match.starts_at)
+            .limit(limit - len(past_matches))
+            .all()
     )
 
     matches = list(reversed(past_matches)) + future_matches
 
     return matches
+
 
 def build_match_card_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
@@ -1600,6 +1633,7 @@ def build_match_card_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
         )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def build_predictions_text(db, match: Match) -> str:
     now = datetime.now(timezone.utc)
@@ -1668,6 +1702,7 @@ def build_predictions_text(db, match: Match) -> str:
 
     return "\n".join(lines)
 
+
 def build_forecast_text(db, match: Match) -> str:
     context = build_wc2026_openai_context(db, match)
 
@@ -1726,6 +1761,7 @@ def build_forecast_text(db, match: Match) -> str:
         "не гарантия результата."
     )
 
+
 def format_ranking_fact(team_name: str, ranking: dict | None) -> str:
     if not ranking:
         return f"{team_name}: рейтинг не найден"
@@ -1766,6 +1802,7 @@ def format_h2h_fact(rows: list[dict]) -> str:
 
     return "\n".join(lines)
 
+
 def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     buttons = []
 
@@ -1781,6 +1818,7 @@ def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarku
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def extract_command_from_text(text: str | None) -> str | None:
     if not text:
         return None
@@ -1794,6 +1832,7 @@ def extract_command_from_text(text: str | None) -> str | None:
     command = first_part.split("@")[0]
 
     return command.lower()
+
 
 @dp.message(Command("forecast"))
 async def forecast_handler(message: Message):
@@ -1839,6 +1878,7 @@ async def forecast_handler(message: Message):
     finally:
         db.close()
 
+
 def get_start_message_for_user(user: User, created: bool) -> str:
     if created:
         return FIRST_START_MESSAGES_BY_TELEGRAM_ID.get(
@@ -1852,6 +1892,7 @@ def get_start_message_for_user(user: User, created: bool) -> str:
     )
 
     return random.choice(repeat_messages)
+
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
@@ -2106,6 +2147,7 @@ async def mybets_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("predictions"))
 async def predictions_handler(message: Message):
     db = SessionLocal()
@@ -2151,6 +2193,7 @@ async def predictions_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("table"))
 async def table_handler(message: Message):
@@ -2272,6 +2315,7 @@ async def table_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("rules"))
 async def rules_handler(message: Message):
     await message.answer(
@@ -2298,6 +2342,7 @@ async def rules_handler(message: Message):
         "Краткая инструкция участника: /help"
     )
 
+
 def parse_tournament_prediction_payload(text: str):
     payload = text.replace("/tournament_set", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
@@ -2308,6 +2353,7 @@ def parse_tournament_prediction_payload(text: str):
     champion, runner_up, third_place, top_scorer = parts
 
     return champion, runner_up, third_place, top_scorer
+
 
 def parse_tournament_result_payload(text: str):
     payload = text.replace("/admin_set_tournament_result", "", 1).strip()
@@ -2320,6 +2366,7 @@ def parse_tournament_result_payload(text: str):
 
     return champion, runner_up, third_place, top_scorer
 
+
 def get_team_flag(team_name: str | None, api_name: str | None = None) -> str:
     if api_name and api_name in TEAM_FLAGS:
         return TEAM_FLAGS[api_name]
@@ -2331,9 +2378,9 @@ def get_team_flag(team_name: str | None, api_name: str | None = None) -> str:
 
 
 def format_team_with_flag(
-    display_name: str,
-    api_name: str | None = None,
-    flag_before: bool = False,
+        display_name: str,
+        api_name: str | None = None,
+        flag_before: bool = False,
 ) -> str:
     flag = get_team_flag(display_name, api_name)
 
@@ -2344,6 +2391,7 @@ def format_team_with_flag(
         return f"{flag} {display_name}"
 
     return f"{display_name} {flag}"
+
 
 def format_match_label(match: Match, include_id: bool = False) -> str:
     home_text = format_team_with_flag(
@@ -2388,6 +2436,7 @@ def format_match_label(match: Match, include_id: bool = False) -> str:
 
     return label
 
+
 def format_matches_list(matches: list[Match], title: str) -> str:
     lines = [title, ""]
 
@@ -2423,6 +2472,7 @@ def format_matches_list(matches: list[Match], title: str) -> str:
 
     return "\n".join(lines)
 
+
 def get_user_prediction_match_ids(db, user: User) -> set[int]:
     predictions = db.query(Prediction).filter(
         Prediction.user_id == user.id
@@ -2435,9 +2485,9 @@ def get_user_prediction_match_ids(db, user: User) -> set[int]:
 
 
 def get_missing_predictions_for_matches(
-    db,
-    user: User,
-    matches: list[Match],
+        db,
+        user: User,
+        matches: list[Match],
 ) -> list[Match]:
     predicted_match_ids = get_user_prediction_match_ids(db, user)
 
@@ -2475,6 +2525,7 @@ def format_missing_matches_list(matches: list[Match], title: str) -> str:
     lines.append("Сделать прогноз: /predict")
 
     return "\n".join(lines)
+
 
 def get_match_status(match: Match) -> str:
     now = datetime.now(timezone.utc)
@@ -2515,9 +2566,9 @@ def get_prediction_points_breakdown(prediction: Prediction) -> str:
 
 
 def format_user_match_prediction(
-    prediction: Prediction | None,
-    match: Match,
-    reveal: bool = True,
+        prediction: Prediction | None,
+        match: Match,
+        reveal: bool = True,
 ) -> str:
     if not prediction:
         return "прогноза нет"
@@ -2534,6 +2585,7 @@ def format_user_match_prediction(
         text += f" — {get_prediction_points_breakdown(prediction)}"
 
     return text
+
 
 def build_match_card_text(db, user: User, match: Match) -> str:
     now = datetime.now(timezone.utc)
@@ -2631,6 +2683,7 @@ def build_match_card_text(db, user: User, match: Match) -> str:
 
     return "\n".join(lines)
 
+
 def build_user_summary_context(db, user: User) -> dict:
     predictions = db.query(Prediction).filter(
         Prediction.user_id == user.id
@@ -2712,7 +2765,7 @@ def build_user_summary_context(db, user: User) -> dict:
         prediction
         for prediction in predictions
         if not prediction.match.is_finished
-        and prediction.match.starts_at > datetime.now(timezone.utc)
+           and prediction.match.starts_at > datetime.now(timezone.utc)
     ]
 
     exact_scores = sum(
@@ -2828,6 +2881,7 @@ def build_user_summary_context(db, user: User) -> dict:
         },
     }
 
+
 def format_world_cup_fact(fact: WorldCupFact) -> str:
     year_text = f"ЧМ-{fact.tournament_year}" if fact.tournament_year else "История ЧМ"
 
@@ -2844,6 +2898,7 @@ def format_world_cup_fact(fact: WorldCupFact) -> str:
         lines.extend(["", f"🔥 {fact.spicy_comment}"])
 
     return "\n".join(lines)
+
 
 def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
     now_local = datetime.now(DAILY_FACT_TIMEZONE)
@@ -2863,12 +2918,12 @@ def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
     sent_fact_ids_today = [
         row.fact_id
         for row in db.query(FactDeliveryLog)
-        .filter(
+            .filter(
             FactDeliveryLog.delivery_type == "daily",
             FactDeliveryLog.sent_at >= start_utc,
             FactDeliveryLog.sent_at < end_utc,
         )
-        .all()
+            .all()
     ]
 
     query = db.query(WorldCupFact).filter(
@@ -2885,6 +2940,7 @@ def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
         return None
 
     return random.choice(facts)
+
 
 FACTS_SEED_PATH = Path("scripts/data/world_cup_facts_seed.json")
 
@@ -2939,8 +2995,6 @@ def import_world_cup_facts_from_seed(db) -> dict:
         "updated": updated,
         "skipped": skipped,
     }
-
-
 
 
 def plural_days_ru(value: int) -> str:
@@ -3021,6 +3075,106 @@ def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
 
     return "\n".join(lines)
 
+
+
+def build_quiz_keyboard(question: QuizQuestion) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"A. {question.option_a}",
+                    callback_data=f"quiz_answer:{question.id}:A",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"B. {question.option_b}",
+                    callback_data=f"quiz_answer:{question.id}:B",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"C. {question.option_c}",
+                    callback_data=f"quiz_answer:{question.id}:C",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"D. {question.option_d}",
+                    callback_data=f"quiz_answer:{question.id}:D",
+                )
+            ],
+        ]
+    )
+
+def format_quiz_question(question: QuizQuestion) -> str:
+    year_text = f"ЧМ-{question.tournament_year}" if question.tournament_year else "История ЧМ"
+
+    return (
+        "❓ Мини-вопрос от Отца прогнозов\n\n"
+        f"🗓 {year_text}\n"
+        f"🏷 {question.category or 'history'}\n\n"
+        f"{question.question_text}"
+    )
+
+def import_quiz_questions_from_seed(db) -> dict:
+    if not QUIZ_SEED_PATH.exists():
+        raise FileNotFoundError(f"Файл не найден: {QUIZ_SEED_PATH}")
+
+    payload = json.loads(QUIZ_SEED_PATH.read_text(encoding="utf-8"))
+    questions = payload.get("questions", [])
+
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for item in questions:
+        external_id = item.get("id")
+
+        if not external_id:
+            skipped += 1
+            continue
+
+        options = item.get("options") or {}
+
+        required_options = ["A", "B", "C", "D"]
+
+        if any(option not in options for option in required_options):
+            skipped += 1
+            continue
+
+        question = db.query(QuizQuestion).filter(
+            QuizQuestion.external_id == external_id
+        ).first()
+
+        if not question:
+            question = QuizQuestion(external_id=external_id)
+            db.add(question)
+            created += 1
+        else:
+            updated += 1
+
+        question.question_text = item["question_text"]
+        question.option_a = options["A"]
+        question.option_b = options["B"]
+        question.option_c = options["C"]
+        question.option_d = options["D"]
+        question.correct_option = item["correct_option"]
+        question.explanation = item.get("explanation")
+        question.category = item.get("category")
+        question.tournament_year = item.get("tournament_year")
+        question.is_active = bool(item.get("is_active", True))
+
+    db.commit()
+
+    return {
+        "total": len(questions),
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+    }
+
+
 async def daily_facts_loop():
     if not DAILY_FACTS_ENABLED:
         print("Daily facts are disabled")
@@ -3038,9 +3192,9 @@ async def daily_facts_loop():
         now_local = datetime.now(DAILY_FACT_TIMEZONE)
 
         should_send = (
-            now_local.hour == DAILY_FACT_HOUR
-            and now_local.minute == DAILY_FACT_MINUTE
-            and last_sent_date != now_local.date()
+                now_local.hour == DAILY_FACT_HOUR
+                and now_local.minute == DAILY_FACT_MINUTE
+                and last_sent_date != now_local.date()
         )
 
         if should_send:
@@ -3084,6 +3238,7 @@ async def daily_facts_loop():
 
         await asyncio.sleep(30)
 
+
 async def notify_admins(text: str, exclude_telegram_id: int | None = None):
     if not ADMIN_NOTIFY_ENABLED:
         return
@@ -3108,6 +3263,7 @@ async def notify_admins(text: str, exclude_telegram_id: int | None = None):
                 f"to {admin_telegram_id}: {error}"
             )
 
+
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
     chunks = []
     current_chunk = ""
@@ -3126,6 +3282,7 @@ async def send_long_message(message: Message, lines: list[str], chunk_size: int 
 
     for chunk in chunks:
         await message.answer(chunk)
+
 
 @dp.message(Command("tournament_set"))
 async def tournament_set_handler(message: Message, state: FSMContext):
@@ -3182,6 +3339,7 @@ async def tournament_set_handler(message: Message, state: FSMContext):
     finally:
         db.close()
 
+
 @dp.message(Command("tournament"))
 async def tournament_handler(message: Message):
     db = SessionLocal()
@@ -3217,6 +3375,7 @@ async def tournament_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("tournament_predictions"))
 async def tournament_predictions_handler(message: Message):
@@ -3283,6 +3442,7 @@ async def tournament_predictions_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin"))
 async def admin_handler(message: Message):
     db = SessionLocal()
@@ -3303,7 +3463,7 @@ async def admin_handler(message: Message):
             "/admin_matches\n\n"
             "Полный список матчей:\n"
             "/admin_matches_all\n\n"
-             "Импорт матчей из CSV:\n"
+            "Импорт матчей из CSV:\n"
             "/admin_import_matches\n\n"
             "Добавить матч:\n"
             "/admin_add_match Мексика; ЮАР; 2026-06-11T21:00:00+03:00; group\n\n"
@@ -3344,6 +3504,7 @@ async def admin_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("match"))
 async def match_handler(message: Message):
@@ -3407,6 +3568,7 @@ async def match_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_set_result"))
 async def admin_set_result_handler(message: Message):
     db = SessionLocal()
@@ -3426,13 +3588,13 @@ async def admin_set_result_handler(message: Message):
 
             matches = (
                 db.query(Match)
-                .filter(
+                    .filter(
                     Match.is_finished == False,
                     Match.starts_at <= now + timedelta(days=3),
                 )
-                .order_by(Match.starts_at)
-                .limit(20)
-                .all()
+                    .order_by(Match.starts_at)
+                    .limit(20)
+                    .all()
             )
 
             if not matches:
@@ -3502,6 +3664,7 @@ async def admin_set_result_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_recalculate"))
 async def admin_recalculate_handler(message: Message):
     db = SessionLocal()
@@ -3556,6 +3719,7 @@ async def admin_recalculate_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_set_tournament_result"))
 async def admin_set_tournament_result_handler(message: Message):
@@ -3671,6 +3835,7 @@ async def admin_set_tournament_result_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_tournament_recalculate"))
 async def admin_tournament_recalculate_handler(message: Message):
     db = SessionLocal()
@@ -3735,6 +3900,7 @@ async def admin_tournament_recalculate_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_matches"))
 async def admin_matches_handler(message: Message):
     db = SessionLocal()
@@ -3748,9 +3914,9 @@ async def admin_matches_handler(message: Message):
 
         matches = (
             db.query(Match)
-            .order_by(Match.starts_at)
-            .limit(20)
-            .all()
+                .order_by(Match.starts_at)
+                .limit(20)
+                .all()
         )
 
         total_matches = db.query(Match).count()
@@ -3807,6 +3973,7 @@ async def admin_matches_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_matches_all"))
 async def admin_matches_all_handler(message: Message):
@@ -3868,6 +4035,7 @@ async def admin_matches_all_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_edit_match"))
 async def admin_edit_match_handler(message: Message):
@@ -3942,6 +4110,7 @@ async def admin_edit_match_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_delete_match"))
 async def admin_delete_match_handler(message: Message):
     db = SessionLocal()
@@ -4006,6 +4175,7 @@ async def admin_delete_match_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_force_delete_match"))
 async def admin_force_delete_match_handler(message: Message):
     db = SessionLocal()
@@ -4069,6 +4239,7 @@ async def admin_force_delete_match_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.callback_query(lambda callback: callback.data.startswith("predict_match:"))
 async def predict_match_callback(callback: CallbackQuery):
     db = SessionLocal()
@@ -4110,6 +4281,7 @@ async def predict_match_callback(callback: CallbackQuery):
 
     finally:
         db.close()
+
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_score:"))
 async def predict_score_callback(callback: CallbackQuery):
@@ -4163,6 +4335,7 @@ async def predict_score_callback(callback: CallbackQuery):
     finally:
         db.close()
 
+
 @dp.callback_query(lambda callback: callback.data.startswith("predict_adv:"))
 async def predict_advancement_callback(callback: CallbackQuery):
     db = SessionLocal()
@@ -4209,6 +4382,7 @@ async def predict_advancement_callback(callback: CallbackQuery):
 
     finally:
         db.close()
+
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_custom:"))
 async def predict_custom_callback(callback: CallbackQuery, state: FSMContext):
@@ -4258,6 +4432,7 @@ async def predict_custom_callback(callback: CallbackQuery, state: FSMContext):
     finally:
         db.close()
 
+
 @dp.message(TournamentPredictionForm.champion)
 async def tournament_champion_handler(message: Message, state: FSMContext):
     champion = message.text.strip()
@@ -4273,6 +4448,7 @@ async def tournament_champion_handler(message: Message, state: FSMContext):
         f"Чемпион: {champion}\n\n"
         "Кто займет 2 место?"
     )
+
 
 @dp.message(TournamentPredictionForm.runner_up)
 async def tournament_runner_up_handler(message: Message, state: FSMContext):
@@ -4298,6 +4474,7 @@ async def tournament_runner_up_handler(message: Message, state: FSMContext):
         f"2 место: {runner_up}\n\n"
         "Кто займет 3 место?"
     )
+
 
 @dp.message(TournamentPredictionForm.third_place)
 async def tournament_third_place_handler(message: Message, state: FSMContext):
@@ -4330,6 +4507,7 @@ async def tournament_third_place_handler(message: Message, state: FSMContext):
         "Напиши фамилию или имя игрока, например:\n"
         "Мбаппе"
     )
+
 
 @dp.message(TournamentPredictionForm.top_scorer)
 async def tournament_top_scorer_handler(message: Message, state: FSMContext):
@@ -4373,6 +4551,7 @@ async def tournament_top_scorer_handler(message: Message, state: FSMContext):
     finally:
         db.close()
 
+
 @dp.message(Command("cancel"))
 async def cancel_handler(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -4384,6 +4563,7 @@ async def cancel_handler(message: Message, state: FSMContext):
     await state.clear()
 
     await message.answer("Действие отменено.")
+
 
 @dp.message(MatchPredictionForm.custom_score)
 async def match_custom_score_handler(message: Message, state: FSMContext):
@@ -4456,6 +4636,7 @@ async def match_custom_score_handler(message: Message, state: FSMContext):
     finally:
         db.close()
 
+
 @dp.message(Command("matches_all"))
 async def matches_all_handler(message: Message):
     db = SessionLocal()
@@ -4479,6 +4660,7 @@ async def matches_all_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("predict_all"))
 async def predict_all_handler(message: Message):
     db = SessionLocal()
@@ -4499,6 +4681,7 @@ async def predict_all_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_import_matches"))
 async def admin_import_matches_handler(message: Message):
@@ -4570,6 +4753,7 @@ async def admin_import_matches_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("missing"))
 async def missing_handler(message: Message):
     db = SessionLocal()
@@ -4604,6 +4788,7 @@ async def missing_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("missing_all"))
 async def missing_all_handler(message: Message):
@@ -4641,6 +4826,7 @@ async def missing_all_handler(message: Message):
 
     finally:
         db.close()
+
 
 async def send_match_reminders_once():
     if not reminders_enabled():
@@ -4694,11 +4880,11 @@ async def send_match_reminders_once():
                         continue
 
                     if reminder_was_sent(
-                        db=db,
-                        user=user,
-                        match=match,
-                        reminder_type=reminder_type,
-                        reminder_key=reminder_key,
+                            db=db,
+                            user=user,
+                            match=match,
+                            reminder_type=reminder_type,
+                            reminder_key=reminder_key,
                     ):
                         continue
 
@@ -4734,11 +4920,13 @@ async def send_match_reminders_once():
     finally:
         db.close()
 
+
 def format_percent(part: int, total: int) -> str:
     if total == 0:
         return "0%"
 
     return f"{round(part / total * 100)}%"
+
 
 async def reminders_loop():
     if not reminders_enabled():
@@ -4762,6 +4950,7 @@ async def reminders_loop():
             print(f"Reminder loop error: {error}")
 
         await asyncio.sleep(interval_seconds)
+
 
 @dp.message(Command("admin_reminders_status"))
 async def admin_reminders_status_handler(message: Message):
@@ -4821,6 +5010,7 @@ async def admin_reminders_status_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("match"))
 async def match_handler(message: Message):
@@ -4962,6 +5152,7 @@ async def match_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("summary"))
 async def summary_handler(message: Message):
@@ -5124,6 +5315,7 @@ async def summary_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_match:"))
 async def admin_result_match_callback(callback: CallbackQuery):
     db = SessionLocal()
@@ -5166,6 +5358,7 @@ async def admin_result_match_callback(callback: CallbackQuery):
 
     finally:
         db.close()
+
 
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_score:"))
 async def admin_result_score_callback(callback: CallbackQuery):
@@ -5220,6 +5413,7 @@ async def admin_result_score_callback(callback: CallbackQuery):
     finally:
         db.close()
 
+
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_winner:"))
 async def admin_result_winner_callback(callback: CallbackQuery):
     db = SessionLocal()
@@ -5266,6 +5460,7 @@ async def admin_result_winner_callback(callback: CallbackQuery):
     finally:
         db.close()
 
+
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_custom:"))
 async def admin_result_custom_callback(callback: CallbackQuery, state: FSMContext):
     db = SessionLocal()
@@ -5305,6 +5500,7 @@ async def admin_result_custom_callback(callback: CallbackQuery, state: FSMContex
 
     finally:
         db.close()
+
 
 @dp.message(AdminResultForm.custom_score)
 async def admin_result_custom_score_handler(message: Message, state: FSMContext):
@@ -5378,6 +5574,7 @@ async def admin_result_custom_score_handler(message: Message, state: FSMContext)
     finally:
         db.close()
 
+
 @dp.message(Command("help"))
 async def help_handler(message: Message):
     await message.answer(USER_HELP_TEXT)
@@ -5402,6 +5599,7 @@ async def predictions_match_callback(callback: CallbackQuery):
 
     finally:
         db.close()
+
 
 @dp.callback_query(lambda callback: callback.data.startswith("match_card:"))
 async def match_card_callback(callback: CallbackQuery):
@@ -5440,6 +5638,7 @@ async def match_card_callback(callback: CallbackQuery):
     finally:
         db.close()
 
+
 @dp.message(Command("ai_summary"))
 async def ai_summary_handler(message: Message):
     db = SessionLocal()
@@ -5466,6 +5665,7 @@ async def ai_summary_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_sync_wc2026_schedule"))
 async def admin_sync_wc2026_schedule_handler(message: Message):
@@ -5501,6 +5701,7 @@ async def admin_sync_wc2026_schedule_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_sync_results"))
 async def admin_sync_results_handler(message: Message):
     db = SessionLocal()
@@ -5518,16 +5719,16 @@ async def admin_sync_results_handler(message: Message):
 
         matches = (
             db.query(Match)
-            .filter(
+                .filter(
                 Match.tournament_code == TOURNAMENT_CODE,
                 Match.external_provider == "api-football",
                 Match.external_fixture_id.isnot(None),
                 Match.is_finished == False,
                 Match.starts_at <= now,
             )
-            .order_by(Match.starts_at)
-            .limit(20)
-            .all()
+                .order_by(Match.starts_at)
+                .limit(20)
+                .all()
         )
 
         if not matches:
@@ -5616,6 +5817,7 @@ async def admin_sync_results_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.callback_query(lambda callback: callback.data.startswith("forecast_match:"))
 async def forecast_match_callback(callback: CallbackQuery):
     db = SessionLocal()
@@ -5635,6 +5837,7 @@ async def forecast_match_callback(callback: CallbackQuery):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_rankings_check"))
 async def admin_rankings_check_handler(message: Message):
@@ -5672,6 +5875,7 @@ async def admin_rankings_check_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_notify_test"))
 async def admin_notify_test_handler(message: Message):
     db = SessionLocal()
@@ -5698,6 +5902,7 @@ async def admin_notify_test_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_command_stats"))
 async def admin_command_stats_handler(message: Message):
@@ -5754,6 +5959,7 @@ async def admin_command_stats_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_command_stats_user"))
 async def admin_command_stats_user_handler(message: Message):
     db = SessionLocal()
@@ -5797,20 +6003,20 @@ async def admin_command_stats_user_handler(message: Message):
 
         today_logs = (
             db.query(CommandLog)
-            .filter(
+                .filter(
                 CommandLog.user_id == target_user.id,
                 CommandLog.created_at >= today_start_utc,
                 CommandLog.created_at < today_end_utc,
             )
-            .order_by(CommandLog.created_at.desc())
-            .all()
+                .order_by(CommandLog.created_at.desc())
+                .all()
         )
 
         total_logs = (
             db.query(CommandLog)
-            .filter(CommandLog.user_id == target_user.id)
-            .order_by(CommandLog.created_at.desc())
-            .all()
+                .filter(CommandLog.user_id == target_user.id)
+                .order_by(CommandLog.created_at.desc())
+                .all()
         )
 
         def summarize_logs(logs: list[CommandLog]) -> dict:
@@ -5886,6 +6092,7 @@ async def admin_command_stats_user_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("fact"))
 async def fact_handler(message: Message):
     db = SessionLocal()
@@ -5930,6 +6137,7 @@ async def fact_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_facts_count"))
 async def admin_facts_count_handler(message: Message):
     db = SessionLocal()
@@ -5957,6 +6165,7 @@ async def admin_facts_count_handler(message: Message):
 
     finally:
         db.close()
+
 
 @dp.message(Command("admin_import_facts"))
 async def admin_import_facts_handler(message: Message):
@@ -5994,6 +6203,7 @@ async def admin_import_facts_handler(message: Message):
     finally:
         db.close()
 
+
 @dp.message(Command("admin_daily_fact_preview"))
 async def admin_daily_fact_preview_handler(message: Message):
     db = SessionLocal()
@@ -6015,6 +6225,246 @@ async def admin_daily_fact_preview_handler(message: Message):
 
     finally:
         db.close()
+
+
+@dp.message(Command("quiz"))
+async def quiz_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        parts = message.text.split(maxsplit=1)
+        category = parts[1].strip().lower() if len(parts) > 1 else None
+
+        query = db.query(QuizQuestion).filter(
+            QuizQuestion.is_active == True,
+        )
+
+        if category:
+            query = query.filter(QuizQuestion.category == category)
+
+        questions = query.all()
+
+        if not questions:
+            await message.answer(
+                "Вопросов по такой категории пока нет.\n\n"
+                "Попробуй просто /quiz"
+            )
+            return
+
+        question = random.choice(questions)
+
+        await message.answer(
+            format_quiz_question(question),
+            reply_markup=build_quiz_keyboard(question),
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("admin_import_quiz"))
+async def admin_import_quiz_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        try:
+            result = import_quiz_questions_from_seed(db)
+        except Exception as error:
+            db.rollback()
+            print(f"Quiz import error: {error}")
+
+            await message.answer(
+                "Не удалось импортировать вопросы ❌\n\n"
+                f"Ошибка: {error}"
+            )
+            return
+
+        await message.answer(
+            "Вопросы импортированы ✅\n\n"
+            f"Всего в seed-файле: {result['total']}\n"
+            f"Создано: {result['created']}\n"
+            f"Обновлено: {result['updated']}\n"
+            f"Пропущено: {result['skipped']}\n\n"
+            "Проверить: /quiz"
+        )
+
+    finally:
+        db.close()
+
+
+@dp.callback_query(lambda callback: callback.data.startswith("quiz_answer:"))
+async def quiz_answer_callback(callback: CallbackQuery):
+    db = SessionLocal()
+
+    try:
+        _, question_id_text, selected_option = callback.data.split(":")
+
+        question = db.query(QuizQuestion).filter(
+            QuizQuestion.id == int(question_id_text)
+        ).first()
+
+        if not question:
+            await callback.answer("Вопрос не найден", show_alert=True)
+            return
+
+        user, _ = get_or_create_user(db, callback.from_user)
+
+        selected_option = selected_option.upper()
+        correct_option = question.correct_option.upper()
+
+        is_correct = selected_option == correct_option
+
+        answer = QuizAnswer(
+            quiz_question_id=question.id,
+            user_id=user.id,
+            telegram_id=user.telegram_id,
+            selected_option=selected_option,
+            is_correct=is_correct,
+        )
+
+        db.add(answer)
+        db.commit()
+
+        selected_text = {
+            "A": question.option_a,
+            "B": question.option_b,
+            "C": question.option_c,
+            "D": question.option_d,
+        }[selected_option]
+
+        correct_text = {
+            "A": question.option_a,
+            "B": question.option_b,
+            "C": question.option_c,
+            "D": question.option_d,
+        }[correct_option]
+
+        if is_correct:
+            result_text = "✅ Верно!"
+            roast_text = "Отец прогнозов доволен. Такое бы еще в точный счет перенести."
+        else:
+            result_text = "❌ Мимо."
+            roast_text = "Ничего страшного. Некоторые так целые турниры прогнозируют."
+
+        explanation = question.explanation or ""
+
+        await callback.message.answer(
+            f"{result_text}\n\n"
+            f"Твой ответ: {selected_option}. {selected_text}\n"
+            f"Правильный ответ: {correct_option}. {correct_text}\n\n"
+            f"{explanation}\n\n"
+            f"🔥 {roast_text}"
+        )
+
+        await callback.answer()
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("quiz_stats"))
+async def quiz_stats_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        answers = db.query(QuizAnswer).filter(
+            QuizAnswer.user_id == user.id
+        ).all()
+
+        total = len(answers)
+        correct = sum(1 for answer in answers if answer.is_correct)
+
+        if total == 0:
+            await message.answer(
+                "Ты еще не отвечал на вопросы.\n\n"
+                "Попробуй: /quiz"
+            )
+            return
+
+        accuracy = correct / total * 100
+
+        await message.answer(
+            "📊 Твоя статистика квиза\n\n"
+            f"Ответов: {total}\n"
+            f"Верных: {correct}\n"
+            f"Точность: {accuracy:.0f}%\n\n"
+            "Новый вопрос: /quiz"
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(Command("admin_quiz_stats"))
+async def admin_quiz_stats_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        admin_user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(admin_user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        users = db.query(User).all()
+
+        rows = []
+
+        for user in users:
+            answers = db.query(QuizAnswer).filter(
+                QuizAnswer.user_id == user.id
+            ).all()
+
+            total = len(answers)
+
+            if total == 0:
+                continue
+
+            correct = sum(1 for answer in answers if answer.is_correct)
+
+            rows.append(
+                {
+                    "name": user.display_name,
+                    "total": total,
+                    "correct": correct,
+                    "accuracy": correct / total * 100,
+                }
+            )
+
+        rows.sort(
+            key=lambda row: (row["correct"], row["accuracy"], row["total"]),
+            reverse=True,
+        )
+
+        if not rows:
+            await message.answer("По квизу пока нет ответов.")
+            return
+
+        lines = [
+            "📊 Статистика квиза",
+            "",
+        ]
+
+        for index, row in enumerate(rows, start=1):
+            lines.append(
+                f"{index}. {row['name']} — "
+                f"{row['correct']}/{row['total']} "
+                f"({row['accuracy']:.0f}%)"
+            )
+
+        await message.answer("\n".join(lines))
+
+    finally:
+        db.close()
+        
 
 async def main():
     if reminders_enabled():
