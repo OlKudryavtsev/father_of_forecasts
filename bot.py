@@ -50,6 +50,7 @@ from app.wc2026_sync import (
     sync_wc2026_schedule,
 )
 from app.fifa_rankings import FifaRankingsStore
+from app.team_names import get_team_name_ru
 
 TOKEN = os.getenv("BOT_TOKEN")
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Europe/Moscow"))
@@ -111,21 +112,22 @@ USER_HELP_TEXT = (
     "⚪ не ставил на проход — 0 очков\n\n"
     "\n5️⃣ Основные команды\n"
     "/rules — правила начисления очков\n"
-    "/matches — ближайший игровой день по времени турнира\n"
-    "/matches_all — все ближайшие матчи (30)\n"
     "/predict — прогноз на ближайший игровой день\n"
+    "/matches_all — все ближайшие матчи (30)\n"
     "/predictions — прогнозы участников по матчу\n"
     "/missing — где еще нет твоего прогноза\n"
     "/table — таблица участников\n"
     "/summary — твоя статистика\n"
     
+    "\nТурнирные прогнозы:\n"
+    "/tournament_set — прогноз на итоги турнира\n"
+    "/tournament_predictions — прогнозы участников на турнир\n\n"
+    
     "\nПолезные команды\n"
-    "/tournament_set — сделать прогноз на турнир\n"
-    "/tournament — мой прогноз на турнир\n"
-    "/match — карточка матча\n"
     "/forecast — прогноз Отца прогнозов 😎\n"
     "/predict_all — прогноз на любой будущий матч\n"
     "/missing_all — все ближайшие матчи без прогноза\n"
+    "/match — карточка матча\n"
     "/mybets — твои прогнозы\n"
     "/ai_summary — ИИ-разбор твоей игры\n"
     
@@ -1452,34 +1454,49 @@ def get_available_matches_query(db):
     return db.query(Match).filter(
         Match.is_finished == False,
         Match.starts_at > now,
-    ).order_by(Match.starts_at)
+    ).order_by(Match.starts_at.asc())
 
 
-def get_nearest_matchday_matches(db) -> list[Match]:
+def get_nearest_matchday_matches(
+    db,
+    matchdays_count: int = 1,
+) -> list[Match]:
     """
-    Возвращает матчи ближайшего игрового дня.
+    Возвращает матчи ближайших N игровых дней.
+
+    По умолчанию matchdays_count=1 — текущее поведение:
+    только ближайший игровой день.
 
     Игровой день считаем не по Москве, а по MATCHDAY_TIMEZONE.
     Например, для WC2026 удобно использовать America/New_York.
     """
 
-    first_match = get_available_matches_query(db).first()
-
-    if not first_match:
-        return []
-
-    first_matchday_date = first_match.starts_at.astimezone(
-        MATCHDAY_TIMEZONE
-    ).date()
+    if matchdays_count < 1:
+        matchdays_count = 1
 
     all_future_matches = get_available_matches_query(db).all()
 
-    return [
-        match
-        for match in all_future_matches
-        if match.starts_at.astimezone(MATCHDAY_TIMEZONE).date()
-           == first_matchday_date
-    ]
+    if not all_future_matches:
+        return []
+
+    selected_matchday_dates = []
+    result = []
+
+    for match in all_future_matches:
+        matchday_date = match.starts_at.astimezone(
+            MATCHDAY_TIMEZONE
+        ).date()
+
+        if matchday_date not in selected_matchday_dates:
+            if len(selected_matchday_dates) >= matchdays_count:
+                break
+
+            selected_matchday_dates.append(matchday_date)
+
+        if matchday_date in selected_matchday_dates:
+            result.append(match)
+
+    return result
 
 
 def get_all_available_matches(db, limit: int = 30) -> list[Match]:
@@ -2657,14 +2674,17 @@ async def forecast_handler(message: Message):
         parts = message.text.split()
 
         if len(parts) == 1:
-            matches = get_nearest_matchday_matches(db)
+            matches = get_nearest_matchday_matches(
+                db,
+                matchdays_count=3,
+            )
 
             if not matches:
                 await message.answer("Нет будущих матчей для прогноза.")
                 return
 
             await message.answer(
-                "Выбери матч для прогноза Отца прогнозов:",
+                "🤖 Прогноз Отца прогнозов\nВыбери матч для ИИ-прогноза.\nПоказаны ближайшие 3 игровых дня:",
                 reply_markup=build_forecast_matches_keyboard(matches),
             )
             return
