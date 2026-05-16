@@ -7,11 +7,17 @@ from zoneinfo import ZoneInfo
 import random
 import json
 from pathlib import Path
+import base64
+import uuid
+from openai import OpenAI
+from aiogram import F
+from aiogram.types import FSInputFile
 
-from aiogram import Bot, Dispatcher, BaseMiddleware
+
+from aiogram import Bot, Dispatcher, BaseMiddleware, F
 from typing import Any, Awaitable, Callable
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -137,10 +143,11 @@ USER_HELP_TEXT = (
     "/fact record — факт про рекорды\n"
     "/quiz — мини-квиз с выбором категории\n"
     "/quiz_stats — твоя статистика квиза\n"
-    "/archive — архив прошлых турниров\n\n"
+    "/archive — архив прошлых турниров\n"
+    "/panini — сделать карточку игрока сборной по фото\n\n"
 
     "В общем чате доступны:\n"
-    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /rules, /help\n\n"
+    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /predictions, /tournament_predictions, /rules, /help\n\n"
 )
 
 TEAM_FLAGS = {
@@ -416,6 +423,7 @@ GROUP_ALLOWED_COMMANDS = {
     "/quiz_table",
     "/archive",
     "/chat_id",
+    "/panini",
 
     # Добавляем:
     "/matches_all",
@@ -451,6 +459,7 @@ GROUP_ALLOWED_CALLBACK_PREFIXES = {
 
     # Добавляем:
     "forecast_match:",
+    "panini_team:",
 }
 
 PLAYOFF_STAGES = {
@@ -462,6 +471,13 @@ PLAYOFF_STAGES = {
     "final",
 }
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+PANINI_ENABLED = os.getenv("PANINI_ENABLED", "true").lower() == "true"
+PANINI_IMAGE_MODEL = os.getenv("PANINI_IMAGE_MODEL", "gpt-image-1")
+PANINI_COOLDOWN_SECONDS = int(os.getenv("PANINI_COOLDOWN_SECONDS", "120"))
+PANINI_LAST_USED_BY_USER: dict[int, datetime] = {}
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 def get_admin_telegram_ids() -> list[int]:
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
@@ -576,6 +592,11 @@ class GroupCallbackAccessMiddleware(BaseMiddleware):
                     return
 
         return await handler(event, data)
+
+
+class PaniniForm(StatesGroup):
+    waiting_for_photo = State()
+    waiting_for_team = State()
 
 
 def get_tournament_starts_at():
@@ -1510,6 +1531,98 @@ def get_available_matches_query(db):
     ).order_by(Match.starts_at.asc())
 
 
+def get_panini_teams_from_matches(
+    db,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Берем уникальные сборные из матчей текущего турнира,
+    оставляем только тех, у кого найден FIFA ranking,
+    сортируем по рейтингу и возвращаем топ-N.
+    """
+
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .all()
+    )
+
+    teams_by_key = {}
+
+    for match in matches:
+        candidates = [
+            (
+                getattr(match, "home_team_api_name", None) or match.home_team,
+                match.home_team,
+            ),
+            (
+                getattr(match, "away_team_api_name", None) or match.away_team,
+                match.away_team,
+            ),
+        ]
+
+        for api_name, display_name in candidates:
+            if not api_name or api_name == "TBD":
+                continue
+
+            if api_name not in teams_by_key:
+                teams_by_key[api_name] = {
+                    "api_name": api_name,
+                    "display_name": get_team_name_ru(display_name or api_name),
+                }
+
+    rankings = FifaRankingsStore()
+    result = []
+
+    for team in teams_by_key.values():
+        ranking = rankings.get_context(team["api_name"])
+
+        if not ranking or ranking.get("rank") is None:
+            continue
+
+        result.append(
+            {
+                "api_name": team["api_name"],
+                "display_name": team["display_name"],
+                "rank": int(ranking["rank"]),
+                "flag": get_team_flag(
+                    team["display_name"],
+                    team["api_name"],
+                ),
+            }
+        )
+
+    result.sort(
+        key=lambda item: (
+            item["rank"],
+            item["display_name"],
+        )
+    )
+
+    return result[:limit]
+
+
+def can_use_panini(user_id: int) -> tuple[bool, int]:
+    now = datetime.now(timezone.utc)
+
+    last_used = PANINI_LAST_USED_BY_USER.get(user_id)
+
+    if not last_used:
+        return True, 0
+
+    elapsed = int((now - last_used).total_seconds())
+    remaining = PANINI_COOLDOWN_SECONDS - elapsed
+
+    if remaining > 0:
+        return False, remaining
+
+    return True, 0
+
+
+def mark_panini_used(user_id: int):
+    PANINI_LAST_USED_BY_USER[user_id] = datetime.now(timezone.utc)
+
+
 def get_nearest_matchday_matches(
     db,
     matchdays_count: int = 1,
@@ -1966,6 +2079,28 @@ def build_match_card_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
         )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_panini_team_keyboard_from_list(
+    teams: list[dict],
+) -> InlineKeyboardMarkup:
+    rows = []
+
+    for index, team in enumerate(teams):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=(
+                        f"{team['flag']} "
+                        f"#{team['rank']} "
+                        f"{team['display_name']}"
+                    ).strip(),
+                    callback_data=f"panini_team:{index}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_predictions_text(db, match: Match) -> str:
@@ -2462,6 +2597,52 @@ def finish_group_quiz_and_build_result_text(db, session: GroupQuizSession) -> st
         )
 
     return "\n".join(lines)
+
+
+def generate_panini_card(
+    photo_path: str,
+    person_name: str,
+    team_api_name: str,
+    team_display_name: str,
+    team_flag: str,
+) -> str:
+    if not openai_client:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    output_path = f"/tmp/panini_result_{uuid.uuid4().hex}.png"
+
+    prompt = (
+        "Create a collectible football sticker portrait card inspired by "
+        "classic football sticker album cards, but do not copy any official Panini design. "
+        "Use the uploaded person photo as the identity reference. "
+        "Preserve the person's facial features, approximate age, hairstyle, and general appearance. "
+        f"Depict the person as a player of the {team_api_name} national football team. "
+        "Use a football jersey inspired by the national team's colors, "
+        "without exact official logos, federation crests, or brand marks. "
+        "Make it look like a polished collectible football card: portrait framing, "
+        "decorative border, stadium or graphic background, premium sports lighting, "
+        "dynamic but clean composition. "
+        f"Add readable card text with player name '{person_name}' and team name '{team_display_name}'. "
+        f"Include the country flag vibe: {team_flag}. "
+        "Square 1:1 image, high quality, fun, realistic-stylized, suitable as a Telegram chat image."
+    )
+
+    with open(photo_path, "rb") as image_file:
+        result = openai_client.images.edit(
+            model=PANINI_IMAGE_MODEL,
+            image=image_file,
+            prompt=prompt,
+            size="1024x1024",
+            n=1,
+        )
+
+    image_base64 = result.data[0].b64_json
+
+    with open(output_path, "wb") as file:
+        file.write(base64.b64decode(image_base64))
+
+    return output_path
+
 
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
     group_chat_id = get_group_chat_id()
@@ -7454,6 +7635,42 @@ async def admin_archive_count_handler(message: Message):
         db.close()
 
 
+@dp.message(Command("panini"))
+async def panini_handler(message: Message, state: FSMContext):
+    allowed, remaining = can_use_panini(message.from_user.id)
+
+    if not allowed:
+        await message.answer(
+            f"🎴 Панини-станок перегрелся.\n\n"
+            f"Попробуй снова через {remaining} сек."
+        )
+        return
+
+    if not PANINI_ENABLED:
+        await message.answer("🎴 Панини-режим временно выключен.")
+        return
+
+    if not openai_client:
+        await message.answer(
+            "🎴 Панини-режим не настроен: нет OPENAI_API_KEY."
+        )
+        return
+
+    await state.clear()
+    await state.set_state(PaniniForm.waiting_for_photo)
+
+    await message.answer(
+        "🎴 Панини-режим активирован\n\n"
+        "Отправь фотографию человека, из которой нужно сделать карточку игрока сборной.\n\n"
+        "Лучше подходит:\n"
+        "— один человек в кадре\n"
+        "— лицо хорошо видно\n"
+        "— хороший свет\n"
+        "— без сильных перекрытий\n\n"
+        "Используйте только фото с согласия человека."
+    )
+
+
 @dp.message(Command("chat_id"))
 async def chat_id_handler(message: Message):
     await message.answer(
@@ -7656,6 +7873,139 @@ async def admin_send_daily_fact_group_handler(message: Message):
     finally:
         db.close()
 
+
+@dp.message(PaniniForm.waiting_for_photo, F.photo)
+async def panini_photo_handler(message: Message, state: FSMContext):
+    photo = message.photo[-1]
+    file = await bot.get_file(photo.file_id)
+
+    local_path = f"/tmp/panini_{message.from_user.id}_{photo.file_unique_id}.jpg"
+
+    await bot.download(file, destination=local_path)
+
+    db = SessionLocal()
+
+    try:
+        teams = get_panini_teams_from_matches(db, limit=20)
+
+        if not teams:
+            await message.answer(
+                "Не нашел сборные ЧМ-2026 с FIFA ranking в базе матчей.\n\n"
+                "Проверь, что матчи загружены и рейтинги доступны."
+            )
+            await state.clear()
+            return
+
+        await state.update_data(
+            photo_path=local_path,
+            panini_teams=teams,
+        )
+
+        await state.set_state(PaniniForm.waiting_for_team)
+
+        await message.answer(
+            "Фото получил ✅\n\n"
+            "Выбери сборную из топ-20 участников ЧМ-2026 по FIFA ranking:",
+            reply_markup=build_panini_team_keyboard_from_list(teams),
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(PaniniForm.waiting_for_photo)
+async def panini_photo_invalid_handler(message: Message):
+    await message.answer(
+        "Нужно отправить именно фотографию.\n\n"
+        "Лучше селфи или фото по пояс, где лицо хорошо видно."
+    )
+
+
+@dp.callback_query(
+    PaniniForm.waiting_for_team,
+    lambda callback: callback.data.startswith("panini_team:")
+)
+async def panini_team_callback(callback: CallbackQuery, state: FSMContext):
+    index_text = callback.data.split(":")[1]
+
+    if not index_text.isdigit():
+        await callback.answer("Некорректный выбор", show_alert=True)
+        return
+
+    index = int(index_text)
+
+    data = await state.get_data()
+
+    teams = data.get("panini_teams") or []
+
+    if index < 0 or index >= len(teams):
+        await callback.answer("Сборная не найдена", show_alert=True)
+        return
+
+    photo_path = data.get("photo_path")
+
+    if not photo_path:
+        await callback.answer("Фото не найдено. Начни заново: /panini", show_alert=True)
+        await state.clear()
+        return
+
+    team = teams[index]
+
+    team_api_name = team["api_name"]
+    team_display_name = team["display_name"]
+    team_flag = team["flag"]
+    team_rank = team["rank"]
+
+    user_name = callback.from_user.full_name or "Игрок"
+
+    await callback.answer("Генерирую карточку...")
+
+    await callback.message.answer(
+        f"🎨 Делаю карточку: {team_flag} #{team_rank} {team_display_name}\n"
+        "Это может занять до минуты."
+    )
+
+    try:
+        result_path = generate_panini_card(
+            photo_path=photo_path,
+            person_name=user_name,
+            team_api_name=team_api_name,
+            team_display_name=team_display_name,
+            team_flag=team_flag,
+        )
+
+        mark_panini_used(callback.from_user.id)
+        await callback.message.answer_photo(
+            photo=FSInputFile(result_path),
+            caption=(
+                "🎴 Панини-карточка готова!\n\n"
+                f"Игрок: {user_name}\n"
+                f"Сборная: {team_flag} {team_display_name}"
+            ),
+        )
+
+    except Exception as error:
+        print(f"Panini generation error: {error}")
+
+        await callback.message.answer(
+            "Не удалось сгенерировать карточку 😢\n\n"
+            f"Ошибка: {error}"
+        )
+
+    finally:
+        await state.clear()
+
+        try:
+            if photo_path and os.path.exists(photo_path):
+                os.remove(photo_path)
+        except Exception as cleanup_error:
+            print(f"Panini cleanup input error: {cleanup_error}")
+
+        try:
+            if "result_path" in locals() and os.path.exists(result_path):
+                os.remove(result_path)
+        except Exception as cleanup_error:
+            print(f"Panini cleanup output error: {cleanup_error}")
 
 
 async def main():
