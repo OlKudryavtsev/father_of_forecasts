@@ -1,5 +1,2 @@
-"""Repository module placeholder.
-
-No behavior has been moved here yet. Database access remains in
-`app.bot_runtime` to keep this package behavior-compatible.
-"""
+"""Prediction repository placeholders backed by runtime helpers."""
+from app.bot_runtime import user_has_prediction

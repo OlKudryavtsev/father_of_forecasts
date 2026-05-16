@@ -1,5 +1,2 @@
-"""Repository module placeholder.
-
-No behavior has been moved here yet. Database access remains in
-`app.bot_runtime` to keep this package behavior-compatible.
-"""
+"""Archive repository placeholders backed by runtime helpers."""
+# No current runtime symbols are re-exported from this module yet.

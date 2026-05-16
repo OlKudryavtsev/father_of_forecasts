@@ -1,7 +1,8 @@
-"""Telegram bot entrypoint.
+"""Compatibility entrypoint for the Telegram bot.
 
-This compatibility entrypoint keeps the original runtime behavior while the codebase is
-being split into modules. The executable implementation is in `app.bot_runtime`.
+The full current runtime is kept in app.bot_runtime during the first safe
+refactoring stage. This file preserves the original Railway/local command
+`python bot.py` without changing bot behavior.
 """
 
 import asyncio

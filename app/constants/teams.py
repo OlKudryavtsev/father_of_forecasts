@@ -1,7 +1,3 @@
-"""Compatibility constants re-exported from `app.bot_runtime`.
-
-These names are kept here to document the target modular layout without changing
-runtime behavior in this refactoring package.
-"""
-
-from app.bot_runtime import TEAM_FLAGS  # noqa: F401
+"""Team display constants and helpers re-exported from the current bot runtime."""
+from app.bot_runtime import TEAM_FLAGS, get_team_flag
+from app.team_names import get_team_name_ru

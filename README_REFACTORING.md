@@ -1,40 +1,58 @@
-# Father Predictions bot — modular refactoring package
+# Father Predictions Bot — modular layout refresh
 
-This archive contains a safe, behavior-preserving split scaffold for the current `bot.py`.
+This archive was generated from the uploaded `bot(1).py` and keeps the latest
+runtime, including `/table_buttons`, `/panini`, group access commands, and the
+current match-label formatting.
 
-## What is inside
+## What changed
 
-- `bot.py` — small executable compatibility entrypoint.
-- `app/bot_runtime.py` — current working implementation from the uploaded `bot.py`, with generated docstrings added to functions/classes that did not have them.
-- `app/handlers/*`, `app/services/*`, `app/keyboards/*`, `app/formatters/*`, `app/constants/*`, `app/middleware/*`, `app/jobs/*`, `app/repositories/*` — target structure modules. They currently re-export implementations from `app.bot_runtime` so behavior does not change.
+- `bot.py` is now a compact compatibility entrypoint.
+- Full current behavior is preserved in `app/bot_runtime.py`.
+- Suggested packages were created: `constants`, `handlers`, `keyboards`,
+  `services`, `formatters`, `middleware`, `repositories`, `jobs`.
+- Public wrapper modules re-export current runtime symbols so later extraction
+  can be done incrementally.
+- Docstrings were added to runtime functions/classes that did not have them.
 
-This approach avoids a risky one-shot rewrite of an 8k+ line production bot. The next safe step is to move implementations from `app.bot_runtime.py` into the target modules one domain at a time.
+## Docstring summary
 
-## How to replace
+- Functions/async functions found: 202
+- Classes found: 7
+- Functions/classes still missing docstrings: 0
 
-1. Make a backup or create a branch:
+## How to apply
+
+1. Create a branch:
 
 ```bash
-git checkout -b refactor/modular-bot
+git checkout -b refactor/latest-modular-bot
 ```
 
-2. Unpack the archive into the project root.
+2. Unzip this archive into the project root:
 
-3. Let the new root `bot.py` replace the old root `bot.py`.
+```bash
+unzip father_predictions_refactor_latest.zip
+```
 
-4. Copy the new `app/*` files into your existing `app/` directory. The package intentionally does **not** overwrite your existing `app/db.py`, `app/models.py`, `app/main.py`, `app/scoring.py`, etc.
+3. Copy the contents of `father_predictions_refactor_latest/` into the project root.
+   The root `bot.py` should be replaced. Existing files like `app/db.py`,
+   `app/models.py`, `app/scoring.py`, `app/wc2026_sync.py`, etc. should remain.
 
 ## How to test
 
 ```bash
 python -m py_compile bot.py app/bot_runtime.py
+```
+
+Then run as before:
+
+```bash
 python bot.py
 ```
 
-Then in Telegram check the main flows:
+Smoke-test in Telegram:
 
 ```text
-/start
 /help
 /table
 /table_buttons
@@ -46,6 +64,8 @@ Then in Telegram check the main flows:
 /panini
 ```
 
-## Important
+## Next recommended step
 
-This archive adds no new business functionality, checks, or protections. It only prepares the codebase for modularization while preserving current behavior.
+This is a safe decomposition stage. The next commits should move code out of
+`app/bot_runtime.py` gradually: constants first, then keyboards and formatters,
+then services, then handlers/routers.

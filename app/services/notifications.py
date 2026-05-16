@@ -1,8 +1,2 @@
-"""Compatibility exports for the target module layout.
-
-The executable implementations are currently re-exported from `app.bot_runtime`
-to preserve behavior exactly. Move implementations from `app.bot_runtime` into
-this module during the next refactoring iteration.
-"""
-
-from app.bot_runtime import notify_group_chat  # noqa: F401
+"""Notification services re-exported from runtime."""
+from app.bot_runtime import notify_admins, notify_group_chat, notify_group_prediction_saved, notify_group_tournament_prediction_saved

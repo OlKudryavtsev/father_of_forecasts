@@ -1,5 +1,2 @@
-"""Repository module placeholder.
-
-No behavior has been moved here yet. Database access remains in
-`app.bot_runtime` to keep this package behavior-compatible.
-"""
+"""Fact repository placeholders backed by runtime helpers."""
+from app.bot_runtime import get_random_fact_not_sent_today

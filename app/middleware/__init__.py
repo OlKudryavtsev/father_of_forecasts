@@ -1,1 +1,1 @@
-"""middleware package."""
+"""Middleware package for the Telegram bot."""

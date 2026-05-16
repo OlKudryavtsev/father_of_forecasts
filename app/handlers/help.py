@@ -1,8 +1,5 @@
-"""Compatibility exports for the target module layout.
+"""Help handlers placeholder.
 
-The executable implementations are currently re-exported from `app.bot_runtime`
-to preserve behavior exactly. Move implementations from `app.bot_runtime` into
-this module during the next refactoring iteration.
+Current behavior is still registered in app.bot_runtime during this safe
+refactoring stage. Move handlers here gradually in later commits.
 """
-
-from app.bot_runtime import rules_handler, help_handler  # noqa: F401

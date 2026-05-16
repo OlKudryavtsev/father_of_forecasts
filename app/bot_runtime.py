@@ -7,11 +7,17 @@ from zoneinfo import ZoneInfo
 import random
 import json
 from pathlib import Path
+import base64
+import uuid
+from openai import OpenAI, APITimeoutError
+from aiogram import F
+from aiogram.types import FSInputFile
 
-from aiogram import Bot, Dispatcher, BaseMiddleware
+
+from aiogram import Bot, Dispatcher, BaseMiddleware, F
 from typing import Any, Awaitable, Callable
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -66,7 +72,7 @@ GROUP_CHAT_ID_RAW = os.getenv("GROUP_CHAT_ID", "").strip()
 
 
 def get_group_chat_id() -> int | None:
-    """Документация: функция `get_group_chat_id` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_group_chat_id."""
     if not GROUP_CHAT_ID_RAW:
         return None
 
@@ -118,6 +124,7 @@ USER_HELP_TEXT = (
     "/predictions — прогнозы участников по матчу\n"
     "/missing — где еще нет твоего прогноза\n"
     "/table — таблица участников\n"
+    "/table_buttons — компактная таблица кнопками\n"
     "/summary — твоя статистика\n"
     
     "\nТурнирные прогнозы:\n"
@@ -138,10 +145,11 @@ USER_HELP_TEXT = (
     "/fact record — факт про рекорды\n"
     "/quiz — мини-квиз с выбором категории\n"
     "/quiz_stats — твоя статистика квиза\n"
-    "/archive — архив прошлых турниров\n\n"
+    "/archive — архив прошлых турниров\n"
+    "/panini — сделать карточку игрока сборной по фото\n\n"
 
     "В общем чате доступны:\n"
-    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /rules, /help\n\n"
+    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_predictions, /rules, /help\n\n"
 )
 
 TEAM_FLAGS = {
@@ -417,13 +425,15 @@ GROUP_ALLOWED_COMMANDS = {
     "/quiz_table",
     "/archive",
     "/chat_id",
+    "/panini",
 
     # Добавляем:
     "/matches_all",
     "/forecast",
     "/match",
-    "/predictions",
     "/table",
+    "/table_buttons",
+    "/predictions",
     "/tournament_predictions",
 }
 
@@ -452,6 +462,8 @@ GROUP_ALLOWED_CALLBACK_PREFIXES = {
 
     # Добавляем:
     "forecast_match:",
+    "panini_team:",
+    "table_noop",
 }
 
 PLAYOFF_STAGES = {
@@ -463,9 +475,27 @@ PLAYOFF_STAGES = {
     "final",
 }
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+PANINI_ENABLED = os.getenv("PANINI_ENABLED", "true").lower() == "true"
+PANINI_IMAGE_MODEL = os.getenv("PANINI_IMAGE_MODEL", "gpt-image-1")
+PANINI_COOLDOWN_SECONDS = int(os.getenv("PANINI_COOLDOWN_SECONDS", "120"))
+PANINI_LAST_USED_BY_USER: dict[int, datetime] = {}
+PANINI_IMAGE_SIZE = os.getenv("PANINI_IMAGE_SIZE", "1024x1536")
+
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "300"))
+
+openai_client = (
+    OpenAI(
+        api_key=OPENAI_API_KEY,
+        timeout=OPENAI_TIMEOUT_SECONDS,
+        max_retries=1,
+    )
+    if OPENAI_API_KEY
+    else None
+)
 
 def get_admin_telegram_ids() -> list[int]:
-    """Документация: функция `get_admin_telegram_ids` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_admin_telegram_ids."""
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
 
     admin_ids = []
@@ -480,7 +510,7 @@ def get_admin_telegram_ids() -> list[int]:
 
 
 class TournamentPredictionForm(StatesGroup):
-    """Документация: класс `TournamentPredictionForm` перенесена из исходного `bot.py` без изменения поведения."""
+    """Defines TournamentPredictionForm for the Telegram bot runtime."""
     champion = State()
     runner_up = State()
     third_place = State()
@@ -488,24 +518,24 @@ class TournamentPredictionForm(StatesGroup):
 
 
 class MatchPredictionForm(StatesGroup):
-    """Документация: класс `MatchPredictionForm` перенесена из исходного `bot.py` без изменения поведения."""
+    """Defines MatchPredictionForm for the Telegram bot runtime."""
     custom_score = State()
 
 
 class AdminResultForm(StatesGroup):
-    """Документация: класс `AdminResultForm` перенесена из исходного `bot.py` без изменения поведения."""
+    """Defines AdminResultForm for the Telegram bot runtime."""
     custom_score = State()
 
 
 class CommandLoggingMiddleware(BaseMiddleware):
-    """Документация: класс `CommandLoggingMiddleware` перенесена из исходного `bot.py` без изменения поведения."""
+    """Defines CommandLoggingMiddleware for the Telegram bot runtime."""
     async def __call__(
             self,
             handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
             event: TelegramObject,
             data: dict[str, Any],
     ) -> Any:
-        """Документация: функция `__call__` перенесена из исходного `bot.py` без изменения поведения."""
+        """Handle asynchronous bot workflow for __call__."""
         if isinstance(event, Message):
             command = extract_command_from_text(event.text)
 
@@ -540,14 +570,14 @@ class CommandLoggingMiddleware(BaseMiddleware):
 
 
 class GroupCommandAccessMiddleware(BaseMiddleware):
-    """Документация: класс `GroupCommandAccessMiddleware` перенесена из исходного `bot.py` без изменения поведения."""
+    """Defines GroupCommandAccessMiddleware for the Telegram bot runtime."""
     async def __call__(
         self,
         handler,
         event,
         data,
     ):
-        """Документация: функция `__call__` перенесена из исходного `bot.py` без изменения поведения."""
+        """Handle asynchronous bot workflow for __call__."""
         if isinstance(event, Message):
             command = extract_command_from_text(event.text)
 
@@ -560,14 +590,14 @@ class GroupCommandAccessMiddleware(BaseMiddleware):
 
 
 class GroupCallbackAccessMiddleware(BaseMiddleware):
-    """Документация: класс `GroupCallbackAccessMiddleware` перенесена из исходного `bot.py` без изменения поведения."""
+    """Defines GroupCallbackAccessMiddleware for the Telegram bot runtime."""
     async def __call__(
         self,
         handler,
         event,
         data,
     ):
-        """Документация: функция `__call__` перенесена из исходного `bot.py` без изменения поведения."""
+        """Handle asynchronous bot workflow for __call__."""
         if isinstance(event, CallbackQuery):
             message = event.message
 
@@ -589,8 +619,14 @@ class GroupCallbackAccessMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class PaniniForm(StatesGroup):
+    """Defines PaniniForm for the Telegram bot runtime."""
+    waiting_for_photo = State()
+    waiting_for_team = State()
+
+
 def get_tournament_starts_at():
-    """Документация: функция `get_tournament_starts_at` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_tournament_starts_at."""
     dt = datetime.fromisoformat(
         TOURNAMENT_STARTS_AT_RAW.replace("Z", "+00:00")
     )
@@ -602,15 +638,15 @@ def get_tournament_starts_at():
 
 
 def is_tournament_started() -> bool:
-    """Документация: функция `is_tournament_started` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for is_tournament_started."""
     return datetime.now(timezone.utc) >= get_tournament_starts_at()
 
 def is_group_chat(message: Message) -> bool:
-    """Документация: функция `is_group_chat` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for is_group_chat."""
     return message.chat.type in {"group", "supergroup"}
 
 def is_forecast_bot_user(user: User) -> bool:
-    """Документация: функция `is_forecast_bot_user` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for is_forecast_bot_user."""
     return getattr(user, "telegram_id", None) == 0
 
 if not TOKEN:
@@ -624,7 +660,7 @@ dp.callback_query.middleware(GroupCallbackAccessMiddleware())
 
 
 def get_or_create_user(db, telegram_user):
-    """Документация: функция `get_or_create_user` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_or_create_user."""
     admin_status = is_admin_telegram_id(telegram_user.id)
 
     existing_user = db.query(User).filter(
@@ -668,12 +704,12 @@ def get_or_create_user(db, telegram_user):
 
 
 def is_playoff_match(match: Match) -> bool:
-    """Документация: функция `is_playoff_match` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for is_playoff_match."""
     return match.stage in PLAYOFF_STAGES
 
 
 def parse_advancement_choice(choice: str | None):
-    """Документация: функция `parse_advancement_choice` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_advancement_choice."""
     if choice is None:
         return False, None
 
@@ -692,7 +728,7 @@ def parse_advancement_choice(choice: str | None):
 
 
 def format_advancement_prediction(prediction: Prediction, match: Match) -> str:
-    """Документация: функция `format_advancement_prediction` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_advancement_prediction."""
     if not prediction.advancement_bet_enabled:
         return "проход: не ставил"
 
@@ -706,7 +742,7 @@ def format_advancement_prediction(prediction: Prediction, match: Match) -> str:
 
 
 def parse_score(score_text: str):
-    """Документация: функция `parse_score` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_score."""
     normalized = score_text.replace("-", ":").replace(" ", "")
 
     if ":" not in normalized:
@@ -721,7 +757,7 @@ def parse_score(score_text: str):
 
 
 def format_match(match: Match):
-    """Документация: функция `format_match` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_match."""
     start_text = format_datetime(match.starts_at)
 
     round_text = match.match_round or get_default_match_round(match.stage)
@@ -740,33 +776,12 @@ def format_match(match: Match):
 
 
 def format_match_short_for_group(match: Match) -> str:
-    """Документация: функция `format_match_short_for_group` перенесена из исходного `bot.py` без изменения поведения."""
-    home_name = get_team_name_ru(match.home_team)
-    away_name = get_team_name_ru(match.away_team)
-
-    home_flag = get_team_flag(match.home_team_api_name or match.home_team)
-    away_flag = get_team_flag(match.away_team_api_name or match.away_team)
-
-    group_text = (
-        f"Группа {match.group_code}"
-        if match.group_code
-        else "Плей-офф"
-    )
-
-    round_text = (
-        f"Тур {match.round_number}"
-        if match.round_number
-        else ""
-    )
-
-    return (
-        f"#{match.id}. {group_text}. {round_text}. "
-        f"{home_name} {home_flag} — {away_flag} {away_name}"
-    ).replace("..", ".")
+    """Provide bot helper logic for format_match_short_for_group."""
+    return format_match_label(match, include_id=True)
 
 
 def format_datetime(dt):
-    """Документация: функция `format_datetime` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_datetime."""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
 
@@ -775,7 +790,7 @@ def format_datetime(dt):
 
 
 def get_today_moscow_range_utc() -> tuple[datetime, datetime]:
-    """Документация: функция `get_today_moscow_range_utc` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_today_moscow_range_utc."""
     now_moscow = datetime.now(APP_TIMEZONE)
 
     start_moscow = now_moscow.replace(
@@ -799,7 +814,7 @@ def build_command_stats_for_period(
         end_at: datetime | None = None,
         limit_users: int = 20,
 ) -> list[dict]:
-    """Документация: функция `build_command_stats_for_period` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_command_stats_for_period."""
     query = db.query(CommandLog)
 
     if start_at:
@@ -845,7 +860,7 @@ def build_command_stats_for_period(
 
 
 def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
-    """Документация: функция `format_command_stats_block` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_command_stats_block."""
     lines = [title]
 
     if not rows:
@@ -882,20 +897,20 @@ def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
 
 
 def is_user_admin(user: User) -> bool:
-    """Документация: функция `is_user_admin` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for is_user_admin."""
     return bool(user.is_admin)
 
 def is_private_chat(message: Message) -> bool:
-    """Документация: функция `is_private_chat` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for is_private_chat."""
     return message.chat.type == "private"
 
 def ensure_admin_or_reply(user: User) -> bool:
-    """Документация: функция `ensure_admin_or_reply` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for ensure_admin_or_reply."""
     return bool(user.is_admin)
 
 
 def parse_admin_match_payload(text: str):
-    """Документация: функция `parse_admin_match_payload` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_admin_match_payload."""
     payload = text.replace("/admin_add_match", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
 
@@ -922,7 +937,7 @@ def parse_admin_match_payload(text: str):
 
 
 def parse_admin_edit_match_payload(text: str):
-    """Документация: функция `parse_admin_edit_match_payload` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_admin_edit_match_payload."""
     payload = text.replace("/admin_edit_match", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
 
@@ -955,7 +970,7 @@ def parse_admin_edit_match_payload(text: str):
 
 
 def parse_match_id_command(text: str, command: str) -> int:
-    """Документация: функция `parse_match_id_command` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_match_id_command."""
     payload = text.replace(command, "", 1).strip()
 
     if not payload.isdigit():
@@ -965,7 +980,7 @@ def parse_match_id_command(text: str, command: str) -> int:
 
 
 def parse_result_payload(text: str):
-    """Документация: функция `parse_result_payload` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_result_payload."""
     parts = text.split()
 
     if len(parts) not in (3, 4):
@@ -988,7 +1003,7 @@ def parse_result_payload(text: str):
 
 
 def build_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
-    """Документация: функция `build_matches_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_matches_keyboard."""
     buttons = []
 
     for match in matches:
@@ -1005,7 +1020,7 @@ def build_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
 
 
 def build_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
-    """Документация: функция `build_score_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_score_keyboard."""
     common_scores = [
         ("0:0", 0, 0),
         ("1:0", 1, 0),
@@ -1106,7 +1121,7 @@ def build_category_keyboard(prefix: str) -> InlineKeyboardMarkup:
     )
 
 def build_admin_result_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
-    """Документация: функция `build_admin_result_matches_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_admin_result_matches_keyboard."""
     buttons = []
 
     for match in matches:
@@ -1123,7 +1138,7 @@ def build_admin_result_matches_keyboard(matches: list[Match]) -> InlineKeyboardM
 
 
 def build_admin_result_score_keyboard(match_id: int) -> InlineKeyboardMarkup:
-    """Документация: функция `build_admin_result_score_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_admin_result_score_keyboard."""
     common_scores = [
         ("0:0", 0, 0),
         ("1:0", 1, 0),
@@ -1175,7 +1190,7 @@ def build_admin_result_winner_keyboard(
         score_away: int,
         match: Match,
 ) -> InlineKeyboardMarkup:
-    """Документация: функция `build_admin_result_winner_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_admin_result_winner_keyboard."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1204,7 +1219,7 @@ def build_advancement_keyboard(
         pred_away: int,
         match: Match,
 ) -> InlineKeyboardMarkup:
-    """Документация: функция `build_advancement_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_advancement_keyboard."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1236,7 +1251,7 @@ def build_advancement_keyboard(
 
 
 def build_archive_keyboard() -> InlineKeyboardMarkup:
-    """Документация: функция `build_archive_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_archive_keyboard."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1288,7 +1303,7 @@ def build_archive_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_group_quiz_keyboard(session_id: int) -> InlineKeyboardMarkup:
-    """Документация: функция `build_group_quiz_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_group_quiz_keyboard."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1324,7 +1339,7 @@ def save_prediction(
         advancement_bet_enabled: bool = False,
         predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
-    """Документация: функция `save_prediction` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for save_prediction."""
     now = datetime.now(timezone.utc)
 
     match_start = match.starts_at
@@ -1390,7 +1405,7 @@ def save_tournament_prediction(
         third_place: str,
         top_scorer: str,
 ) -> tuple[bool, str]:
-    """Документация: функция `save_tournament_prediction` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for save_tournament_prediction."""
     existing_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
         TournamentPrediction.tournament_code == TOURNAMENT_CODE,
@@ -1449,7 +1464,7 @@ async def save_tournament_prediction_and_notify_admins(
         third_place: str,
         top_scorer: str,
 ) -> tuple[bool, str]:
-    """Документация: функция `save_tournament_prediction_and_notify_admins` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for save_tournament_prediction_and_notify_admins."""
     existing_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
         TournamentPrediction.tournament_code == TOURNAMENT_CODE,
@@ -1479,6 +1494,11 @@ async def save_tournament_prediction_and_notify_admins(
             exclude_telegram_id=user.telegram_id,
         )
 
+        await notify_group_tournament_prediction_saved(
+            user=user,
+            is_update=was_update,
+        )
+
     return success, text
 
 
@@ -1491,7 +1511,7 @@ async def save_prediction_and_notify_admins(
         advancement_bet_enabled: bool = False,
         predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
-    """Документация: функция `save_prediction_and_notify_admins` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for save_prediction_and_notify_admins."""
     existing_prediction = db.query(Prediction).filter(
         Prediction.user_id == user.id,
         Prediction.match_id == match.id,
@@ -1532,17 +1552,117 @@ async def save_prediction_and_notify_admins(
             exclude_telegram_id=user.telegram_id,
         )
 
+        await notify_group_prediction_saved(
+            user=user,
+            match=match,
+            is_update=was_update,
+        )
+
     return success, text
 
 
 def get_available_matches_query(db):
-    """Документация: функция `get_available_matches_query` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_available_matches_query."""
     now = datetime.now(timezone.utc)
 
     return db.query(Match).filter(
         Match.is_finished == False,
         Match.starts_at > now,
     ).order_by(Match.starts_at.asc())
+
+
+def get_panini_teams_from_matches(
+    db,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Берем уникальные сборные из матчей текущего турнира,
+    оставляем только тех, у кого найден FIFA ranking,
+    сортируем по рейтингу и возвращаем топ-N.
+    """
+
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .all()
+    )
+
+    teams_by_key = {}
+
+    for match in matches:
+        candidates = [
+            (
+                getattr(match, "home_team_api_name", None) or match.home_team,
+                match.home_team,
+            ),
+            (
+                getattr(match, "away_team_api_name", None) or match.away_team,
+                match.away_team,
+            ),
+        ]
+
+        for api_name, display_name in candidates:
+            if not api_name or api_name == "TBD":
+                continue
+
+            if api_name not in teams_by_key:
+                teams_by_key[api_name] = {
+                    "api_name": api_name,
+                    "display_name": get_team_name_ru(display_name or api_name),
+                }
+
+    rankings = FifaRankingsStore()
+    result = []
+
+    for team in teams_by_key.values():
+        ranking = rankings.get_context(team["api_name"])
+
+        if not ranking or ranking.get("rank") is None:
+            continue
+
+        result.append(
+            {
+                "api_name": team["api_name"],
+                "display_name": team["display_name"],
+                "rank": int(ranking["rank"]),
+                "flag": get_team_flag(
+                    team["display_name"],
+                    team["api_name"],
+                ),
+            }
+        )
+
+    result.sort(
+        key=lambda item: (
+            item["rank"],
+            item["display_name"],
+        )
+    )
+
+    return result[:limit]
+
+
+def can_use_panini(user_id: int) -> tuple[bool, int]:
+    """Provide bot helper logic for can_use_panini."""
+    now = datetime.now(timezone.utc)
+
+    last_used = PANINI_LAST_USED_BY_USER.get(user_id)
+
+    if not last_used:
+        return True, 0
+
+    elapsed = int((now - last_used).total_seconds())
+    remaining = PANINI_COOLDOWN_SECONDS - elapsed
+
+    if remaining > 0:
+        return False, remaining
+
+    return True, 0
+
+
+def mark_panini_used(user_id: int):
+    """Provide bot helper logic for mark_panini_used."""
+    PANINI_LAST_USED_BY_USER[user_id] = datetime.now(timezone.utc)
 
 
 def get_nearest_matchday_matches(
@@ -1588,12 +1708,12 @@ def get_nearest_matchday_matches(
 
 
 def get_all_available_matches(db, limit: int = 30) -> list[Match]:
-    """Документация: функция `get_all_available_matches` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_all_available_matches."""
     return get_available_matches_query(db).limit(limit).all()
 
 
 def format_match(match: Match):
-    """Документация: функция `format_match` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_match."""
     start_text = format_datetime(match.starts_at)
 
     group_text = ""
@@ -1615,7 +1735,7 @@ def format_match(match: Match):
 
 
 def get_default_match_round(stage: str) -> str:
-    """Документация: функция `get_default_match_round` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_default_match_round."""
     mapping = {
         "group": "1",
         "round_of_32": "1/16",
@@ -1630,7 +1750,7 @@ def get_default_match_round(stage: str) -> str:
 
 
 def parse_csv_matches(csv_text: str) -> list[dict]:
-    """Документация: функция `parse_csv_matches` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_csv_matches."""
     csv_text = csv_text.replace("\ufeff", "").strip()
 
     if not csv_text:
@@ -1714,7 +1834,7 @@ def parse_csv_matches(csv_text: str) -> list[dict]:
 
 
 def import_matches_from_rows(db, rows: list[dict]) -> dict:
-    """Документация: функция `import_matches_from_rows` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for import_matches_from_rows."""
     created = 0
     updated = 0
     skipped = 0
@@ -1782,12 +1902,12 @@ def import_matches_from_rows(db, rows: list[dict]) -> dict:
 
 
 def reminders_enabled() -> bool:
-    """Документация: функция `reminders_enabled` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for reminders_enabled."""
     return os.getenv("REMINDERS_ENABLED", "false").lower() == "true"
 
 
 def get_reminder_offsets_minutes() -> list[int]:
-    """Документация: функция `get_reminder_offsets_minutes` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_reminder_offsets_minutes."""
     raw_value = os.getenv("REMINDER_OFFSETS_MINUTES", "1440,180,30")
 
     offsets = []
@@ -1802,7 +1922,7 @@ def get_reminder_offsets_minutes() -> list[int]:
 
 
 def get_reminder_check_interval_seconds() -> int:
-    """Документация: функция `get_reminder_check_interval_seconds` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_reminder_check_interval_seconds."""
     raw_value = os.getenv("REMINDER_CHECK_INTERVAL_SECONDS", "60")
 
     if raw_value.isdigit():
@@ -1812,7 +1932,7 @@ def get_reminder_check_interval_seconds() -> int:
 
 
 def format_reminder_offset(minutes: int) -> str:
-    """Документация: функция `format_reminder_offset` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_reminder_offset."""
     if minutes >= 1440:
         days = minutes // 1440
 
@@ -1833,7 +1953,7 @@ def format_reminder_offset(minutes: int) -> str:
 
 
 def user_has_prediction(db, user: User, match: Match) -> bool:
-    """Документация: функция `user_has_prediction` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for user_has_prediction."""
     prediction = db.query(Prediction).filter(
         Prediction.user_id == user.id,
         Prediction.match_id == match.id,
@@ -1849,7 +1969,7 @@ def reminder_was_sent(
         reminder_type: str,
         reminder_key: str,
 ) -> bool:
-    """Документация: функция `reminder_was_sent` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for reminder_was_sent."""
     existing_log = db.query(ReminderLog).filter(
         ReminderLog.user_id == user.id,
         ReminderLog.match_id == match.id,
@@ -1867,7 +1987,7 @@ def mark_reminder_sent(
         reminder_type: str,
         reminder_key: str,
 ):
-    """Документация: функция `mark_reminder_sent` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for mark_reminder_sent."""
     log = ReminderLog(
         user_id=user.id,
         match_id=match.id,
@@ -1886,7 +2006,7 @@ def apply_match_result_from_admin(
         score_away: int,
         winner_side: str | None = None,
 ) -> list[str]:
-    """Документация: функция `apply_match_result_from_admin` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for apply_match_result_from_admin."""
     if is_playoff_match(match) and winner_side is None:
         raise ValueError("Playoff match requires winner_side")
 
@@ -1960,7 +2080,7 @@ def apply_match_result_from_admin(
 
 
 def build_predictions_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
-    """Документация: функция `build_predictions_matches_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_predictions_matches_keyboard."""
     buttons = []
 
     for match in matches:
@@ -1977,7 +2097,7 @@ def build_predictions_matches_keyboard(matches: list[Match]) -> InlineKeyboardMa
 
 
 def get_recent_and_upcoming_matches(db, limit: int = 20) -> list[Match]:
-    """Документация: функция `get_recent_and_upcoming_matches` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_recent_and_upcoming_matches."""
     now = datetime.now(timezone.utc)
 
     # Берем последние завершенные/начавшиеся и ближайшие будущие
@@ -2003,7 +2123,7 @@ def get_recent_and_upcoming_matches(db, limit: int = 20) -> list[Match]:
 
 
 def build_match_card_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
-    """Документация: функция `build_match_card_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_match_card_keyboard."""
     buttons = []
 
     for match in matches:
@@ -2019,8 +2139,31 @@ def build_match_card_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def build_panini_team_keyboard_from_list(
+    teams: list[dict],
+) -> InlineKeyboardMarkup:
+    """Provide bot helper logic for build_panini_team_keyboard_from_list."""
+    rows = []
+
+    for index, team in enumerate(teams):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=(
+                        f"{team['flag']} "
+                        f"#{team['rank']} "
+                        f"{team['display_name']}"
+                    ).strip(),
+                    callback_data=f"panini_team:{index}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def build_predictions_text(db, match: Match) -> str:
-    """Документация: функция `build_predictions_text` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_predictions_text."""
     now = datetime.now(timezone.utc)
 
     match_start = match.starts_at
@@ -2089,7 +2232,7 @@ def build_predictions_text(db, match: Match) -> str:
 
 
 def build_forecast_text(db, match: Match) -> str:
-    """Документация: функция `build_forecast_text` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_forecast_text."""
     context = build_wc2026_openai_context(db, match)
 
     forecast = generate_openai_forecast(context)
@@ -2149,7 +2292,7 @@ def build_forecast_text(db, match: Match) -> str:
 
 
 def format_ranking_fact(team_name: str, ranking: dict | None) -> str:
-    """Документация: функция `format_ranking_fact` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_ranking_fact."""
     if not ranking:
         return f"{team_name}: рейтинг не найден"
 
@@ -2163,7 +2306,7 @@ def format_ranking_fact(team_name: str, ranking: dict | None) -> str:
 
 
 def format_short_matches_fact(team_name: str, rows: list[dict]) -> str:
-    """Документация: функция `format_short_matches_fact` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_short_matches_fact."""
     if not rows:
         return f"{team_name}: нет данных"
 
@@ -2178,7 +2321,7 @@ def format_short_matches_fact(team_name: str, rows: list[dict]) -> str:
 
 
 def format_h2h_fact(rows: list[dict]) -> str:
-    """Документация: функция `format_h2h_fact` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_h2h_fact."""
     if not rows:
         return "Личных встреч в данных не найдено."
 
@@ -2193,7 +2336,7 @@ def format_h2h_fact(rows: list[dict]) -> str:
 
 
 def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
-    """Документация: функция `build_forecast_matches_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_forecast_matches_keyboard."""
     buttons = []
 
     for match in matches:
@@ -2210,7 +2353,7 @@ def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarku
 
 
 def extract_command_from_text(text: str | None) -> str | None:
-    """Документация: функция `extract_command_from_text` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for extract_command_from_text."""
     if not text:
         return None
 
@@ -2229,7 +2372,7 @@ def extract_command_from_text(text: str | None) -> str | None:
 
 
 def get_start_message_for_user(user: User, created: bool) -> str:
-    """Документация: функция `get_start_message_for_user` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_start_message_for_user."""
     if created:
         return FIRST_START_MESSAGES_BY_TELEGRAM_ID.get(
             user.telegram_id,
@@ -2245,7 +2388,7 @@ def get_start_message_for_user(user: User, created: bool) -> str:
 
 
 def import_historical_archive_from_seed(db) -> dict:
-    """Документация: функция `import_historical_archive_from_seed` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for import_historical_archive_from_seed."""
     if not HISTORICAL_ARCHIVE_SEED_PATH.exists():
         raise FileNotFoundError(
             f"Файл не найден: {HISTORICAL_ARCHIVE_SEED_PATH}"
@@ -2299,7 +2442,7 @@ def import_historical_archive_from_seed(db) -> dict:
 
 
 def format_archive_card(card: HistoricalArchiveCard) -> str:
-    """Документация: функция `format_archive_card` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_archive_card."""
     tournament_title = {
         "wc2022": "ЧМ-2022",
         "euro2024": "ЧЕ-2024",
@@ -2315,7 +2458,7 @@ def format_archive_card(card: HistoricalArchiveCard) -> str:
 
 
 def format_group_quiz_question(question: QuizQuestion) -> str:
-    """Документация: функция `format_group_quiz_question` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_group_quiz_question."""
     category_text = FACT_QUIZ_CATEGORIES.get(
         question.category or "any",
         question.category or "История ЧМ",
@@ -2341,7 +2484,7 @@ def format_group_quiz_question(question: QuizQuestion) -> str:
 
 
 def get_random_quiz_question(db, category: str | None = None) -> QuizQuestion | None:
-    """Документация: функция `get_random_quiz_question` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_random_quiz_question."""
     query = db.query(QuizQuestion).filter(
         QuizQuestion.is_active == True,
     )
@@ -2358,7 +2501,7 @@ def get_random_quiz_question(db, category: str | None = None) -> QuizQuestion | 
 
 
 async def private_quiz_handler(message: Message):
-    """Документация: функция `private_quiz_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for private_quiz_handler."""
     db = SessionLocal()
 
     try:
@@ -2387,7 +2530,7 @@ async def private_quiz_handler(message: Message):
 
 
 async def group_quiz_start_handler(message: Message):
-    """Документация: функция `group_quiz_start_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for group_quiz_start_handler."""
     db = SessionLocal()
 
     try:
@@ -2444,7 +2587,7 @@ async def group_quiz_start_handler(message: Message):
         db.close()
 
 def finish_group_quiz_and_build_result_text(db, session: GroupQuizSession) -> str:
-    """Документация: функция `finish_group_quiz_and_build_result_text` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for finish_group_quiz_and_build_result_text."""
     question = session.question
 
     answers = db.query(GroupQuizAnswer).filter(
@@ -2529,8 +2672,203 @@ def finish_group_quiz_and_build_result_text(db, session: GroupQuizSession) -> st
 
     return "\n".join(lines)
 
+
+def generate_panini_card(
+    photo_path: str,
+    person_name: str,
+    team_api_name: str,
+    team_display_name: str,
+    team_flag: str,
+) -> str:
+    """Provide bot helper logic for generate_panini_card."""
+    if not openai_client:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    output_path = f"/tmp/panini_result_{uuid.uuid4().hex}.png"
+
+    prompt = (
+        "Create a collectible football sticker portrait card inspired by "
+        "classic football sticker album cards, but do not copy any official Panini design. "
+        "Use the uploaded person photo as the identity reference. "
+        "Preserve the person's facial features, approximate age, hairstyle, and general appearance. "
+        f"Depict the person as a player of the {team_api_name} national football team. "
+        "Use a football jersey inspired by the national team's colors, "
+        "without exact official logos, federation crests, or brand marks. "
+        "Make it look like a polished collectible football card: portrait framing, "
+        "decorative border, stadium or graphic background, premium sports lighting, "
+        "dynamic but clean composition. "
+        "Leave safe margins around the player and all text. "
+        "The player should be centered in the upper-middle area, with enough space below for the nameplate. "
+        f"Add readable card text with player name '{person_name}' and team name '{team_display_name}'. "
+        f"Include the country flag vibe: {team_flag}. "
+        "Vertical portrait collectible football sticker card, approximately 2:3 aspect ratio. "
+        "Full card must be visible with no cropping: include the complete head, shoulders, jersey, border, nameplate, and team label. "
+        "Do not crop the top of the head or the bottom nameplate. "
+        "High quality, fun, realistic-stylized."
+    )
+
+    with open(photo_path, "rb") as image_file:
+        result = openai_client.images.edit(
+            model=PANINI_IMAGE_MODEL,
+            image=image_file,
+            prompt=prompt,
+            size=PANINI_IMAGE_SIZE,
+            n=1,
+        )
+
+    image_base64 = result.data[0].b64_json
+
+    with open(output_path, "wb") as file:
+        file.write(base64.b64decode(image_base64))
+
+    return output_path
+
+
+def build_table_rows(db) -> list[dict]:
+    """Provide bot helper logic for build_table_rows."""
+    users = db.query(User).order_by(User.display_name).all()
+
+    rows = []
+
+    for user in users:
+        if getattr(user, "is_bot", False):
+            continue
+
+        predictions = db.query(Prediction).filter(
+            Prediction.user_id == user.id
+        ).all()
+
+        tournament_prediction = db.query(TournamentPrediction).filter(
+            TournamentPrediction.user_id == user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        ).first()
+
+        match_points = sum(
+            prediction.points or 0
+            for prediction in predictions
+        )
+
+        tournament_points = (
+            tournament_prediction.points
+            if tournament_prediction
+            else 0
+        )
+
+        total_points = match_points + tournament_points
+
+        exact_scores = sum(
+            1
+            for prediction in predictions
+            if prediction.score_points == 3
+        )
+
+        outcomes = sum(
+            1
+            for prediction in predictions
+            if prediction.score_points == 1
+        )
+
+        advancement_plus = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_points == 1
+        )
+
+        advancement_minus = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_points == -1
+        )
+
+        total_predictions = len(predictions)
+
+        rows.append(
+            {
+                "name": user.display_name,
+                "points": total_points,
+                "match_points": match_points,
+                "tournament_points": tournament_points,
+                "exact_scores": exact_scores,
+                "outcomes": outcomes,
+                "advancement_plus": advancement_plus,
+                "advancement_minus": advancement_minus,
+                "total_predictions": total_predictions,
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            row["points"],
+            row["exact_scores"],
+            row["outcomes"],
+        ),
+        reverse=True,
+    )
+
+    return rows
+
+
+def shorten_table_name(name: str, max_len: int = 10) -> str:
+    """Provide bot helper logic for shorten_table_name."""
+    if not name:
+        return "Игрок"
+
+    if len(name) <= max_len:
+        return name
+
+    return name[:max_len - 1] + "…"
+
+
+def build_table_buttons_keyboard(rows: list[dict]) -> InlineKeyboardMarkup:
+    """Provide bot helper logic for build_table_buttons_keyboard."""
+    keyboard = []
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(text="№", callback_data="table_noop"),
+            InlineKeyboardButton(text="Игрок", callback_data="table_noop"),
+            InlineKeyboardButton(text="О", callback_data="table_noop"),
+            InlineKeyboardButton(text="🎯", callback_data="table_noop"),
+            InlineKeyboardButton(text="✅", callback_data="table_noop"),
+            InlineKeyboardButton(text="🏆", callback_data="table_noop"),
+        ]
+    )
+
+    for index, row in enumerate(rows, start=1):
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=str(index),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=shorten_table_name(row["name"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["points"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["exact_scores"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["outcomes"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["tournament_points"]),
+                    callback_data="table_noop",
+                ),
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
-    """Документация: функция `send_daily_fact_to_group` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for send_daily_fact_to_group."""
     group_chat_id = get_group_chat_id()
 
     if not group_chat_id:
@@ -2569,7 +2907,7 @@ async def notify_group_prediction_saved(
     match: Match,
     is_update: bool = False,
 ):
-    """Документация: функция `notify_group_prediction_saved` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for notify_group_prediction_saved."""
     if is_forecast_bot_user(user):
         return
     action_text = "обновил прогноз" if is_update else "сделал прогноз"
@@ -2586,7 +2924,10 @@ async def notify_group_tournament_prediction_saved(
     user: User,
     is_update: bool = False,
 ):
-    """Документация: функция `notify_group_tournament_prediction_saved` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for notify_group_tournament_prediction_saved."""
+    if is_forecast_bot_user(user):
+        return
+
     action_text = "обновил турнирный прогноз" if is_update else "сделал турнирный прогноз"
 
     await notify_group_chat(
@@ -2598,8 +2939,8 @@ async def notify_group_tournament_prediction_saved(
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
+    """Handle asynchronous bot workflow for start_handler."""
     # В группе /start не регистрируем как полноценный личный старт
-    """Документация: функция `start_handler` перенесена из исходного `bot.py` без изменения поведения."""
     if message.chat.type != "private":
         await message.answer(
             "Я тут для развлечений и общей статистики: /fact, /quiz, /archive, /table.\n\n"
@@ -2645,7 +2986,7 @@ async def start_handler(message: Message):
 
 @dp.message(Command("matches"))
 async def matches_handler(message: Message):
-    """Документация: функция `matches_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for matches_handler."""
     db = SessionLocal()
 
     try:
@@ -2671,7 +3012,7 @@ async def matches_handler(message: Message):
 
 @dp.message(Command("predict"))
 async def predict_handler(message: Message):
-    """Документация: функция `predict_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predict_handler."""
     db = SessionLocal()
 
     try:
@@ -2835,7 +3176,7 @@ async def predict_handler(message: Message):
 
 @dp.message(Command("forecast"))
 async def forecast_handler(message: Message):
-    """Документация: функция `forecast_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for forecast_handler."""
     db = SessionLocal()
 
     try:
@@ -2883,7 +3224,7 @@ async def forecast_handler(message: Message):
 
 @dp.message(Command("mybets"))
 async def mybets_handler(message: Message):
-    """Документация: функция `mybets_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for mybets_handler."""
     db = SessionLocal()
 
     try:
@@ -2920,7 +3261,7 @@ async def mybets_handler(message: Message):
 
 @dp.message(Command("predictions"))
 async def predictions_handler(message: Message):
-    """Документация: функция `predictions_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predictions_handler."""
     db = SessionLocal()
 
     try:
@@ -2968,7 +3309,7 @@ async def predictions_handler(message: Message):
 
 @dp.message(Command("table"))
 async def table_handler(message: Message):
-    """Документация: функция `table_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for table_handler."""
     db = SessionLocal()
 
     try:
@@ -3090,7 +3431,7 @@ async def table_handler(message: Message):
 
 @dp.message(Command("rules"))
 async def rules_handler(message: Message):
-    """Документация: функция `rules_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for rules_handler."""
     await message.answer(
         "📜 Правила начисления очков\n\n"
         "За каждый матч:\n"
@@ -3117,7 +3458,7 @@ async def rules_handler(message: Message):
 
 
 def parse_tournament_prediction_payload(text: str):
-    """Документация: функция `parse_tournament_prediction_payload` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_tournament_prediction_payload."""
     payload = text.replace("/tournament_set", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
 
@@ -3130,7 +3471,7 @@ def parse_tournament_prediction_payload(text: str):
 
 
 def parse_tournament_result_payload(text: str):
-    """Документация: функция `parse_tournament_result_payload` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for parse_tournament_result_payload."""
     payload = text.replace("/admin_set_tournament_result", "", 1).strip()
     parts = [part.strip() for part in payload.split(";")]
 
@@ -3143,7 +3484,7 @@ def parse_tournament_result_payload(text: str):
 
 
 def get_team_flag(team_name: str | None, api_name: str | None = None) -> str:
-    """Документация: функция `get_team_flag` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_team_flag."""
     if api_name and api_name in TEAM_FLAGS:
         return TEAM_FLAGS[api_name]
 
@@ -3158,7 +3499,7 @@ def format_team_with_flag(
         api_name: str | None = None,
         flag_before: bool = False,
 ) -> str:
-    """Документация: функция `format_team_with_flag` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_team_with_flag."""
     flag = get_team_flag(display_name, api_name)
 
     if not flag:
@@ -3171,41 +3512,45 @@ def format_team_with_flag(
 
 
 def format_match_label(match: Match, include_id: bool = False) -> str:
-    """Документация: функция `format_match_label` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_match_label."""
+    home_name = get_team_name_ru(match.home_team)
+    away_name = get_team_name_ru(match.away_team)
+
     home_text = format_team_with_flag(
-        display_name=match.home_team,
+        display_name=home_name,
         api_name=getattr(match, "home_team_api_name", None),
         flag_before=False,
     )
 
     away_text = format_team_with_flag(
-        display_name=match.away_team,
+        display_name=away_name,
         api_name=getattr(match, "away_team_api_name", None),
         flag_before=True,
     )
 
     team_text = f"{home_text} — {away_text}"
 
-    prefix_parts = []
+    postfix_parts = []
 
     if match.stage == "group":
-        if match.group_code:
-            prefix_parts.append(f"Группа {match.group_code}")
-
         round_text = match.match_round or get_default_match_round(match.stage)
 
         if round_text:
-            prefix_parts.append(f"Тур {round_text}")
+            postfix_parts.append(f"Тур {round_text}")
+
+        if match.group_code:
+            postfix_parts.append(f"Группа {match.group_code}")
+
     else:
         round_text = match.match_round or get_default_match_round(match.stage)
 
         if round_text:
-            prefix_parts.append(round_text.capitalize())
+            postfix_parts.append(round_text.capitalize())
 
-    prefix = ". ".join(prefix_parts)
+    postfix = ". ".join(postfix_parts)
 
-    if prefix:
-        label = f"{prefix}. {team_text}"
+    if postfix:
+        label = f"{team_text}. {postfix}"
     else:
         label = team_text
 
@@ -3216,7 +3561,7 @@ def format_match_label(match: Match, include_id: bool = False) -> str:
 
 
 def format_matches_list(matches: list[Match], title: str) -> str:
-    """Документация: функция `format_matches_list` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_matches_list."""
     lines = [title, ""]
 
     current_date = None
@@ -3253,7 +3598,7 @@ def format_matches_list(matches: list[Match], title: str) -> str:
 
 
 def get_user_prediction_match_ids(db, user: User) -> set[int]:
-    """Документация: функция `get_user_prediction_match_ids` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_user_prediction_match_ids."""
     predictions = db.query(Prediction).filter(
         Prediction.user_id == user.id
     ).all()
@@ -3269,7 +3614,7 @@ def get_missing_predictions_for_matches(
         user: User,
         matches: list[Match],
 ) -> list[Match]:
-    """Документация: функция `get_missing_predictions_for_matches` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_missing_predictions_for_matches."""
     predicted_match_ids = get_user_prediction_match_ids(db, user)
 
     return [
@@ -3280,7 +3625,7 @@ def get_missing_predictions_for_matches(
 
 
 def format_missing_matches_list(matches: list[Match], title: str) -> str:
-    """Документация: функция `format_missing_matches_list` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_missing_matches_list."""
     lines = [title, ""]
 
     if not matches:
@@ -3310,7 +3655,7 @@ def format_missing_matches_list(matches: list[Match], title: str) -> str:
 
 
 def get_match_status(match: Match) -> str:
-    """Документация: функция `get_match_status` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_match_status."""
     now = datetime.now(timezone.utc)
 
     match_start = match.starts_at
@@ -3327,7 +3672,7 @@ def get_match_status(match: Match) -> str:
 
 
 def format_match_result(match: Match) -> str:
-    """Документация: функция `format_match_result` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_match_result."""
     if match.score_home is None or match.score_away is None:
         return "Результат: еще не внесен"
 
@@ -3342,7 +3687,7 @@ def format_match_result(match: Match) -> str:
 
 
 def get_prediction_points_breakdown(prediction: Prediction) -> str:
-    """Документация: функция `get_prediction_points_breakdown` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_prediction_points_breakdown."""
     return (
         f"Очки: {prediction.points or 0} "
         f"({prediction.score_points or 0} за счет/исход, "
@@ -3355,7 +3700,7 @@ def format_user_match_prediction(
         match: Match,
         reveal: bool = True,
 ) -> str:
-    """Документация: функция `format_user_match_prediction` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_user_match_prediction."""
     if not prediction:
         return "прогноза нет"
 
@@ -3374,7 +3719,7 @@ def format_user_match_prediction(
 
 
 def build_match_card_text(db, user: User, match: Match) -> str:
-    """Документация: функция `build_match_card_text` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_match_card_text."""
     now = datetime.now(timezone.utc)
 
     match_start = match.starts_at
@@ -3472,7 +3817,7 @@ def build_match_card_text(db, user: User, match: Match) -> str:
 
 
 def build_user_summary_context(db, user: User) -> dict:
-    """Документация: функция `build_user_summary_context` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_user_summary_context."""
     predictions = db.query(Prediction).filter(
         Prediction.user_id == user.id
     ).all()
@@ -3671,7 +4016,7 @@ def build_user_summary_context(db, user: User) -> dict:
 
 
 def format_world_cup_fact(fact: WorldCupFact) -> str:
-    """Документация: функция `format_world_cup_fact` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_world_cup_fact."""
     year_text = f"ЧМ-{fact.tournament_year}" if fact.tournament_year else "История ЧМ"
 
     lines = [
@@ -3690,7 +4035,7 @@ def format_world_cup_fact(fact: WorldCupFact) -> str:
 
 
 def get_random_fact_not_sent_today(db) -> WorldCupFact | None:
-    """Документация: функция `get_random_fact_not_sent_today` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_random_fact_not_sent_today."""
     now_local = datetime.now(DAILY_FACT_TIMEZONE)
 
     start_local = now_local.replace(
@@ -3738,7 +4083,7 @@ FACTS_SEED_PATH = Path("data/world_cup_facts_seed.json")
 
 
 def import_world_cup_facts_from_seed(db) -> dict:
-    """Документация: функция `import_world_cup_facts_from_seed` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for import_world_cup_facts_from_seed."""
     if not FACTS_SEED_PATH.exists():
         raise FileNotFoundError(f"Файл не найден: {FACTS_SEED_PATH}")
 
@@ -3791,7 +4136,7 @@ def import_world_cup_facts_from_seed(db) -> dict:
 
 
 def plural_days_ru(value: int) -> str:
-    """Документация: функция `plural_days_ru` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for plural_days_ru."""
     if 11 <= value % 100 <= 14:
         return "дней"
 
@@ -3807,13 +4152,13 @@ def plural_days_ru(value: int) -> str:
 
 
 def get_days_until_wc2026() -> int:
-    """Документация: функция `get_days_until_wc2026` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for get_days_until_wc2026."""
     today = datetime.now(DAILY_FACT_TIMEZONE).date()
     return max((WC2026_START_DATE - today).days, 0)
 
 
 def build_quiz_teaser_for_fact(fact: WorldCupFact) -> str:
-    """Документация: функция `build_quiz_teaser_for_fact` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_quiz_teaser_for_fact."""
     if fact.tournament_year:
         return f"Какой факт связан с ЧМ-{fact.tournament_year}?"
 
@@ -3835,7 +4180,7 @@ def build_quiz_teaser_for_fact(fact: WorldCupFact) -> str:
 
 
 def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
-    """Документация: функция `format_daily_world_cup_rubric` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_daily_world_cup_rubric."""
     days_left = get_days_until_wc2026()
 
     if days_left == 0:
@@ -3875,7 +4220,7 @@ def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
 
 
 def build_quiz_keyboard(question: QuizQuestion) -> InlineKeyboardMarkup:
-    """Документация: функция `build_quiz_keyboard` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for build_quiz_keyboard."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -3906,7 +4251,7 @@ def build_quiz_keyboard(question: QuizQuestion) -> InlineKeyboardMarkup:
     )
 
 def format_quiz_question(question: QuizQuestion) -> str:
-    """Документация: функция `format_quiz_question` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_quiz_question."""
     year_text = f"ЧМ-{question.tournament_year}" if question.tournament_year else "История ЧМ"
 
     return (
@@ -3917,7 +4262,7 @@ def format_quiz_question(question: QuizQuestion) -> str:
     )
 
 def import_quiz_questions_from_seed(db) -> dict:
-    """Документация: функция `import_quiz_questions_from_seed` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for import_quiz_questions_from_seed."""
     if not QUIZ_SEED_PATH.exists():
         raise FileNotFoundError(f"Файл не найден: {QUIZ_SEED_PATH}")
 
@@ -3976,7 +4321,7 @@ def import_quiz_questions_from_seed(db) -> dict:
 
 
 async def send_daily_fact_to_private_users(db, fact: WorldCupFact):
-    """Документация: функция `send_daily_fact_to_private_users` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for send_daily_fact_to_private_users."""
     users = db.query(User).all()
     text = format_daily_world_cup_rubric(fact)
 
@@ -4006,7 +4351,7 @@ async def send_daily_fact_to_private_users(db, fact: WorldCupFact):
             )
 
 async def daily_facts_loop():
-    """Документация: функция `daily_facts_loop` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for daily_facts_loop."""
     if not DAILY_FACTS_ENABLED:
         print("Daily facts are disabled")
         return
@@ -4054,7 +4399,7 @@ async def daily_facts_loop():
 
 
 async def notify_admins(text: str, exclude_telegram_id: int | None = None):
-    """Документация: функция `notify_admins` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for notify_admins."""
     if not ADMIN_NOTIFY_ENABLED:
         return
 
@@ -4080,7 +4425,7 @@ async def notify_admins(text: str, exclude_telegram_id: int | None = None):
 
 
 async def notify_group_chat(text: str):
-    """Документация: функция `notify_group_chat` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for notify_group_chat."""
     group_chat_id = get_group_chat_id()
 
     if not group_chat_id:
@@ -4097,7 +4442,7 @@ async def notify_group_chat(text: str):
 
 
 async def send_long_message(message: Message, lines: list[str], chunk_size: int = 3500):
-    """Документация: функция `send_long_message` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for send_long_message."""
     chunks = []
     current_chunk = ""
 
@@ -4123,7 +4468,7 @@ async def send_fact_by_category(
     category: str | None,
     delivery_type: str = "manual",
 ):
-    """Документация: функция `send_fact_by_category` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for send_fact_by_category."""
     query = db.query(WorldCupFact).filter(
         WorldCupFact.is_active == True,
         WorldCupFact.needs_verification == False,
@@ -4168,7 +4513,7 @@ async def send_quiz_by_category(
     db,
     category: str | None,
 ):
-    """Документация: функция `send_quiz_by_category` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for send_quiz_by_category."""
     query = db.query(QuizQuestion).filter(
         QuizQuestion.is_active == True,
     )
@@ -4198,7 +4543,7 @@ async def send_quiz_by_category(
 
 @dp.message(Command("tournament_set"))
 async def tournament_set_handler(message: Message, state: FSMContext):
-    """Документация: функция `tournament_set_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_set_handler."""
     db = SessionLocal()
 
     try:
@@ -4255,7 +4600,7 @@ async def tournament_set_handler(message: Message, state: FSMContext):
 
 @dp.message(Command("tournament"))
 async def tournament_handler(message: Message):
-    """Документация: функция `tournament_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_handler."""
     db = SessionLocal()
 
     try:
@@ -4293,7 +4638,7 @@ async def tournament_handler(message: Message):
 
 @dp.message(Command("tournament_predictions"))
 async def tournament_predictions_handler(message: Message):
-    """Документация: функция `tournament_predictions_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_predictions_handler."""
     db = SessionLocal()
 
     try:
@@ -4360,7 +4705,7 @@ async def tournament_predictions_handler(message: Message):
 
 @dp.message(Command("admin"))
 async def admin_handler(message: Message):
-    """Документация: функция `admin_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_handler."""
     db = SessionLocal()
 
     try:
@@ -4424,7 +4769,7 @@ async def admin_handler(message: Message):
 
 @dp.message(Command("match"))
 async def match_handler(message: Message):
-    """Документация: функция `match_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for match_handler."""
     db = SessionLocal()
 
     try:
@@ -4488,7 +4833,7 @@ async def match_handler(message: Message):
 
 @dp.message(Command("admin_set_result"))
 async def admin_set_result_handler(message: Message):
-    """Документация: функция `admin_set_result_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_set_result_handler."""
     db = SessionLocal()
 
     try:
@@ -4585,7 +4930,7 @@ async def admin_set_result_handler(message: Message):
 
 @dp.message(Command("admin_recalculate"))
 async def admin_recalculate_handler(message: Message):
-    """Документация: функция `admin_recalculate_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_recalculate_handler."""
     db = SessionLocal()
 
     try:
@@ -4642,7 +4987,7 @@ async def admin_recalculate_handler(message: Message):
 
 @dp.message(Command("admin_set_tournament_result"))
 async def admin_set_tournament_result_handler(message: Message):
-    """Документация: функция `admin_set_tournament_result_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_set_tournament_result_handler."""
     db = SessionLocal()
 
     try:
@@ -4758,7 +5103,7 @@ async def admin_set_tournament_result_handler(message: Message):
 
 @dp.message(Command("admin_tournament_recalculate"))
 async def admin_tournament_recalculate_handler(message: Message):
-    """Документация: функция `admin_tournament_recalculate_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_tournament_recalculate_handler."""
     db = SessionLocal()
 
     try:
@@ -4824,7 +5169,7 @@ async def admin_tournament_recalculate_handler(message: Message):
 
 @dp.message(Command("admin_matches"))
 async def admin_matches_handler(message: Message):
-    """Документация: функция `admin_matches_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_matches_handler."""
     db = SessionLocal()
 
     try:
@@ -4899,7 +5244,7 @@ async def admin_matches_handler(message: Message):
 
 @dp.message(Command("admin_matches_all"))
 async def admin_matches_all_handler(message: Message):
-    """Документация: функция `admin_matches_all_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_matches_all_handler."""
     db = SessionLocal()
 
     try:
@@ -4962,7 +5307,7 @@ async def admin_matches_all_handler(message: Message):
 
 @dp.message(Command("admin_edit_match"))
 async def admin_edit_match_handler(message: Message):
-    """Документация: функция `admin_edit_match_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_edit_match_handler."""
     db = SessionLocal()
 
     try:
@@ -5037,7 +5382,7 @@ async def admin_edit_match_handler(message: Message):
 
 @dp.message(Command("admin_delete_match"))
 async def admin_delete_match_handler(message: Message):
-    """Документация: функция `admin_delete_match_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_delete_match_handler."""
     db = SessionLocal()
 
     try:
@@ -5103,7 +5448,7 @@ async def admin_delete_match_handler(message: Message):
 
 @dp.message(Command("admin_force_delete_match"))
 async def admin_force_delete_match_handler(message: Message):
-    """Документация: функция `admin_force_delete_match_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_force_delete_match_handler."""
     db = SessionLocal()
 
     try:
@@ -5168,7 +5513,7 @@ async def admin_force_delete_match_handler(message: Message):
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_match:"))
 async def predict_match_callback(callback: CallbackQuery):
-    """Документация: функция `predict_match_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predict_match_callback."""
     db = SessionLocal()
 
     try:
@@ -5212,7 +5557,7 @@ async def predict_match_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_score:"))
 async def predict_score_callback(callback: CallbackQuery):
-    """Документация: функция `predict_score_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predict_score_callback."""
     db = SessionLocal()
 
     try:
@@ -5266,7 +5611,7 @@ async def predict_score_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_adv:"))
 async def predict_advancement_callback(callback: CallbackQuery):
-    """Документация: функция `predict_advancement_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predict_advancement_callback."""
     db = SessionLocal()
 
     try:
@@ -5315,7 +5660,7 @@ async def predict_advancement_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("predict_custom:"))
 async def predict_custom_callback(callback: CallbackQuery, state: FSMContext):
-    """Документация: функция `predict_custom_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predict_custom_callback."""
     db = SessionLocal()
 
     try:
@@ -5365,7 +5710,7 @@ async def predict_custom_callback(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(TournamentPredictionForm.champion)
 async def tournament_champion_handler(message: Message, state: FSMContext):
-    """Документация: функция `tournament_champion_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_champion_handler."""
     champion = message.text.strip()
 
     if not champion:
@@ -5383,7 +5728,7 @@ async def tournament_champion_handler(message: Message, state: FSMContext):
 
 @dp.message(TournamentPredictionForm.runner_up)
 async def tournament_runner_up_handler(message: Message, state: FSMContext):
-    """Документация: функция `tournament_runner_up_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_runner_up_handler."""
     runner_up = message.text.strip()
 
     if not runner_up:
@@ -5410,7 +5755,7 @@ async def tournament_runner_up_handler(message: Message, state: FSMContext):
 
 @dp.message(TournamentPredictionForm.third_place)
 async def tournament_third_place_handler(message: Message, state: FSMContext):
-    """Документация: функция `tournament_third_place_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_third_place_handler."""
     third_place = message.text.strip()
 
     if not third_place:
@@ -5444,7 +5789,7 @@ async def tournament_third_place_handler(message: Message, state: FSMContext):
 
 @dp.message(TournamentPredictionForm.top_scorer)
 async def tournament_top_scorer_handler(message: Message, state: FSMContext):
-    """Документация: функция `tournament_top_scorer_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for tournament_top_scorer_handler."""
     top_scorer = message.text.strip()
 
     if not top_scorer:
@@ -5488,7 +5833,7 @@ async def tournament_top_scorer_handler(message: Message, state: FSMContext):
 
 @dp.message(Command("cancel"))
 async def cancel_handler(message: Message, state: FSMContext):
-    """Документация: функция `cancel_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for cancel_handler."""
     current_state = await state.get_state()
 
     if current_state is None:
@@ -5502,7 +5847,7 @@ async def cancel_handler(message: Message, state: FSMContext):
 
 @dp.message(MatchPredictionForm.custom_score)
 async def match_custom_score_handler(message: Message, state: FSMContext):
-    """Документация: функция `match_custom_score_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for match_custom_score_handler."""
     db = SessionLocal()
 
     try:
@@ -5575,7 +5920,7 @@ async def match_custom_score_handler(message: Message, state: FSMContext):
 
 @dp.message(Command("matches_all"))
 async def matches_all_handler(message: Message):
-    """Документация: функция `matches_all_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for matches_all_handler."""
     db = SessionLocal()
 
     try:
@@ -5600,7 +5945,7 @@ async def matches_all_handler(message: Message):
 
 @dp.message(Command("predict_all"))
 async def predict_all_handler(message: Message):
-    """Документация: функция `predict_all_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predict_all_handler."""
     db = SessionLocal()
 
     try:
@@ -5623,7 +5968,7 @@ async def predict_all_handler(message: Message):
 
 @dp.message(Command("admin_import_matches"))
 async def admin_import_matches_handler(message: Message):
-    """Документация: функция `admin_import_matches_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_import_matches_handler."""
     db = SessionLocal()
 
     try:
@@ -5695,7 +6040,7 @@ async def admin_import_matches_handler(message: Message):
 
 @dp.message(Command("missing"))
 async def missing_handler(message: Message):
-    """Документация: функция `missing_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for missing_handler."""
     db = SessionLocal()
 
     try:
@@ -5732,7 +6077,7 @@ async def missing_handler(message: Message):
 
 @dp.message(Command("missing_all"))
 async def missing_all_handler(message: Message):
-    """Документация: функция `missing_all_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for missing_all_handler."""
     db = SessionLocal()
 
     try:
@@ -5770,7 +6115,7 @@ async def missing_all_handler(message: Message):
 
 
 async def send_match_reminders_once():
-    """Документация: функция `send_match_reminders_once` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for send_match_reminders_once."""
     if not reminders_enabled():
         return
 
@@ -5864,7 +6209,7 @@ async def send_match_reminders_once():
 
 
 def format_percent(part: int, total: int) -> str:
-    """Документация: функция `format_percent` перенесена из исходного `bot.py` без изменения поведения."""
+    """Provide bot helper logic for format_percent."""
     if total == 0:
         return "0%"
 
@@ -5872,7 +6217,7 @@ def format_percent(part: int, total: int) -> str:
 
 
 async def reminders_loop():
-    """Документация: функция `reminders_loop` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for reminders_loop."""
     if not reminders_enabled():
         print("Reminders are disabled")
         return
@@ -5898,7 +6243,7 @@ async def reminders_loop():
 
 @dp.message(Command("admin_reminders_status"))
 async def admin_reminders_status_handler(message: Message):
-    """Документация: функция `admin_reminders_status_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_reminders_status_handler."""
     db = SessionLocal()
 
     try:
@@ -5959,7 +6304,7 @@ async def admin_reminders_status_handler(message: Message):
 
 @dp.message(Command("match"))
 async def match_handler(message: Message):
-    """Документация: функция `match_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for match_handler."""
     db = SessionLocal()
 
     try:
@@ -6102,7 +6447,7 @@ async def match_handler(message: Message):
 
 @dp.message(Command("summary"))
 async def summary_handler(message: Message):
-    """Документация: функция `summary_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for summary_handler."""
     db = SessionLocal()
 
     try:
@@ -6265,7 +6610,7 @@ async def summary_handler(message: Message):
 
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_match:"))
 async def admin_result_match_callback(callback: CallbackQuery):
-    """Документация: функция `admin_result_match_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_result_match_callback."""
     db = SessionLocal()
 
     try:
@@ -6310,7 +6655,7 @@ async def admin_result_match_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_score:"))
 async def admin_result_score_callback(callback: CallbackQuery):
-    """Документация: функция `admin_result_score_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_result_score_callback."""
     db = SessionLocal()
 
     try:
@@ -6365,7 +6710,7 @@ async def admin_result_score_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_winner:"))
 async def admin_result_winner_callback(callback: CallbackQuery):
-    """Документация: функция `admin_result_winner_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_result_winner_callback."""
     db = SessionLocal()
 
     try:
@@ -6413,7 +6758,7 @@ async def admin_result_winner_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("admin_result_custom:"))
 async def admin_result_custom_callback(callback: CallbackQuery, state: FSMContext):
-    """Документация: функция `admin_result_custom_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_result_custom_callback."""
     db = SessionLocal()
 
     try:
@@ -6455,7 +6800,7 @@ async def admin_result_custom_callback(callback: CallbackQuery, state: FSMContex
 
 @dp.message(AdminResultForm.custom_score)
 async def admin_result_custom_score_handler(message: Message, state: FSMContext):
-    """Документация: функция `admin_result_custom_score_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_result_custom_score_handler."""
     db = SessionLocal()
 
     try:
@@ -6529,13 +6874,13 @@ async def admin_result_custom_score_handler(message: Message, state: FSMContext)
 
 @dp.message(Command("help"))
 async def help_handler(message: Message):
-    """Документация: функция `help_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for help_handler."""
     await message.answer(USER_HELP_TEXT)
 
 
 @dp.callback_query(lambda callback: callback.data.startswith("predictions_match:"))
 async def predictions_match_callback(callback: CallbackQuery):
-    """Документация: функция `predictions_match_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for predictions_match_callback."""
     db = SessionLocal()
 
     try:
@@ -6557,7 +6902,7 @@ async def predictions_match_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("match_card:"))
 async def match_card_callback(callback: CallbackQuery):
-    """Документация: функция `match_card_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for match_card_callback."""
     db = SessionLocal()
 
     try:
@@ -6596,7 +6941,7 @@ async def match_card_callback(callback: CallbackQuery):
 
 @dp.message(Command("ai_summary"))
 async def ai_summary_handler(message: Message):
-    """Документация: функция `ai_summary_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for ai_summary_handler."""
     db = SessionLocal()
 
     try:
@@ -6625,7 +6970,7 @@ async def ai_summary_handler(message: Message):
 
 @dp.message(Command("admin_sync_wc2026_schedule"))
 async def admin_sync_wc2026_schedule_handler(message: Message):
-    """Документация: функция `admin_sync_wc2026_schedule_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_sync_wc2026_schedule_handler."""
     db = SessionLocal()
 
     try:
@@ -6661,7 +7006,7 @@ async def admin_sync_wc2026_schedule_handler(message: Message):
 
 @dp.message(Command("admin_sync_results"))
 async def admin_sync_results_handler(message: Message):
-    """Документация: функция `admin_sync_results_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_sync_results_handler."""
     db = SessionLocal()
 
     try:
@@ -6778,7 +7123,7 @@ async def admin_sync_results_handler(message: Message):
 
 @dp.callback_query(lambda callback: callback.data.startswith("forecast_match:"))
 async def forecast_match_callback(callback: CallbackQuery):
-    """Документация: функция `forecast_match_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for forecast_match_callback."""
     db = SessionLocal()
 
     try:
@@ -6800,7 +7145,7 @@ async def forecast_match_callback(callback: CallbackQuery):
 
 @dp.message(Command("admin_rankings_check"))
 async def admin_rankings_check_handler(message: Message):
-    """Документация: функция `admin_rankings_check_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_rankings_check_handler."""
     db = SessionLocal()
 
     try:
@@ -6838,7 +7183,7 @@ async def admin_rankings_check_handler(message: Message):
 
 @dp.message(Command("admin_notify_test"))
 async def admin_notify_test_handler(message: Message):
-    """Документация: функция `admin_notify_test_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_notify_test_handler."""
     db = SessionLocal()
 
     try:
@@ -6867,7 +7212,7 @@ async def admin_notify_test_handler(message: Message):
 
 @dp.message(Command("admin_command_stats"))
 async def admin_command_stats_handler(message: Message):
-    """Документация: функция `admin_command_stats_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_command_stats_handler."""
     db = SessionLocal()
 
     try:
@@ -6924,7 +7269,7 @@ async def admin_command_stats_handler(message: Message):
 
 @dp.message(Command("admin_command_stats_user"))
 async def admin_command_stats_user_handler(message: Message):
-    """Документация: функция `admin_command_stats_user_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_command_stats_user_handler."""
     db = SessionLocal()
 
     try:
@@ -6983,7 +7328,7 @@ async def admin_command_stats_user_handler(message: Message):
         )
 
         def summarize_logs(logs: list[CommandLog]) -> dict:
-            """Документация: функция `summarize_logs` перенесена из исходного `bot.py` без изменения поведения."""
+            """Provide bot helper logic for summarize_logs."""
             commands = {}
 
             for log in logs:
@@ -7059,7 +7404,7 @@ async def admin_command_stats_user_handler(message: Message):
 
 @dp.message(Command("fact"))
 async def fact_handler(message: Message):
-    """Документация: функция `fact_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for fact_handler."""
     db = SessionLocal()
 
     try:
@@ -7090,7 +7435,7 @@ async def fact_handler(message: Message):
 
 @dp.message(Command("admin_facts_count"))
 async def admin_facts_count_handler(message: Message):
-    """Документация: функция `admin_facts_count_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_facts_count_handler."""
     db = SessionLocal()
 
     try:
@@ -7120,7 +7465,7 @@ async def admin_facts_count_handler(message: Message):
 
 @dp.message(Command("admin_import_facts"))
 async def admin_import_facts_handler(message: Message):
-    """Документация: функция `admin_import_facts_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_import_facts_handler."""
     db = SessionLocal()
 
     try:
@@ -7158,7 +7503,7 @@ async def admin_import_facts_handler(message: Message):
 
 @dp.message(Command("admin_daily_fact_preview"))
 async def admin_daily_fact_preview_handler(message: Message):
-    """Документация: функция `admin_daily_fact_preview_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_daily_fact_preview_handler."""
     db = SessionLocal()
 
     try:
@@ -7182,7 +7527,7 @@ async def admin_daily_fact_preview_handler(message: Message):
 
 @dp.message(Command("quiz"))
 async def quiz_handler(message: Message):
-    """Документация: функция `quiz_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for quiz_handler."""
     if is_group_chat(message):
         await group_quiz_start_handler(message)
         return
@@ -7192,7 +7537,7 @@ async def quiz_handler(message: Message):
 
 @dp.message(Command("admin_import_quiz"))
 async def admin_import_quiz_handler(message: Message):
-    """Документация: функция `admin_import_quiz_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_import_quiz_handler."""
     db = SessionLocal()
 
     try:
@@ -7229,7 +7574,7 @@ async def admin_import_quiz_handler(message: Message):
 
 @dp.callback_query(lambda callback: callback.data.startswith("quiz_answer:"))
 async def quiz_answer_callback(callback: CallbackQuery):
-    """Документация: функция `quiz_answer_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for quiz_answer_callback."""
     db = SessionLocal()
 
     try:
@@ -7300,7 +7645,7 @@ async def quiz_answer_callback(callback: CallbackQuery):
 
 @dp.message(Command("quiz_stats"))
 async def quiz_stats_handler(message: Message):
-    """Документация: функция `quiz_stats_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for quiz_stats_handler."""
     db = SessionLocal()
 
     try:
@@ -7336,7 +7681,7 @@ async def quiz_stats_handler(message: Message):
 
 @dp.message(Command("admin_quiz_stats"))
 async def admin_quiz_stats_handler(message: Message):
-    """Документация: функция `admin_quiz_stats_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_quiz_stats_handler."""
     db = SessionLocal()
 
     try:
@@ -7399,7 +7744,7 @@ async def admin_quiz_stats_handler(message: Message):
 
 @dp.callback_query(lambda callback: callback.data.startswith("fact_category:"))
 async def fact_category_callback(callback: CallbackQuery):
-    """Документация: функция `fact_category_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for fact_category_callback."""
     db = SessionLocal()
 
     try:
@@ -7458,7 +7803,7 @@ async def fact_category_callback(callback: CallbackQuery):
 
 @dp.callback_query(lambda callback: callback.data.startswith("quiz_category:"))
 async def quiz_category_callback(callback: CallbackQuery):
-    """Документация: функция `quiz_category_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for quiz_category_callback."""
     db = SessionLocal()
 
     try:
@@ -7505,7 +7850,7 @@ async def quiz_category_callback(callback: CallbackQuery):
 
 @dp.message(Command("admin_import_archive"))
 async def admin_import_archive_handler(message: Message):
-    """Документация: функция `admin_import_archive_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_import_archive_handler."""
     db = SessionLocal()
 
     try:
@@ -7542,7 +7887,7 @@ async def admin_import_archive_handler(message: Message):
 
 @dp.message(Command("archive"))
 async def archive_handler(message: Message):
-    """Документация: функция `archive_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for archive_handler."""
     db = SessionLocal()
 
     try:
@@ -7596,7 +7941,7 @@ async def archive_handler(message: Message):
 
 @dp.message(Command("admin_archive_count"))
 async def admin_archive_count_handler(message: Message):
-    """Документация: функция `admin_archive_count_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_archive_count_handler."""
     db = SessionLocal()
 
     try:
@@ -7626,9 +7971,46 @@ async def admin_archive_count_handler(message: Message):
         db.close()
 
 
+@dp.message(Command("panini"))
+async def panini_handler(message: Message, state: FSMContext):
+    """Handle asynchronous bot workflow for panini_handler."""
+    allowed, remaining = can_use_panini(message.from_user.id)
+
+    if not allowed:
+        await message.answer(
+            f"🎴 Панини-станок перегрелся.\n\n"
+            f"Попробуй снова через {remaining} сек."
+        )
+        return
+
+    if not PANINI_ENABLED:
+        await message.answer("🎴 Панини-режим временно выключен.")
+        return
+
+    if not openai_client:
+        await message.answer(
+            "🎴 Панини-режим не настроен: нет OPENAI_API_KEY."
+        )
+        return
+
+    await state.clear()
+    await state.set_state(PaniniForm.waiting_for_photo)
+
+    await message.answer(
+        "🎴 Панини-режим активирован\n\n"
+        "Отправь фотографию человека, из которой нужно сделать карточку игрока сборной.\n\n"
+        "Лучше подходит:\n"
+        "— один человек в кадре\n"
+        "— лицо хорошо видно\n"
+        "— хороший свет\n"
+        "— без сильных перекрытий\n\n"
+        "Используйте только фото с согласия человека."
+    )
+
+
 @dp.message(Command("chat_id"))
 async def chat_id_handler(message: Message):
-    """Документация: функция `chat_id_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for chat_id_handler."""
     await message.answer(
         f"chat_id: {message.chat.id}\n"
         f"type: {message.chat.type}"
@@ -7636,7 +8018,7 @@ async def chat_id_handler(message: Message):
 
 @dp.callback_query(lambda callback: callback.data.startswith("group_quiz_answer:"))
 async def group_quiz_answer_callback(callback: CallbackQuery):
-    """Документация: функция `group_quiz_answer_callback` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for group_quiz_answer_callback."""
     db = SessionLocal()
 
     try:
@@ -7705,7 +8087,7 @@ async def group_quiz_answer_callback(callback: CallbackQuery):
 
 @dp.message(Command("quiz_finish"))
 async def group_quiz_finish_handler(message: Message):
-    """Документация: функция `group_quiz_finish_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for group_quiz_finish_handler."""
     if not is_group_chat(message):
         await message.answer("Эта команда нужна для группового квиза.")
         return
@@ -7732,7 +8114,7 @@ async def group_quiz_finish_handler(message: Message):
 
 @dp.message(Command("quiz_table"))
 async def group_quiz_table_handler(message: Message):
-    """Документация: функция `group_quiz_table_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for group_quiz_table_handler."""
     db = SessionLocal()
 
     try:
@@ -7808,7 +8190,7 @@ async def group_quiz_table_handler(message: Message):
 
 @dp.message(Command("admin_send_daily_fact_group"))
 async def admin_send_daily_fact_group_handler(message: Message):
-    """Документация: функция `admin_send_daily_fact_group_handler` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for admin_send_daily_fact_group_handler."""
     db = SessionLocal()
 
     try:
@@ -7834,9 +8216,183 @@ async def admin_send_daily_fact_group_handler(message: Message):
         db.close()
 
 
+@dp.message(PaniniForm.waiting_for_photo, F.photo)
+async def panini_photo_handler(message: Message, state: FSMContext):
+    """Handle asynchronous bot workflow for panini_photo_handler."""
+    photo = message.photo[-1]
+    file = await bot.get_file(photo.file_id)
+
+    local_path = f"/tmp/panini_{message.from_user.id}_{photo.file_unique_id}.jpg"
+
+    await bot.download(file, destination=local_path)
+
+    db = SessionLocal()
+
+    try:
+        teams = get_panini_teams_from_matches(db, limit=20)
+
+        if not teams:
+            await message.answer(
+                "Не нашел сборные ЧМ-2026 с FIFA ranking в базе матчей.\n\n"
+                "Проверь, что матчи загружены и рейтинги доступны."
+            )
+            await state.clear()
+            return
+
+        await state.update_data(
+            photo_path=local_path,
+            panini_teams=teams,
+        )
+
+        await state.set_state(PaniniForm.waiting_for_team)
+
+        await message.answer(
+            "Фото получил ✅\n\n"
+            "Выбери сборную из топ-20 участников ЧМ-2026 по FIFA ranking:",
+            reply_markup=build_panini_team_keyboard_from_list(teams),
+        )
+
+    finally:
+        db.close()
+
+
+@dp.message(PaniniForm.waiting_for_photo)
+async def panini_photo_invalid_handler(message: Message):
+    """Handle asynchronous bot workflow for panini_photo_invalid_handler."""
+    await message.answer(
+        "Нужно отправить именно фотографию.\n\n"
+        "Лучше селфи или фото по пояс, где лицо хорошо видно."
+    )
+
+
+@dp.callback_query(
+    PaniniForm.waiting_for_team,
+    lambda callback: callback.data.startswith("panini_team:")
+)
+async def panini_team_callback(callback: CallbackQuery, state: FSMContext):
+    """Handle asynchronous bot workflow for panini_team_callback."""
+    index_text = callback.data.split(":")[1]
+
+    if not index_text.isdigit():
+        await callback.answer("Некорректный выбор", show_alert=True)
+        return
+
+    index = int(index_text)
+
+    data = await state.get_data()
+
+    teams = data.get("panini_teams") or []
+
+    if index < 0 or index >= len(teams):
+        await callback.answer("Сборная не найдена", show_alert=True)
+        return
+
+    photo_path = data.get("photo_path")
+
+    if not photo_path:
+        await callback.answer("Фото не найдено. Начни заново: /panini", show_alert=True)
+        await state.clear()
+        return
+
+    team = teams[index]
+
+    team_api_name = team["api_name"]
+    team_display_name = team["display_name"]
+    team_flag = team["flag"]
+    team_rank = team["rank"]
+
+    user_name = callback.from_user.full_name or "Игрок"
+
+    await callback.answer("Генерирую карточку...")
+
+    await callback.message.answer(
+        f"🎨 Делаю карточку: {team_flag} #{team_rank} {team_display_name}\n"
+        "Это может занять до минуты."
+    )
+
+    try:
+        result_path = await asyncio.to_thread(
+            generate_panini_card,
+            photo_path=photo_path,
+            person_name=user_name,
+            team_api_name=team_api_name,
+            team_display_name=team_display_name,
+            team_flag=team_flag,
+        )
+
+        mark_panini_used(callback.from_user.id)
+        await callback.message.answer_photo(
+            photo=FSInputFile(result_path),
+            caption=(
+                "🎴 Панини-карточка готова!\n\n"
+                f"Игрок: {user_name}\n"
+                f"Сборная: {team_flag} {team_display_name}"
+            ),
+        )
+
+    except APITimeoutError:
+        await callback.message.answer(
+            "Не удалось сгенерировать карточку 😢\n\n"
+            "OpenAI не успел вернуть изображение по таймауту.\n"
+            "Попробуй еще раз через минуту или отправь фото покрупнее/с лучшим светом."
+        )
+
+    except Exception as error:
+        print(f"Panini generation error: {error}")
+        await callback.message.answer(
+            "Не удалось сгенерировать карточку 😢\n\n"
+            f"Ошибка: {error}"
+        )
+
+    finally:
+        await state.clear()
+
+        try:
+            if photo_path and os.path.exists(photo_path):
+                os.remove(photo_path)
+        except Exception as cleanup_error:
+            print(f"Panini cleanup input error: {cleanup_error}")
+
+        try:
+            if "result_path" in locals() and os.path.exists(result_path):
+                os.remove(result_path)
+        except Exception as cleanup_error:
+            print(f"Panini cleanup output error: {cleanup_error}")
+
+
+@dp.message(Command("table_buttons"))
+async def table_buttons_handler(message: Message):
+    """Handle asynchronous bot workflow for table_buttons_handler."""
+    db = SessionLocal()
+
+    try:
+        rows = build_table_rows(db)
+
+        if not rows:
+            await message.answer("Таблица пока пустая.")
+            return
+
+        await message.answer(
+            "🏆 Турнирная таблица\n\n"
+            "О — очки всего\n"
+            "🎯 — точные счета\n"
+            "✅ — угаданные исходы\n"
+            "🏆 — очки за прогноз на турнир",
+            reply_markup=build_table_buttons_keyboard(rows),
+        )
+
+    finally:
+        db.close()
+
+
+@dp.callback_query(lambda callback: callback.data == "table_noop")
+async def table_noop_callback(callback: CallbackQuery):
+    """Handle asynchronous bot workflow for table_noop_callback."""
+    await callback.answer()
+
 
 async def main():
-    """Документация: функция `main` перенесена из исходного `bot.py` без изменения поведения."""
+    """Handle asynchronous bot workflow for main."""
     if reminders_enabled():
         asyncio.create_task(reminders_loop())
     if DAILY_FACTS_ENABLED:

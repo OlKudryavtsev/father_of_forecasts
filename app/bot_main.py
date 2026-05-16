@@ -1,6 +1,7 @@
-"""Alternative bot entrypoint for modular imports.
+"""Alternative module entrypoint for running the Telegram bot.
 
-Run with: `python -m app.bot_main`.
+Usage:
+    python -m app.bot_main
 """
 
 import asyncio

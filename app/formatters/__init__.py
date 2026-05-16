@@ -1,1 +1,1 @@
-"""formatters package."""
+"""Formatter package for user-facing text."""
