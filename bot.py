@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import base64
 import uuid
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError
 from aiogram import F
 from aiogram.types import FSInputFile
 
@@ -476,8 +476,19 @@ PANINI_ENABLED = os.getenv("PANINI_ENABLED", "true").lower() == "true"
 PANINI_IMAGE_MODEL = os.getenv("PANINI_IMAGE_MODEL", "gpt-image-1")
 PANINI_COOLDOWN_SECONDS = int(os.getenv("PANINI_COOLDOWN_SECONDS", "120"))
 PANINI_LAST_USED_BY_USER: dict[int, datetime] = {}
+PANINI_IMAGE_SIZE = os.getenv("PANINI_IMAGE_SIZE", "1024x1024")
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "300"))
+
+openai_client = (
+    OpenAI(
+        api_key=OPENAI_API_KEY,
+        timeout=OPENAI_TIMEOUT_SECONDS,
+        max_retries=1,
+    )
+    if OPENAI_API_KEY
+    else None
+)
 
 def get_admin_telegram_ids() -> list[int]:
     raw_value = os.getenv("ADMIN_TELEGRAM_IDS", "")
@@ -2632,7 +2643,7 @@ def generate_panini_card(
             model=PANINI_IMAGE_MODEL,
             image=image_file,
             prompt=prompt,
-            size="1024x1024",
+            size=PANINI_IMAGE_SIZE,
             n=1,
         )
 
@@ -7966,7 +7977,8 @@ async def panini_team_callback(callback: CallbackQuery, state: FSMContext):
     )
 
     try:
-        result_path = generate_panini_card(
+        result_path = await asyncio.to_thread(
+            generate_panini_card,
             photo_path=photo_path,
             person_name=user_name,
             team_api_name=team_api_name,
@@ -7984,9 +7996,15 @@ async def panini_team_callback(callback: CallbackQuery, state: FSMContext):
             ),
         )
 
+    except APITimeoutError:
+        await callback.message.answer(
+            "Не удалось сгенерировать карточку 😢\n\n"
+            "OpenAI не успел вернуть изображение по таймауту.\n"
+            "Попробуй еще раз через минуту или отправь фото покрупнее/с лучшим светом."
+        )
+
     except Exception as error:
         print(f"Panini generation error: {error}")
-
         await callback.message.answer(
             "Не удалось сгенерировать карточку 😢\n\n"
             f"Ошибка: {error}"
