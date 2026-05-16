@@ -476,7 +476,7 @@ PANINI_ENABLED = os.getenv("PANINI_ENABLED", "true").lower() == "true"
 PANINI_IMAGE_MODEL = os.getenv("PANINI_IMAGE_MODEL", "gpt-image-1")
 PANINI_COOLDOWN_SECONDS = int(os.getenv("PANINI_COOLDOWN_SECONDS", "120"))
 PANINI_LAST_USED_BY_USER: dict[int, datetime] = {}
-PANINI_IMAGE_SIZE = os.getenv("PANINI_IMAGE_SIZE", "1024x1024")
+PANINI_IMAGE_SIZE = os.getenv("PANINI_IMAGE_SIZE", "1024x1536")
 
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "300"))
 
@@ -2633,9 +2633,14 @@ def generate_panini_card(
         "Make it look like a polished collectible football card: portrait framing, "
         "decorative border, stadium or graphic background, premium sports lighting, "
         "dynamic but clean composition. "
+        "Leave safe margins around the player and all text. "
+        "The player should be centered in the upper-middle area, with enough space below for the nameplate. "
         f"Add readable card text with player name '{person_name}' and team name '{team_display_name}'. "
         f"Include the country flag vibe: {team_flag}. "
-        "Square 1:1 image, high quality, fun, realistic-stylized, suitable as a Telegram chat image."
+        "Vertical portrait collectible football sticker card, approximately 2:3 aspect ratio. "
+        "Full card must be visible with no cropping: include the complete head, shoulders, jersey, border, nameplate, and team label. "
+        "Do not crop the top of the head or the bottom nameplate. "
+        "High quality, fun, realistic-stylized."
     )
 
     with open(photo_path, "rb") as image_file:
