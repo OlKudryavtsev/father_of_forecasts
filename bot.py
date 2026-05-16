@@ -1,14 +1,10 @@
-"""Compatibility entrypoint for the Telegram bot.
+"""Entrypoint for Railway/local launch.
 
-The full current runtime is kept in app.bot_runtime during the first safe
-refactoring stage. This file preserves the original Railway/local command
-`python bot.py` without changing bot behavior.
+All implementation lives in modular app.* modules.
 """
-
-import asyncio
 
 from app.bot_runtime import main
 
-
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
