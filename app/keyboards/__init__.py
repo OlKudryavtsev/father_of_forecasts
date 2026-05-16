@@ -1,1 +1,1 @@
-"""Keyboard builders package."""
+"""Package for modular bot components."""

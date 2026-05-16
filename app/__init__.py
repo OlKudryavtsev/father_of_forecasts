@@ -1,1 +1,1 @@
-"""Application package for Father Predictions bot."""
+"""Father Predictions bot package."""

@@ -1,8 +1,45 @@
-"""Compatibility exports for the target module layout.
+"""Real implementation extracted from the former bot_runtime monolith."""
 
-The executable implementations are currently re-exported from `app.bot_runtime`
-to preserve behavior exactly. Move implementations from `app.bot_runtime` into
-this module during the next refactoring iteration.
-"""
+from app.runtime import *
+from app.constants.teams import *
+from app.constants.texts import *
+from app.constants.categories import *
+from app.constants.commands import *
+from app.states import *
 
-from app.bot_runtime import format_command_stats_block  # noqa: F401
+def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
+    """Provide bot helper logic for format_command_stats_block."""
+    lines = [title]
+
+    if not rows:
+        lines.append("Нет данных.")
+        return lines
+
+    for index, row in enumerate(rows, start=1):
+        commands_sorted = sorted(
+            row["commands"].items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+
+        top_commands = ", ".join(
+            f"{command} {count}"
+            for command, count in commands_sorted[:5]
+        )
+
+        last_text = ""
+
+        if row["last_at"] and row["last_command"]:
+            last_text = (
+                f"\n   последний: {row['last_command']} "
+                f"в {format_datetime(row['last_at'])}"
+            )
+
+        lines.append(
+            f"{index}. {row['display_name']} — {row['total']} выз."
+            f"{last_text}\n"
+            f"   {top_commands}"
+        )
+
+    return lines
+

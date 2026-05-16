@@ -1,1 +1,1 @@
-"""Formatter package for user-facing text."""
+"""Package for modular bot components."""

@@ -1,1 +1,1 @@
-"""Repository package for future database access extraction."""
+"""Package for modular bot components."""

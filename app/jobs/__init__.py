@@ -1,1 +1,1 @@
-"""Background jobs package."""
+"""Package for modular bot components."""

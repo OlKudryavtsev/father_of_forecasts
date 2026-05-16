@@ -1,1 +1,1 @@
-"""Business services package."""
+"""Package for modular bot components."""

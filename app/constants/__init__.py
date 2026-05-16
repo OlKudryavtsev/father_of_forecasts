@@ -1,1 +1,1 @@
-"""Constants package for commands, texts, teams, and categories."""
+"""Package for modular bot components."""
