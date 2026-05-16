@@ -1,11 +1,26 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.categories import PLAYOFF_STAGES
+from app.formatters.matches import format_datetime, format_match_label, format_match_result, format_user_match_prediction
+from app.formatters.misc import format_reminder_offset
+from app.keyboards.matches import build_matches_keyboard
+from app.runtime import (
+    APP_TIMEZONE,
+    MATCHDAY_TIMEZONE,
+    Match,
+    Prediction,
+    SessionLocal,
+    TOURNAMENT_CODE,
+    User,
+    bot,
+    csv,
+    datetime,
+    io,
+    score_match_prediction,
+    timedelta,
+    timezone,
+)
 
 def is_playoff_match(match: Match) -> bool:
     """Provide bot helper logic for is_playoff_match."""
@@ -84,6 +99,7 @@ def parse_match_id_command(text: str, command: str) -> int:
 
 def parse_result_payload(text: str):
     """Provide bot helper logic for parse_result_payload."""
+    from app.services.predictions import parse_score
     parts = text.split()
 
     if len(parts) not in (3, 4):
@@ -552,6 +568,14 @@ def build_match_card_text(db, user: User, match: Match) -> str:
 
 async def send_match_reminders_once():
     """Handle asynchronous bot workflow for send_match_reminders_once."""
+    from app.jobs.reminders import (
+        get_reminder_check_interval_seconds,
+        get_reminder_offsets_minutes,
+        mark_reminder_sent,
+        reminder_was_sent,
+        reminders_enabled,
+    )
+    from app.services.predictions import user_has_prediction
     if not reminders_enabled():
         return
 

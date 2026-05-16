@@ -1,11 +1,8 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.categories import HISTORICAL_ARCHIVE_SEED_PATH
+from app.runtime import HistoricalArchiveCard, json
 
 def import_historical_archive_from_seed(db) -> dict:
     """Provide bot helper logic for import_historical_archive_from_seed."""

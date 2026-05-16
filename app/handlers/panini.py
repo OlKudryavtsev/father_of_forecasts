@@ -1,11 +1,22 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.keyboards.panini import build_panini_team_keyboard_from_list
+from app.runtime import (
+    APITimeoutError,
+    CallbackQuery,
+    FSInputFile,
+    FSMContext,
+    Message,
+    PANINI_ENABLED,
+    SessionLocal,
+    asyncio,
+    bot,
+    openai_client,
+    os,
+)
+from app.services.panini import can_use_panini, generate_panini_card, get_panini_teams_from_matches, mark_panini_used
+from app.states import PaniniForm
 
 async def panini_handler(message: Message, state: FSMContext):
     """Handle asynchronous bot workflow for panini_handler."""

@@ -1,11 +1,61 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.admin import format_command_stats_block
+from app.formatters.facts import format_daily_world_cup_rubric
+from app.formatters.matches import format_datetime, format_match_label
+from app.formatters.misc import format_reminder_offset
+from app.jobs.reminders import get_reminder_check_interval_seconds, get_reminder_offsets_minutes, reminders_enabled
+from app.keyboards.admin import build_admin_result_matches_keyboard, build_admin_result_score_keyboard, build_admin_result_winner_keyboard
+from app.runtime import (
+    ADMIN_NOTIFY_ENABLED,
+    APP_TIMEZONE,
+    ApiFootballClient,
+    CallbackQuery,
+    CommandLog,
+    FSMContext,
+    FifaRankingsStore,
+    HistoricalArchiveCard,
+    Match,
+    Message,
+    Prediction,
+    QuizAnswer,
+    ReminderLog,
+    SessionLocal,
+    TOURNAMENT_CODE,
+    TournamentPrediction,
+    TournamentResult,
+    User,
+    WorldCupFact,
+    bot,
+    datetime,
+    get_fixture_score,
+    get_winner_side,
+    score_tournament_prediction,
+    sync_wc2026_schedule,
+    timedelta,
+    timezone,
+)
+from app.services.admin import build_command_stats_for_period, ensure_admin_or_reply, get_admin_telegram_ids, get_today_moscow_range_utc, is_user_admin
+from app.services.archive import import_historical_archive_from_seed
+from app.services.facts import get_random_fact_not_sent_today, import_world_cup_facts_from_seed, send_daily_fact_to_group
+from app.services.matches import (
+    apply_match_result_from_admin,
+    get_default_match_round,
+    import_matches_from_rows,
+    is_playoff_match,
+    parse_admin_edit_match_payload,
+    parse_csv_matches,
+    parse_match_id_command,
+    parse_result_payload,
+)
+from app.services.misc import send_long_message
+from app.services.notifications import notify_admins
+from app.services.predictions import parse_score
+from app.services.quiz import import_quiz_questions_from_seed
+from app.services.tournament import parse_tournament_result_payload
+from app.services.users import get_or_create_user
+from app.states import AdminResultForm
 
 async def admin_handler(message: Message):
     """Handle asynchronous bot workflow for admin_handler."""

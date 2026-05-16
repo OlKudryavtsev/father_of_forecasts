@@ -1,11 +1,19 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.categories import FACT_QUIZ_CATEGORIES
+from app.formatters.facts import format_world_cup_fact
+from app.keyboards.facts import build_category_keyboard
+from app.runtime import (
+    CallbackQuery,
+    FactDeliveryLog,
+    Message,
+    SessionLocal,
+    WorldCupFact,
+    random,
+)
+from app.services.facts import send_fact_by_category
+from app.services.users import get_or_create_user
 
 async def fact_handler(message: Message):
     """Handle asynchronous bot workflow for fact_handler."""

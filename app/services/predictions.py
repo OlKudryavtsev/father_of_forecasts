@@ -1,11 +1,9 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_datetime, format_match_label
+from app.formatters.predictions import format_advancement_prediction
+from app.runtime import Match, Prediction, User, datetime, timezone
 
 def parse_advancement_choice(choice: str | None):
     """Provide bot helper logic for parse_advancement_choice."""
@@ -51,6 +49,8 @@ def save_prediction(
         predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
     """Provide bot helper logic for save_prediction."""
+    from app.services.matches import is_playoff_match
+
     now = datetime.now(timezone.utc)
 
     match_start = match.starts_at
@@ -118,6 +118,9 @@ async def save_prediction_and_notify_admins(
         predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
     """Handle asynchronous bot workflow for save_prediction_and_notify_admins."""
+    from app.services.matches import is_playoff_match
+    from app.services.notifications import notify_admins, notify_group_prediction_saved
+
     existing_prediction = db.query(Prediction).filter(
         Prediction.user_id == user.id,
         Prediction.match_id == match.id,
@@ -179,6 +182,7 @@ def user_has_prediction(db, user: User, match: Match) -> bool:
 
 def build_predictions_text(db, match: Match) -> str:
     """Provide bot helper logic for build_predictions_text."""
+    from app.services.matches import is_playoff_match
     now = datetime.now(timezone.utc)
 
     match_start = match.starts_at

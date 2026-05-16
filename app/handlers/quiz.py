@@ -1,11 +1,21 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.categories import FACT_QUIZ_CATEGORIES
+from app.formatters.quiz import format_quiz_question
+from app.keyboards.quiz import build_quiz_keyboard
+from app.runtime import (
+    CallbackQuery,
+    GroupQuizAnswer,
+    GroupQuizSession,
+    Message,
+    QuizAnswer,
+    QuizQuestion,
+    SessionLocal,
+    random,
+)
+from app.services.quiz import finish_group_quiz_and_build_result_text, group_quiz_start_handler, private_quiz_handler
+from app.services.users import get_or_create_user, is_group_chat
 
 async def quiz_handler(message: Message):
     """Handle asynchronous bot workflow for quiz_handler."""

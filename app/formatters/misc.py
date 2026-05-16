@@ -1,11 +1,6 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
 
 def format_reminder_offset(minutes: int) -> str:
     """Provide bot helper logic for format_reminder_offset."""
@@ -34,6 +29,8 @@ def format_team_with_flag(
         flag_before: bool = False,
 ) -> str:
     """Provide bot helper logic for format_team_with_flag."""
+    from app.services.misc import get_team_flag
+
     flag = get_team_flag(display_name, api_name)
 
     if not flag:

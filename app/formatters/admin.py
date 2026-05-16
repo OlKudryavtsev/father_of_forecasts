@@ -1,11 +1,7 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_datetime
 
 def format_command_stats_block(title: str, rows: list[dict]) -> list[str]:
     """Provide bot helper logic for format_command_stats_block."""

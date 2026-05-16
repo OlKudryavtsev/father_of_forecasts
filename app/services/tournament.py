@@ -1,11 +1,16 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.runtime import (
+    APP_TIMEZONE,
+    TOURNAMENT_CODE,
+    TOURNAMENT_STARTS_AT_RAW,
+    TournamentPrediction,
+    User,
+    datetime,
+    timezone,
+)
+from app.services.notifications import notify_admins, notify_group_tournament_prediction_saved
 
 def get_tournament_starts_at():
     """Provide bot helper logic for get_tournament_starts_at."""

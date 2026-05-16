@@ -1,11 +1,9 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.archive import format_archive_card
+from app.runtime import HistoricalArchiveCard, HistoricalArchiveDeliveryLog, Message, SessionLocal, random
+from app.services.users import get_or_create_user
 
 async def archive_handler(message: Message):
     """Handle asynchronous bot workflow for archive_handler."""

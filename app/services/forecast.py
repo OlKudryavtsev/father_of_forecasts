@@ -1,11 +1,8 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_datetime, format_h2h_fact, format_match_label, format_ranking_fact, format_short_matches_fact
+from app.runtime import Match, User, build_wc2026_openai_context, generate_openai_forecast
 
 def is_forecast_bot_user(user: User) -> bool:
     """Provide bot helper logic for is_forecast_bot_user."""

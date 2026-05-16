@@ -1,11 +1,11 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.keyboards.predictions import build_advancement_keyboard
+from app.runtime import FSMContext, Match, Message, SessionLocal
+from app.services.matches import is_playoff_match
+from app.services.predictions import parse_score, save_prediction_and_notify_admins
+from app.services.users import get_or_create_user
 
 async def cancel_handler(message: Message, state: FSMContext):
     """Handle asynchronous bot workflow for cancel_handler."""

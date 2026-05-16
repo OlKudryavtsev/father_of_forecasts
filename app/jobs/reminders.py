@@ -1,11 +1,7 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.runtime import Match, ReminderLog, User, asyncio, os
 
 def reminders_enabled() -> bool:
     """Provide bot helper logic for reminders_enabled."""
@@ -92,6 +88,8 @@ async def reminders_loop():
 
     while True:
         try:
+            from app.services.matches import send_match_reminders_once
+
             await send_match_reminders_once()
         except Exception as error:
             print(f"Reminder loop error: {error}")

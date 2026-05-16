@@ -1,11 +1,8 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.texts import USER_HELP_TEXT
+from app.runtime import Message
 
 async def rules_handler(message: Message):
     """Handle asynchronous bot workflow for rules_handler."""

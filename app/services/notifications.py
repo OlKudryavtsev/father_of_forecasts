@@ -1,11 +1,10 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_match_short_for_group
+from app.runtime import ADMIN_NOTIFY_ENABLED, Match, User, bot
+from app.services.admin import get_admin_telegram_ids
+from app.services.forecast import is_forecast_bot_user
 
 async def notify_group_prediction_saved(
     user: User,
@@ -72,6 +71,7 @@ async def notify_admins(text: str, exclude_telegram_id: int | None = None):
 
 async def notify_group_chat(text: str):
     """Handle asynchronous bot workflow for notify_group_chat."""
+    from app.services.misc import get_group_chat_id
     group_chat_id = get_group_chat_id()
 
     if not group_chat_id:

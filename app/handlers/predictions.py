@@ -1,11 +1,24 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_datetime, format_match_label, format_missing_matches_list
+from app.formatters.predictions import format_advancement_prediction
+from app.keyboards.matches import build_matches_keyboard
+from app.keyboards.predictions import build_advancement_keyboard, build_predictions_matches_keyboard, build_score_keyboard
+from app.runtime import (
+    CallbackQuery,
+    FSMContext,
+    Match,
+    Message,
+    Prediction,
+    SessionLocal,
+    datetime,
+    timezone,
+)
+from app.services.matches import get_all_available_matches, get_nearest_matchday_matches, get_recent_and_upcoming_matches, is_playoff_match
+from app.services.predictions import build_predictions_text, get_missing_predictions_for_matches, parse_advancement_choice, parse_score, save_prediction_and_notify_admins
+from app.services.users import get_or_create_user
+from app.states import MatchPredictionForm
 
 async def predict_handler(message: Message):
     """Handle asynchronous bot workflow for predict_handler."""

@@ -1,11 +1,8 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.texts import DEFAULT_FIRST_START_MESSAGE, DEFAULT_REPEAT_START_MESSAGES, FIRST_START_MESSAGES_BY_TELEGRAM_ID, REPEAT_START_MESSAGES_BY_TELEGRAM_ID
+from app.runtime import Message, User, is_admin_telegram_id, random
 
 def is_group_chat(message: Message) -> bool:
     """Provide bot helper logic for is_group_chat."""

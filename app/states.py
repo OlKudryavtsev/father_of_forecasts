@@ -1,6 +1,7 @@
 """FSM state classes used by bot handlers."""
 
-from app.runtime import *
+
+from app.runtime import State, StatesGroup
 
 class TournamentPredictionForm(StatesGroup):
     """Defines TournamentPredictionForm for the Telegram bot runtime."""

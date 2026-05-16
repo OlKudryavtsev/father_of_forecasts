@@ -1,11 +1,21 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.commands import GROUP_ALLOWED_CALLBACK_PREFIXES, GROUP_ALLOWED_COMMANDS
+from app.constants.texts import PRIVATE_ONLY_COMMANDS_HINT
+from app.runtime import (
+    Any,
+    Awaitable,
+    BaseMiddleware,
+    Callable,
+    CallbackQuery,
+    CommandLog,
+    Message,
+    SessionLocal,
+    TelegramObject,
+)
+from app.services.admin import extract_command_from_text
+from app.services.users import get_or_create_user
 
 class CommandLoggingMiddleware(BaseMiddleware):
     """Defines CommandLoggingMiddleware for the Telegram bot runtime."""

@@ -1,11 +1,10 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.keyboards.matches import build_forecast_matches_keyboard
+from app.runtime import CallbackQuery, Match, Message, SessionLocal
+from app.services.forecast import build_forecast_text
+from app.services.matches import get_nearest_matchday_matches
 
 async def forecast_handler(message: Message):
     """Handle asynchronous bot workflow for forecast_handler."""

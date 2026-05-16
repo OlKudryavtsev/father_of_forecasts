@@ -1,11 +1,20 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_datetime, format_match_label, format_match_result, format_matches_list, format_user_match_prediction
+from app.keyboards.matches import build_match_card_keyboard, build_matches_keyboard
+from app.runtime import (
+    CallbackQuery,
+    Match,
+    Message,
+    Prediction,
+    SessionLocal,
+    User,
+    datetime,
+    timezone,
+)
+from app.services.matches import build_match_card_text, get_all_available_matches, get_match_status, get_nearest_matchday_matches, get_recent_and_upcoming_matches
+from app.services.users import get_or_create_user
 
 async def matches_handler(message: Message):
     """Handle asynchronous bot workflow for matches_handler."""

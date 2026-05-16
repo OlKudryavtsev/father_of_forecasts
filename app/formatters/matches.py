@@ -1,14 +1,22 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.misc import format_team_with_flag
+from app.formatters.predictions import format_advancement_prediction
+from app.runtime import (
+    APP_TIMEZONE,
+    MATCHDAY_TIMEZONE,
+    MATCHDAY_TIMEZONE_NAME,
+    Match,
+    Prediction,
+    get_team_name_ru,
+    timezone,
+)
 
 def format_match(match: Match):
     """Provide bot helper logic for format_match."""
+    from app.services.matches import get_default_match_round
+
     start_text = format_datetime(match.starts_at)
 
     round_text = match.match_round or get_default_match_round(match.stage)
@@ -108,6 +116,7 @@ def format_h2h_fact(rows: list[dict]) -> str:
 
 def format_match_label(match: Match, include_id: bool = False) -> str:
     """Provide bot helper logic for format_match_label."""
+    from app.services.matches import get_default_match_round
     home_name = get_team_name_ru(match.home_team)
     away_name = get_team_name_ru(match.away_team)
 

@@ -1,11 +1,30 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.categories import FACT_QUIZ_CATEGORIES, WC2026_START_DATE
+from app.formatters.facts import format_daily_world_cup_rubric, format_world_cup_fact
+from app.runtime import (
+    DAILY_FACTS_ENABLED,
+    DAILY_FACT_HOUR,
+    DAILY_FACT_MINUTE,
+    DAILY_FACT_TARGET,
+    DAILY_FACT_TIMEZONE,
+    FACTS_SEED_PATH,
+    FactDeliveryLog,
+    Message,
+    SessionLocal,
+    User,
+    WorldCupFact,
+    asyncio,
+    bot,
+    datetime,
+    json,
+    random,
+    timedelta,
+    timezone,
+)
+from app.services.misc import get_group_chat_id
+from app.services.users import get_or_create_user
 
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
     """Handle asynchronous bot workflow for send_daily_fact_to_group."""

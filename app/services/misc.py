@@ -1,11 +1,18 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.teams import TEAM_FLAGS
+from app.formatters.matches import format_match_label
+from app.runtime import (
+    GROUP_CHAT_ID_RAW,
+    Message,
+    Prediction,
+    TOURNAMENT_CODE,
+    TournamentPrediction,
+    User,
+    datetime,
+    timezone,
+)
 
 def get_group_chat_id() -> int | None:
     """Provide bot helper logic for get_group_chat_id."""

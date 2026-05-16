@@ -1,11 +1,7 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.runtime import WorldCupFact
 
 def format_world_cup_fact(fact: WorldCupFact) -> str:
     """Provide bot helper logic for format_world_cup_fact."""
@@ -28,6 +24,9 @@ def format_world_cup_fact(fact: WorldCupFact) -> str:
 
 def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
     """Provide bot helper logic for format_daily_world_cup_rubric."""
+    from app.services.facts import get_days_until_wc2026, plural_days_ru
+    from app.services.quiz import build_quiz_teaser_for_fact
+
     days_left = get_days_until_wc2026()
 
     if days_left == 0:

@@ -1,11 +1,24 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.formatters.matches import format_match_label
+from app.formatters.misc import format_percent
+from app.keyboards.table import build_table_buttons_keyboard
+from app.runtime import (
+    CallbackQuery,
+    Message,
+    Prediction,
+    SessionLocal,
+    TOURNAMENT_CODE,
+    TournamentPrediction,
+    User,
+    datetime,
+    generate_ai_summary,
+    timezone,
+)
+from app.services.misc import build_table_rows, build_user_summary_context
+from app.services.predictions import get_prediction_points_breakdown
+from app.services.users import get_or_create_user
 
 async def table_handler(message: Message):
     """Handle asynchronous bot workflow for table_handler."""

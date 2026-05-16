@@ -1,11 +1,23 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.constants.categories import FACT_QUIZ_CATEGORIES, QUIZ_SEED_PATH
+from app.formatters.quiz import format_group_quiz_question, format_quiz_question
+from app.keyboards.facts import build_category_keyboard
+from app.keyboards.quiz import build_group_quiz_keyboard, build_quiz_keyboard
+from app.runtime import (
+    GroupQuizAnswer,
+    GroupQuizSession,
+    Message,
+    QuizQuestion,
+    SessionLocal,
+    WorldCupFact,
+    datetime,
+    json,
+    random,
+    timezone,
+)
+from app.services.users import get_or_create_user
 
 def get_random_quiz_question(db, category: str | None = None) -> QuizQuestion | None:
     """Provide bot helper logic for get_random_quiz_question."""

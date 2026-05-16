@@ -1,11 +1,22 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
-from app.runtime import *
-from app.constants.teams import *
-from app.constants.texts import *
-from app.constants.categories import *
-from app.constants.commands import *
-from app.states import *
+
+from app.runtime import (
+    FifaRankingsStore,
+    Match,
+    PANINI_COOLDOWN_SECONDS,
+    PANINI_IMAGE_MODEL,
+    PANINI_IMAGE_SIZE,
+    PANINI_LAST_USED_BY_USER,
+    TOURNAMENT_CODE,
+    base64,
+    datetime,
+    get_team_name_ru,
+    openai_client,
+    timezone,
+    uuid,
+)
+from app.services.misc import get_team_flag
 
 def get_panini_teams_from_matches(
     db,
