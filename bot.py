@@ -123,6 +123,7 @@ USER_HELP_TEXT = (
     "/predictions — прогнозы участников по матчу\n"
     "/missing — где еще нет твоего прогноза\n"
     "/table — таблица участников\n"
+    "/table_buttons — компактная таблица кнопками\n"
     "/summary — твоя статистика\n"
     
     "\nТурнирные прогнозы:\n"
@@ -147,7 +148,7 @@ USER_HELP_TEXT = (
     "/panini — сделать карточку игрока сборной по фото\n\n"
 
     "В общем чате доступны:\n"
-    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /predictions, /tournament_predictions, /rules, /help\n\n"
+    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_predictions, /rules, /help\n\n"
 )
 
 TEAM_FLAGS = {
@@ -429,8 +430,9 @@ GROUP_ALLOWED_COMMANDS = {
     "/matches_all",
     "/forecast",
     "/match",
-    "/predictions",
     "/table",
+    "/table_buttons",
+    "/predictions",
     "/tournament_predictions",
 }
 
@@ -460,6 +462,7 @@ GROUP_ALLOWED_CALLBACK_PREFIXES = {
     # Добавляем:
     "forecast_match:",
     "panini_team:",
+    "table_noop",
 }
 
 PLAYOFF_STAGES = {
@@ -751,28 +754,7 @@ def format_match(match: Match):
 
 
 def format_match_short_for_group(match: Match) -> str:
-    home_name = get_team_name_ru(match.home_team)
-    away_name = get_team_name_ru(match.away_team)
-
-    home_flag = get_team_flag(match.home_team_api_name or match.home_team)
-    away_flag = get_team_flag(match.away_team_api_name or match.away_team)
-
-    if match.group_code:
-        group_text = f"Группа {match.group_code}"
-    else:
-        group_text = "Плей-офф"
-
-    match_round = match.match_round or get_default_match_round(match.stage)
-
-    if match.stage == "group":
-        round_text = f"Тур {match_round}"
-    else:
-        round_text = f"Стадия {match_round}"
-
-    return (
-        f"#{match.id}. {group_text}. {round_text}. "
-        f"{home_name} {home_flag} — {away_flag} {away_name}"
-    )
+    return format_match_label(match, include_id=True)
 
 
 def format_datetime(dt):
@@ -2660,6 +2642,146 @@ def generate_panini_card(
     return output_path
 
 
+def build_table_rows(db) -> list[dict]:
+    users = db.query(User).order_by(User.display_name).all()
+
+    rows = []
+
+    for user in users:
+        if getattr(user, "is_bot", False):
+            continue
+
+        predictions = db.query(Prediction).filter(
+            Prediction.user_id == user.id
+        ).all()
+
+        tournament_prediction = db.query(TournamentPrediction).filter(
+            TournamentPrediction.user_id == user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        ).first()
+
+        match_points = sum(
+            prediction.points or 0
+            for prediction in predictions
+        )
+
+        tournament_points = (
+            tournament_prediction.points
+            if tournament_prediction
+            else 0
+        )
+
+        total_points = match_points + tournament_points
+
+        exact_scores = sum(
+            1
+            for prediction in predictions
+            if prediction.score_points == 3
+        )
+
+        outcomes = sum(
+            1
+            for prediction in predictions
+            if prediction.score_points == 1
+        )
+
+        advancement_plus = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_points == 1
+        )
+
+        advancement_minus = sum(
+            1
+            for prediction in predictions
+            if prediction.advancement_points == -1
+        )
+
+        total_predictions = len(predictions)
+
+        rows.append(
+            {
+                "name": user.display_name,
+                "points": total_points,
+                "match_points": match_points,
+                "tournament_points": tournament_points,
+                "exact_scores": exact_scores,
+                "outcomes": outcomes,
+                "advancement_plus": advancement_plus,
+                "advancement_minus": advancement_minus,
+                "total_predictions": total_predictions,
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            row["points"],
+            row["exact_scores"],
+            row["outcomes"],
+        ),
+        reverse=True,
+    )
+
+    return rows
+
+
+def shorten_table_name(name: str, max_len: int = 10) -> str:
+    if not name:
+        return "Игрок"
+
+    if len(name) <= max_len:
+        return name
+
+    return name[:max_len - 1] + "…"
+
+
+def build_table_buttons_keyboard(rows: list[dict]) -> InlineKeyboardMarkup:
+    keyboard = []
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(text="№", callback_data="table_noop"),
+            InlineKeyboardButton(text="Игрок", callback_data="table_noop"),
+            InlineKeyboardButton(text="О", callback_data="table_noop"),
+            InlineKeyboardButton(text="🎯", callback_data="table_noop"),
+            InlineKeyboardButton(text="✅", callback_data="table_noop"),
+            InlineKeyboardButton(text="🏆", callback_data="table_noop"),
+        ]
+    )
+
+    for index, row in enumerate(rows, start=1):
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=str(index),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=shorten_table_name(row["name"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["points"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["exact_scores"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["outcomes"]),
+                    callback_data="table_noop",
+                ),
+                InlineKeyboardButton(
+                    text=str(row["tournament_points"]),
+                    callback_data="table_noop",
+                ),
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
     group_chat_id = get_group_chat_id()
 
@@ -3290,40 +3412,44 @@ def format_team_with_flag(
 
 
 def format_match_label(match: Match, include_id: bool = False) -> str:
+    home_name = get_team_name_ru(match.home_team)
+    away_name = get_team_name_ru(match.away_team)
+
     home_text = format_team_with_flag(
-        display_name=match.home_team,
+        display_name=home_name,
         api_name=getattr(match, "home_team_api_name", None),
         flag_before=False,
     )
 
     away_text = format_team_with_flag(
-        display_name=match.away_team,
+        display_name=away_name,
         api_name=getattr(match, "away_team_api_name", None),
         flag_before=True,
     )
 
     team_text = f"{home_text} — {away_text}"
 
-    prefix_parts = []
+    postfix_parts = []
 
     if match.stage == "group":
-        if match.group_code:
-            prefix_parts.append(f"Группа {match.group_code}")
-
         round_text = match.match_round or get_default_match_round(match.stage)
 
         if round_text:
-            prefix_parts.append(f"Тур {round_text}")
+            postfix_parts.append(f"Тур {round_text}")
+
+        if match.group_code:
+            postfix_parts.append(f"Группа {match.group_code}")
+
     else:
         round_text = match.match_round or get_default_match_round(match.stage)
 
         if round_text:
-            prefix_parts.append(round_text.capitalize())
+            postfix_parts.append(round_text.capitalize())
 
-    prefix = ". ".join(prefix_parts)
+    postfix = ". ".join(postfix_parts)
 
-    if prefix:
-        label = f"{prefix}. {team_text}"
+    if postfix:
+        label = f"{team_text}. {postfix}"
     else:
         label = team_text
 
@@ -8029,6 +8155,35 @@ async def panini_team_callback(callback: CallbackQuery, state: FSMContext):
                 os.remove(result_path)
         except Exception as cleanup_error:
             print(f"Panini cleanup output error: {cleanup_error}")
+
+
+@dp.message(Command("table_buttons"))
+async def table_buttons_handler(message: Message):
+    db = SessionLocal()
+
+    try:
+        rows = build_table_rows(db)
+
+        if not rows:
+            await message.answer("Таблица пока пустая.")
+            return
+
+        await message.answer(
+            "🏆 Турнирная таблица\n\n"
+            "О — очки всего\n"
+            "🎯 — точные счета\n"
+            "✅ — угаданные исходы\n"
+            "🏆 — очки за прогноз на турнир",
+            reply_markup=build_table_buttons_keyboard(rows),
+        )
+
+    finally:
+        db.close()
+
+
+@dp.callback_query(lambda callback: callback.data == "table_noop")
+async def table_noop_callback(callback: CallbackQuery):
+    await callback.answer()
 
 
 async def main():
