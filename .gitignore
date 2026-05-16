@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Test / lint / type-check caches
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.tox/
+.nox/
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Runtime / temporary files
+tmp/
+temp/
+*.tmp
+
+# Local databases / dumps
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
+
+# Generated images / bot temp outputs
+panini_*.jpg
+panini_*.png
+panini_result_*.png
+
+# Data artifacts generated during experiments/backtests
+scripts/data/
+data/backtests/
+data/*.csv
+*.xlsx
+
+# Manual import / local source documents
+*.docx
+~$*.docx
+
+# Railway / Docker local artifacts
+.docker/
+docker-compose.override.yml
+
+# Jupyter
+.ipynb_checkpoints/
