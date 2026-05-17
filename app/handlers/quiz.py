@@ -189,6 +189,14 @@ async def quiz_battle_answer_callback(callback: CallbackQuery):
 
         await callback.answer("Ответ принят ✅")
 
+        if callback.message:
+            try:
+                await callback.message.answer(
+                    f"✅ {user.display_name} сделал свой выбор"
+                )
+            except Exception as notify_error:
+                print(f"quiz battle answer notify error: {notify_error}")
+
     except Exception as error:
         db.rollback()
         print(f"quiz battle answer error: {error}")
