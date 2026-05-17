@@ -231,3 +231,73 @@ db/schema.sql
 ```bash
 python scripts/check_db_schema.py
 ```
+
+---
+
+## Серия группового квиза с таймером
+
+Для команды `/quiz_battle` добавлены отдельные таблицы. Они не заменяют текущие
+`group_quiz_sessions` / `group_quiz_answers`, которые используются для одиночного
+группового вопроса через `/quiz`.
+
+### `group_quiz_games`
+
+Одна сессия квиз-баттла в групповом чате.
+
+| Поле | Описание |
+|---|---|
+| `chat_id` | ID группового чата Telegram |
+| `status` | `setup`, `running`, `finished` |
+| `questions_total` | количество вопросов: 3, 5 или 10 |
+| `current_question_index` | текущий номер вопроса |
+| `seconds_per_question` | время на ответ, сейчас 60 секунд |
+| `started_by_user_id` | кто запустил баттл |
+| `started_at`, `finished_at` | время старта и завершения |
+
+### `group_quiz_game_questions`
+
+Список вопросов внутри одной серии.
+
+| Поле | Описание |
+|---|---|
+| `game_id` | ссылка на `group_quiz_games` |
+| `quiz_question_id` | вопрос из `quiz_questions` |
+| `question_order` | номер вопроса в серии |
+| `message_id` | сообщение Telegram с вопросом |
+| `opened_at`, `closed_at` | окно приема ответов |
+| `status` | `pending`, `open`, `closed` |
+
+### `group_quiz_game_answers`
+
+Ответы участников на вопросы квиз-баттла.
+
+| Поле | Описание |
+|---|---|
+| `game_id` | ссылка на игру |
+| `game_question_id` | конкретный вопрос серии |
+| `quiz_question_id` | вопрос из общей базы |
+| `user_id`, `telegram_id`, `display_name` | участник |
+| `selected_option` | выбранный вариант A/B/C/D |
+| `is_correct` | правильный ли ответ |
+| `answer_seconds` | скорость ответа в секундах |
+
+Ограничение:
+
+```text
+uq_group_quiz_game_question_user
+```
+
+Один участник может ответить на один вопрос серии только один раз.
+
+### Mermaid дополнение
+
+```mermaid
+erDiagram
+    users ||--o{ group_quiz_games : starts
+    group_quiz_games ||--o{ group_quiz_game_questions : contains
+    quiz_questions ||--o{ group_quiz_game_questions : used
+    group_quiz_games ||--o{ group_quiz_game_answers : collects
+    group_quiz_game_questions ||--o{ group_quiz_game_answers : answered
+    quiz_questions ||--o{ group_quiz_game_answers : answered
+    users ||--o{ group_quiz_game_answers : gives
+```

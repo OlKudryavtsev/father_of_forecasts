@@ -10,6 +10,7 @@ GROUP_ALLOWED_COMMANDS = {
     "/quiz",
     "/quiz_finish",
     "/quiz_table",
+    "/quiz_battle",
     "/archive",
     "/chat_id",
     "/panini",
@@ -28,6 +29,8 @@ GROUP_ALLOWED_CALLBACK_PREFIXES = {
     "fact_category:",
     "quiz_category:",
     "group_quiz_answer:",
+    "quiz_battle_size:",
+    "quiz_battle_answer:",
     "archive_category:",
 
     # Добавляем:

@@ -379,3 +379,98 @@ class GroupQuizAnswer(Base):
     __table_args__ = (
         UniqueConstraint("session_id", "user_id", name="uq_group_quiz_session_user"),
     )
+
+class GroupQuizGame(Base):
+    """A timed multi-question quiz battle running in a Telegram group chat."""
+
+    __tablename__ = "group_quiz_games"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    chat_id = Column(BigInteger, nullable=False, index=True)
+    status = Column(String, nullable=False, default="setup", index=True)
+
+    questions_total = Column(Integer, nullable=False)
+    current_question_index = Column(Integer, default=0)
+
+    seconds_per_question = Column(Integer, nullable=False, default=60)
+
+    started_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    started_by = relationship("User")
+
+
+class GroupQuizGameQuestion(Base):
+    """A single question inside a timed group quiz battle."""
+
+    __tablename__ = "group_quiz_game_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    game_id = Column(Integer, ForeignKey("group_quiz_games.id"), nullable=False, index=True)
+    quiz_question_id = Column(Integer, ForeignKey("quiz_questions.id"), nullable=False, index=True)
+
+    question_order = Column(Integer, nullable=False)
+
+    message_id = Column(BigInteger, nullable=True)
+
+    opened_at = Column(DateTime(timezone=True), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
+    status = Column(String, nullable=False, default="pending", index=True)
+
+    game = relationship("GroupQuizGame")
+    question = relationship("QuizQuestion")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id",
+            "question_order",
+            name="uq_group_quiz_game_question_order",
+        ),
+    )
+
+
+class GroupQuizGameAnswer(Base):
+    """A user's answer to one question in a timed group quiz battle."""
+
+    __tablename__ = "group_quiz_game_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    game_id = Column(Integer, ForeignKey("group_quiz_games.id"), nullable=False, index=True)
+    game_question_id = Column(
+        Integer,
+        ForeignKey("group_quiz_game_questions.id"),
+        nullable=False,
+        index=True,
+    )
+    quiz_question_id = Column(Integer, ForeignKey("quiz_questions.id"), nullable=False, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    telegram_id = Column(BigInteger, nullable=True, index=True)
+    display_name = Column(String, nullable=True)
+
+    selected_option = Column(String, nullable=False)
+    is_correct = Column(Boolean, nullable=False)
+
+    answered_at = Column(DateTime(timezone=True), server_default=func.now())
+    answer_seconds = Column(Integer, nullable=True)
+
+    game = relationship("GroupQuizGame")
+    game_question = relationship("GroupQuizGameQuestion")
+    question = relationship("QuizQuestion")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_question_id",
+            "user_id",
+            name="uq_group_quiz_game_question_user",
+        ),
+    )
+

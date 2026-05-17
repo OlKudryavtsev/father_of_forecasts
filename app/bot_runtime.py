@@ -81,6 +81,9 @@ from app.handlers.quiz import (
     group_quiz_table_handler,
     quiz_answer_callback,
     quiz_category_callback,
+    quiz_battle_answer_callback,
+    quiz_battle_handler,
+    quiz_battle_size_callback,
     quiz_handler,
     quiz_stats_handler,
 )
@@ -176,6 +179,7 @@ def register_handlers():
     dp.message.register(admin_import_facts_handler, Command("admin_import_facts"))
     dp.message.register(admin_daily_fact_preview_handler, Command("admin_daily_fact_preview"))
     dp.message.register(quiz_handler, Command("quiz"))
+    dp.message.register(quiz_battle_handler, Command("quiz_battle"))
     dp.message.register(admin_import_quiz_handler, Command("admin_import_quiz"))
     dp.message.register(quiz_stats_handler, Command("quiz_stats"))
     dp.message.register(admin_quiz_stats_handler, Command("admin_quiz_stats"))
@@ -207,6 +211,8 @@ def register_handlers():
     dp.callback_query.register(fact_category_callback, _cb_startswith("fact_category:"))
     dp.callback_query.register(quiz_category_callback, _cb_startswith("quiz_category:"))
     dp.callback_query.register(group_quiz_answer_callback, _cb_startswith("group_quiz_answer:"))
+    dp.callback_query.register(quiz_battle_size_callback, _cb_startswith("quiz_battle_size:"))
+    dp.callback_query.register(quiz_battle_answer_callback, _cb_startswith("quiz_battle_answer:"))
     dp.callback_query.register(panini_team_callback, PaniniForm.waiting_for_team, _cb_startswith("panini_team:"))
     dp.callback_query.register(table_noop_callback, _cb_equals("table_noop"))
 

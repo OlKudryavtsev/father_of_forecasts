@@ -79,3 +79,23 @@ alembic/versions/001_initial_schema.py
 alembic/versions/002_add_image_generation_logs.py
 ...
 ```
+
+
+## Миграции
+
+Для существующей БД добавлен SQL-скрипт:
+
+```text
+db/migrations/001_add_quiz_battle.sql
+```
+
+Он создает таблицы для серии группового квиза с таймером:
+
+```text
+group_quiz_games
+group_quiz_game_questions
+group_quiz_game_answers
+```
+
+Применение в Railway PostgreSQL: открыть Query, вставить содержимое файла и выполнить.
+Перед применением на production-БД рекомендуется сделать backup.

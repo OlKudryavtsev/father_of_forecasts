@@ -64,6 +64,9 @@ from app.models import (
     HistoricalArchiveDeliveryLog,
     GroupQuizSession,
     GroupQuizAnswer,
+    GroupQuizGame,
+    GroupQuizGameQuestion,
+    GroupQuizGameAnswer,
 
 )
 

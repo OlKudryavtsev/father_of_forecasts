@@ -41,3 +41,16 @@ def format_quiz_question(question: QuizQuestion) -> str:
         f"{question.question_text}"
     )
 
+
+
+def format_quiz_battle_question(game, game_question, question: QuizQuestion) -> str:
+    """Format a timed quiz battle question for group chat."""
+    return (
+        f"❓ Вопрос {game_question.question_order}/{game.questions_total}\n\n"
+        f"{question.question_text}\n\n"
+        f"A) {question.option_a}\n"
+        f"B) {question.option_b}\n"
+        f"C) {question.option_c}\n"
+        f"D) {question.option_d}\n\n"
+        f"⏳ На ответ: {game.seconds_per_question} секунд"
+    )

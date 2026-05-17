@@ -62,3 +62,53 @@ def build_quiz_keyboard(question: QuizQuestion) -> InlineKeyboardMarkup:
         ]
     )
 
+
+
+def build_quiz_battle_size_keyboard() -> InlineKeyboardMarkup:
+    """Build keyboard for selecting the number of questions in a quiz battle."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="3 вопроса",
+                    callback_data="quiz_battle_size:3",
+                ),
+                InlineKeyboardButton(
+                    text="5 вопросов",
+                    callback_data="quiz_battle_size:5",
+                ),
+                InlineKeyboardButton(
+                    text="10 вопросов",
+                    callback_data="quiz_battle_size:10",
+                ),
+            ]
+        ]
+    )
+
+
+def build_quiz_battle_answer_keyboard(game_question_id: int) -> InlineKeyboardMarkup:
+    """Build answer keyboard for a quiz battle question."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="A",
+                    callback_data=f"quiz_battle_answer:{game_question_id}:A",
+                ),
+                InlineKeyboardButton(
+                    text="B",
+                    callback_data=f"quiz_battle_answer:{game_question_id}:B",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="C",
+                    callback_data=f"quiz_battle_answer:{game_question_id}:C",
+                ),
+                InlineKeyboardButton(
+                    text="D",
+                    callback_data=f"quiz_battle_answer:{game_question_id}:D",
+                ),
+            ],
+        ]
+    )

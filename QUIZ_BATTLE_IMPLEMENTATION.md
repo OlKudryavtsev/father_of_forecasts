@@ -1,0 +1,101 @@
+# Реализация `/quiz_battle`
+
+В эту версию добавлен режим серии вопросов для группового чата.
+
+## Что изменено
+
+### Код
+
+```text
+app/models.py
+app/runtime.py
+app/keyboards/quiz.py
+app/formatters/quiz.py
+app/services/quiz_battle.py
+app/handlers/quiz.py
+app/bot_runtime.py
+app/constants/commands.py
+app/constants/texts.py
+```
+
+### База данных
+
+```text
+db/schema.sql
+db/migrations/001_add_quiz_battle.sql
+```
+
+### Документация
+
+```text
+docs/database.md
+docs/quiz_battle.md
+db/README.md
+README.md
+```
+
+## Новые таблицы
+
+```text
+group_quiz_games
+group_quiz_game_questions
+group_quiz_game_answers
+```
+
+## Как применить к Railway PostgreSQL
+
+1. Открой Railway → PostgreSQL → Query.
+2. Выполни содержимое файла:
+
+```text
+db/migrations/001_add_quiz_battle.sql
+```
+
+3. После применения можно проверить схему:
+
+```bash
+python scripts/check_db_schema.py
+```
+
+## Как проверить код локально
+
+```bash
+python -m py_compile bot.py app/*.py app/*/*.py scripts/*.py
+```
+
+## Как проверить в Telegram
+
+В групповом чате:
+
+```text
+/quiz_battle
+```
+
+Дальше выбрать:
+
+```text
+3 вопроса
+```
+
+Ожидаемое поведение:
+
+1. Бот отправляет вопрос 1/3.
+2. Участники отвечают кнопками A/B/C/D.
+3. Через 60 секунд бот показывает правильный ответ.
+4. Автоматически появляется следующий вопрос.
+5. После третьего вопроса бот показывает итоговую таблицу.
+
+## BotFather
+
+Добавить команду:
+
+```text
+quiz_battle - групповой квиз с таймером
+```
+
+## Важно
+
+Таймер реализован через `asyncio.create_task(...)` в процессе бота. Если Railway
+перезапустит контейнер во время активного квиза, серия может оборваться. Для
+дружеского чата это приемлемо. Если нужна максимальная надежность, следующий этап —
+отдельный background-loop, который закрывает просроченные вопросы по данным БД.

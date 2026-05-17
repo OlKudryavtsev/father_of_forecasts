@@ -57,11 +57,12 @@ USER_HELP_TEXT = (
     "/fact record — факт про рекорды\n"
     "/quiz — мини-квиз с выбором категории\n"
     "/quiz_stats — твоя статистика квиза\n"
+    "/quiz_battle — групповой квиз на 3/5/10 вопросов с таймером\n"
     "/archive — архив прошлых турниров\n"
     "/panini — сделать карточку игрока сборной по фото\n\n"
 
     "В общем чате доступны:\n"
-    "/fact, /quiz, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_predictions, /rules, /help\n\n"
+    "/fact, /quiz, /quiz_battle, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_predictions, /rules, /help\n\n"
 )
 
 FIRST_START_MESSAGES_BY_TELEGRAM_ID = {
