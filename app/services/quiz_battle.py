@@ -117,19 +117,27 @@ def build_quiz_battle_question_result_text(db, game_question_id: int) -> str:
     lines = [
         f"⏱ Время вышло: вопрос {game_question.question_order}",
         "",
-        f"Правильный ответ: {correct_option}) {correct_text}",
     ]
 
-    if question.explanation:
-        lines.extend(["", question.explanation])
-
-    lines.append("")
-
     if correct_answers:
-        lines.append("✅ Верно ответили:")
-        lines.append(", ".join(correct_answers))
+        lines.append(f"Правильный ответ: {correct_option}) {correct_text}")
+
+        if question.explanation:
+            lines.extend(["", question.explanation])
+
+        lines.extend(["", "✅ Верно ответили:", ", ".join(correct_answers)])
+    elif answers:
+        lines.append(
+            "Правильных ответов не было. "
+            "Отец прогнозов оставляет правильный ответ в тени, "
+            "чтобы интрига и боль жили до следующего вопроса."
+        )
     else:
-        lines.append("✅ Верно не ответил никто. Красиво упали всей командой.")
+        lines.append(
+            "На этот вопрос никто не ответил. "
+            "Правильный ответ не раскрываем — пусть это останется "
+            "маленькой тайной Отца прогнозов."
+        )
 
     return "\n".join(lines)
 
