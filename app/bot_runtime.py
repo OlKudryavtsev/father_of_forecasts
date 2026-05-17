@@ -40,6 +40,7 @@ from app.handlers.admin import (
     admin_matches_handler,
     admin_notify_test_handler,
     admin_quiz_stats_handler,
+    admin_release_handler,
     admin_rankings_check_handler,
     admin_recalculate_handler,
     admin_reminders_status_handler,
@@ -172,6 +173,7 @@ def register_handlers():
     dp.message.register(admin_sync_results_handler, Command("admin_sync_results"))
     dp.message.register(admin_rankings_check_handler, Command("admin_rankings_check"))
     dp.message.register(admin_notify_test_handler, Command("admin_notify_test"))
+    dp.message.register(admin_release_handler, Command("admin_release"))
     dp.message.register(admin_command_stats_handler, Command("admin_command_stats"))
     dp.message.register(admin_command_stats_user_handler, Command("admin_command_stats_user"))
     dp.message.register(fact_handler, Command("fact"))

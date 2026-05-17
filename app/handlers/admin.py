@@ -57,6 +57,46 @@ from app.services.tournament import parse_tournament_result_payload
 from app.services.users import get_or_create_user
 from app.states import AdminResultForm
 
+
+
+def _parse_admin_release_payload(text: str) -> tuple[str | None, str]:
+    """Parse /admin_release payload into target mode and message text.
+
+    Expected format:
+        /admin_release group|users|both
+        Release notes text...
+    """
+    lines = text.splitlines()
+
+    if not lines:
+        return None, ""
+
+    first_line_parts = lines[0].strip().split(maxsplit=1)
+
+    if len(first_line_parts) < 2:
+        return None, ""
+
+    target = first_line_parts[1].strip().lower()
+    release_text = "\n".join(lines[1:]).strip()
+
+    return target, release_text
+
+
+async def _send_text_chunks(chat_id: int, text: str, chunk_size: int = 3900) -> int:
+    """Send a long plain-text message to a chat in Telegram-safe chunks."""
+    if not text:
+        return 0
+
+    sent = 0
+
+    for start in range(0, len(text), chunk_size):
+        chunk = text[start:start + chunk_size]
+        await bot.send_message(chat_id=chat_id, text=chunk)
+        sent += 1
+
+    return sent
+
+
 async def admin_handler(message: Message):
     """Handle asynchronous bot workflow for admin_handler."""
     db = SessionLocal()
@@ -111,9 +151,102 @@ async def admin_handler(message: Message):
             "/admin_sync_results\n\n"
             "Оповещения админа:\n"
             "новые регистрации, прогнозы на матч и турнир включаются через ADMIN_NOTIFY_ENABLED\n\n"
+            "Release Notes:\n"
+            "/admin_release group — отправить релиз в общий чат\n"
+            "/admin_release users — отправить релиз всем пользователям в личку\n"
+            "/admin_release both — отправить релиз и в чат, и пользователям\n\n"
             "Статистика команд:\n"
             "/admin_command_stats\n"
             "/admin_command_stats_user Имя или TelegramID\n\n"
+        )
+
+    finally:
+        db.close()
+
+
+async def admin_release_handler(message: Message):
+    """Send release notes from the bot to the group, users or both targets."""
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        target, release_text = _parse_admin_release_payload(message.text or "")
+
+        if target not in {"group", "users", "both"}:
+            await message.answer(
+                "Формат:\n\n"
+                "/admin_release group\n"
+                "текст релиза\n\n"
+                "Доступные режимы:\n"
+                "group — в общий чат\n"
+                "users — всем зарегистрированным пользователям в личку\n"
+                "both — и в общий чат, и пользователям"
+            )
+            return
+
+        if not release_text:
+            await message.answer(
+                "После первой строки добавь текст релиза.\n\n"
+                "Пример:\n"
+                "/admin_release group\n"
+                "🚀 Release Notes v0.7\n\n"
+                "Добавлено:\n"
+                "— /quiz_battle"
+            )
+            return
+
+        sent_group = False
+        sent_users = 0
+        failed_users = 0
+
+        if target in {"group", "both"}:
+            from app.services.misc import get_group_chat_id
+
+            group_chat_id = get_group_chat_id()
+
+            if not group_chat_id:
+                await message.answer("GROUP_CHAT_ID не задан.")
+                return
+
+            await _send_text_chunks(
+                chat_id=group_chat_id,
+                text=release_text,
+            )
+            sent_group = True
+
+        if target in {"users", "both"}:
+            users = db.query(User).all()
+
+            for target_user in users:
+                if not target_user.telegram_id:
+                    continue
+
+                if target_user.telegram_id == 0:
+                    continue
+
+                try:
+                    await _send_text_chunks(
+                        chat_id=target_user.telegram_id,
+                        text=release_text,
+                    )
+                    sent_users += 1
+                except Exception as error:
+                    failed_users += 1
+                    print(
+                        f"Failed to send release notes to "
+                        f"{target_user.telegram_id}: {error}"
+                    )
+
+        await message.answer(
+            "Release Notes отправлены ✅\n\n"
+            f"В группу: {'да' if sent_group else 'нет'}\n"
+            f"Пользователям: {sent_users}\n"
+            f"Ошибок по пользователям: {failed_users}"
         )
 
     finally:
