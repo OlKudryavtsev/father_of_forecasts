@@ -9,15 +9,21 @@ from app.runtime import (
     GroupQuizAnswer,
     GroupQuizSession,
     Message,
+    User,
     QuizQuestion,
     SessionLocal,
     WorldCupFact,
+    asyncio,
+    bot,
     datetime,
     json,
     random,
     timezone,
 )
 from app.services.users import get_or_create_user
+
+GROUP_QUIZ_AUTO_FINISH_SECONDS = 30 * 60
+
 
 def get_random_quiz_question(db, category: str | None = None) -> QuizQuestion | None:
     """Provide bot helper logic for get_random_quiz_question."""
@@ -60,6 +66,96 @@ async def private_quiz_handler(message: Message):
             db=db,
             category=category,
         )
+
+    finally:
+        db.close()
+
+
+
+def get_group_quiz_expected_user_ids(db) -> set[int]:
+    """Return registered user IDs expected to answer a single group quiz.
+
+    Telegram Bot API does not expose a reliable full member list for ordinary
+    groups, so the bot treats registered project users as expected participants.
+    The system forecast user with telegram_id=0 is excluded.
+    """
+    return {
+        user.id
+        for user in db.query(User).all()
+        if getattr(user, "telegram_id", None) != 0
+    }
+
+
+def all_expected_group_quiz_users_answered(db, session: GroupQuizSession) -> bool:
+    """Return True when all known registered users have answered the session."""
+    expected_user_ids = get_group_quiz_expected_user_ids(db)
+
+    if not expected_user_ids:
+        return False
+
+    answered_user_ids = {
+        row.user_id
+        for row in db.query(GroupQuizAnswer.user_id)
+        .filter(GroupQuizAnswer.session_id == session.id)
+        .all()
+        if row.user_id is not None
+    }
+
+    return expected_user_ids.issubset(answered_user_ids)
+
+
+async def auto_finish_group_quiz_after_timeout(chat_id: int, session_id: int):
+    """Finish a single group quiz automatically after 30 minutes if still open."""
+    await asyncio.sleep(GROUP_QUIZ_AUTO_FINISH_SECONDS)
+
+    db = SessionLocal()
+
+    try:
+        session = (
+            db.query(GroupQuizSession)
+            .filter(GroupQuizSession.id == session_id)
+            .first()
+        )
+
+        if not session or session.status != "open":
+            return
+
+        text = finish_group_quiz_and_build_result_text(db, session)
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+        )
+
+    finally:
+        db.close()
+
+
+async def finish_group_quiz_if_all_answered(chat_id: int, session_id: int) -> bool:
+    """Finish a single group quiz if all known registered users answered."""
+    db = SessionLocal()
+
+    try:
+        session = (
+            db.query(GroupQuizSession)
+            .filter(GroupQuizSession.id == session_id)
+            .first()
+        )
+
+        if not session or session.status != "open":
+            return False
+
+        if not all_expected_group_quiz_users_answered(db, session):
+            return False
+
+        text = finish_group_quiz_and_build_result_text(db, session)
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+        )
+
+        return True
 
     finally:
         db.close()
@@ -119,12 +215,22 @@ async def group_quiz_start_handler(message: Message):
         session.message_id = sent_message.message_id
         db.commit()
 
+        asyncio.create_task(
+            auto_finish_group_quiz_after_timeout(
+                chat_id=message.chat.id,
+                session_id=session.id,
+            )
+        )
+
     finally:
         db.close()
 
 
 def finish_group_quiz_and_build_result_text(db, session: GroupQuizSession) -> str:
-    """Provide bot helper logic for finish_group_quiz_and_build_result_text."""
+    """Finish a single group quiz session and build the result text."""
+    if session.status != "open":
+        return "Этот вопрос уже завершен."
+
     question = session.question
 
     answers = db.query(GroupQuizAnswer).filter(

@@ -11,6 +11,7 @@ from app.runtime import (
     DAILY_FACT_TIMEZONE,
     FACTS_SEED_PATH,
     FactDeliveryLog,
+    HistoricalArchiveCard,
     Message,
     SessionLocal,
     User,
@@ -26,6 +27,24 @@ from app.runtime import (
 from app.services.misc import get_group_chat_id
 from app.services.users import get_or_create_user
 
+
+def get_random_archive_card_for_daily_rubric(db) -> HistoricalArchiveCard | None:
+    """Return a random public active archive card for the daily rubric."""
+    cards = (
+        db.query(HistoricalArchiveCard)
+        .filter(
+            HistoricalArchiveCard.is_active == True,
+            HistoricalArchiveCard.is_public == True,
+        )
+        .all()
+    )
+
+    if not cards:
+        return None
+
+    return random.choice(cards)
+
+
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
     """Handle asynchronous bot workflow for send_daily_fact_to_group."""
     group_chat_id = get_group_chat_id()
@@ -34,7 +53,8 @@ async def send_daily_fact_to_group(db, fact: WorldCupFact):
         print("GROUP_CHAT_ID is not set or invalid")
         return
 
-    text = format_daily_world_cup_rubric(fact)
+    archive_card = get_random_archive_card_for_daily_rubric(db)
+    text = format_daily_world_cup_rubric(fact, archive_card=archive_card)
 
     try:
         await bot.send_message(
@@ -184,7 +204,8 @@ def get_days_until_wc2026() -> int:
 async def send_daily_fact_to_private_users(db, fact: WorldCupFact):
     """Handle asynchronous bot workflow for send_daily_fact_to_private_users."""
     users = db.query(User).all()
-    text = format_daily_world_cup_rubric(fact)
+    archive_card = get_random_archive_card_for_daily_rubric(db)
+    text = format_daily_world_cup_rubric(fact, archive_card=archive_card)
 
     for user in users:
         try:

@@ -19,7 +19,7 @@ from app.runtime import (
     random,
     timezone,
 )
-from app.services.quiz import finish_group_quiz_and_build_result_text, group_quiz_start_handler, private_quiz_handler
+from app.services.quiz import finish_group_quiz_and_build_result_text, finish_group_quiz_if_all_answered, group_quiz_start_handler, private_quiz_handler
 from app.services.quiz_battle import create_quiz_battle, get_active_quiz_battle, run_quiz_battle_game
 from app.services.users import get_or_create_user, is_group_chat
 
@@ -430,8 +430,17 @@ async def group_quiz_answer_callback(callback: CallbackQuery):
             show_alert=False,
         )
 
+        chat_id = callback.message.chat.id if callback.message else None
+        session_id = session.id
+
     finally:
         db.close()
+
+    if chat_id is not None:
+        await finish_group_quiz_if_all_answered(
+            chat_id=chat_id,
+            session_id=session_id,
+        )
 
 
 async def group_quiz_finish_handler(message: Message):

@@ -1,10 +1,10 @@
-"""Real implementation extracted from the former bot_runtime monolith."""
+"""Format World Cup facts and daily fact rubric messages."""
 
+from app.runtime import HistoricalArchiveCard, WorldCupFact
 
-from app.runtime import WorldCupFact
 
 def format_world_cup_fact(fact: WorldCupFact) -> str:
-    """Provide bot helper logic for format_world_cup_fact."""
+    """Format a manually requested World Cup fact."""
     year_text = f"ЧМ-{fact.tournament_year}" if fact.tournament_year else "История ЧМ"
 
     lines = [
@@ -22,10 +22,12 @@ def format_world_cup_fact(fact: WorldCupFact) -> str:
     return "\n".join(lines)
 
 
-def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
-    """Provide bot helper logic for format_daily_world_cup_rubric."""
+def format_daily_world_cup_rubric(
+    fact: WorldCupFact,
+    archive_card: HistoricalArchiveCard | None = None,
+) -> str:
+    """Format the daily World Cup rubric without a low-value mini-question."""
     from app.services.facts import get_days_until_wc2026, plural_days_ru
-    from app.services.quiz import build_quiz_teaser_for_fact
 
     days_left = get_days_until_wc2026()
 
@@ -43,23 +45,20 @@ def format_daily_world_cup_rubric(fact: WorldCupFact) -> str:
     ]
 
     if fact.spicy_comment:
-        lines.extend(
-            [
-                "",
-                "🔥 Отец прогнозов:",
-                fact.spicy_comment,
-            ]
-        )
+        lines.extend(["", "🔥 Отец прогнозов:", fact.spicy_comment])
+
+    if archive_card:
+        lines.extend(["", "🗂 Архив Отца прогнозов:", archive_card.title, archive_card.text])
 
     lines.extend(
         [
             "",
-            "❓ Мини-вопрос:",
-            build_quiz_teaser_for_fact(fact),
-            "",
-            "Ответ: /quiz",
+            "🎮 Еще интересные факты и вопросы:",
+            "— квиз-баттл в группе: /quiz_battle",
+            "— быстрый квиз: /quiz",
+            "— случайный факт о ЧМ: /fact",
+            "— карточка из архива: /archive",
         ]
     )
 
     return "\n".join(lines)
-
