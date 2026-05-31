@@ -54,6 +54,16 @@ function setTab(tab) {
   loadCurrentTab();
 }
 
+function activateTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('.tab').forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  document.querySelectorAll('.screen').forEach((screen) => {
+    screen.classList.toggle('active', screen.id === tab);
+  });
+}
+
 function formatDate(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -147,7 +157,7 @@ async function loadPredictions(scope = 'all') {
 }
 
 async function openPrediction(matchId) {
-  setTab('predictions');
+  activateTab('predictions');
   const container = document.querySelector('#predictions');
   renderLoading(container, 'Открываю матч...');
 
