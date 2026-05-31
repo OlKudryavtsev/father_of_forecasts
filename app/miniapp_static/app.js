@@ -10,6 +10,7 @@ const state = {
   scoreHome: 1,
   scoreAway: 1,
   quickQuizQuestion: null,
+  tournamentTeams: [],
 };
 
 function initData() {
@@ -76,6 +77,29 @@ function formatDate(value) {
   });
 }
 
+function formatDaysLeft(days) {
+  const lastTwo = days % 100;
+  const last = days % 10;
+
+  if (lastTwo >= 11 && lastTwo <= 14) return `${days} дней`;
+  if (last === 1) return `${days} день`;
+  if (last >= 2 && last <= 4) return `${days} дня`;
+  return `${days} дней`;
+}
+
+function navigateToTournament() {
+  setTab('tournament');
+}
+
+function navigateToNearestPredictions() {
+  activateTab('predictions');
+  loadPredictions('nearest');
+}
+
+function escapeForAttribute(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
 function renderLoading(container, text = 'Загружаю...') {
   container.innerHTML = `<div class="card muted">${text}</div>`;
 }
@@ -101,6 +125,7 @@ function matchCard(match, includePredictButton = true) {
       ${includePredictButton ? `
         <div class="actions">
           <button class="primary" onclick="openPrediction(${match.id})">Сделать прогноз</button>
+          <button onclick="openForecast(${match.id})">🤖 Прогноз Отца</button>
         </div>
       ` : ''}
     </article>
@@ -113,7 +138,32 @@ async function loadHome() {
 
   try {
     const dashboard = await api('/api/webapp/dashboard');
+    const tournamentNotice = dashboard.tournament && !dashboard.tournament.is_started && !dashboard.tournament.has_prediction
+      ? `
+        <div class="card notice-card">
+          <div class="badge warning">Турнирный прогноз не сделан</div>
+          <h2>До старта ЧМ-2026 — ${formatDaysLeft(dashboard.tournament.days_until_start)}</h2>
+          <p class="muted">Пока не поздно, внеси долгосрочный прогноз: чемпион, финалист, 3 место и бомбардир.</p>
+          <button class="primary" onclick="navigateToTournament()">Перейти к турнирному прогнозу</button>
+        </div>
+      `
+      : '';
+
+    const nearestNotice = dashboard.nearest_missing_predictions_count > 0
+      ? `
+        <div class="card notice-card">
+          <div class="badge warning">Ближайший игровой день</div>
+          <h2>Нет прогнозов на ${dashboard.nearest_missing_predictions_count} матч(а)</h2>
+          <p class="muted">Сделай прогнозы заранее — после стартового свистка Отец прогнозов уже ничего не примет.</p>
+          <button class="primary" onclick="navigateToNearestPredictions()">Сделать прогнозы на ближайшие матчи</button>
+        </div>
+      `
+      : '';
+
     container.innerHTML = `
+      ${tournamentNotice}
+      ${nearestNotice}
+
       <section class="grid">
         <div class="card">
           <h2>Привет, ${dashboard.user.display_name}</h2>
@@ -121,7 +171,7 @@ async function loadHome() {
         </div>
         <div class="card">
           <h2>Пропущенные прогнозы</h2>
-          <p class="muted">Матчей без прогноза: <strong>${dashboard.missing_predictions_count}</strong></p>
+          <p class="muted">Всего матчей без прогноза: <strong>${dashboard.missing_predictions_count}</strong></p>
           <button class="primary" onclick="setTab('predictions')">Сделать прогноз</button>
         </div>
       </section>
@@ -177,12 +227,54 @@ async function openPrediction(matchId) {
         ${match.is_playoff ? renderAdvancement(match) : ''}
         <div class="actions">
           <button class="primary" onclick="savePrediction()">Сохранить прогноз</button>
+          <button onclick="loadForecastInline(${match.id})">🤖 Получить прогноз Отца прогнозов</button>
         </div>
+        <div id="forecastBox" class="forecast-box"></div>
       </article>
     `;
     bindScoreButtons();
   } catch (error) {
     showStatus(error.message, true);
+  }
+}
+
+
+async function openForecast(matchId) {
+  activateTab('predictions');
+  const container = document.querySelector('#predictions');
+  renderLoading(container, 'Отец прогнозов изучает форму, рейтинги и личные встречи...');
+
+  try {
+    const result = await api(`/api/webapp/forecast/${matchId}`);
+    container.innerHTML = `
+      <button class="back-button" onclick="loadPredictions('all')">← Назад к матчам</button>
+      <article class="card">
+        <h2>🤖 Прогноз Отца прогнозов</h2>
+        <pre class="forecast-text">${escapeHtml(result.text)}</pre>
+        <div class="actions">
+          <button class="primary" onclick="openPrediction(${matchId})">Сделать прогноз на этот матч</button>
+        </div>
+      </article>
+    `;
+  } catch (error) {
+    container.innerHTML = `
+      <button class="back-button" onclick="loadPredictions('all')">← Назад к матчам</button>
+      <div class="card"><h2>Не удалось получить прогноз</h2><p class="muted">${escapeHtml(error.message)}</p></div>
+    `;
+  }
+}
+
+async function loadForecastInline(matchId) {
+  const box = document.querySelector('#forecastBox');
+  if (!box) return;
+
+  box.innerHTML = '<div class="card compact muted">Отец прогнозов готовит AI-прогноз...</div>';
+
+  try {
+    const result = await api(`/api/webapp/forecast/${matchId}`);
+    box.innerHTML = `<pre class="forecast-text">${escapeHtml(result.text)}</pre>`;
+  } catch (error) {
+    box.innerHTML = `<div class="card compact muted">${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -307,21 +399,88 @@ async function loadTable() {
   }
 }
 
+
+function renderTeamAutocompleteInput(id, label, value, placeholder, disabled) {
+  return `
+    <div class="autocomplete-field">
+      <label>${label}</label>
+      <input
+        id="${id}"
+        class="team-autocomplete"
+        data-autocomplete="team"
+        autocomplete="off"
+        value="${escapeForAttribute(value)}"
+        placeholder="${placeholder}"
+        ${disabled ? 'disabled' : ''}
+      />
+      <div class="autocomplete-list hidden" data-autocomplete-list="${id}"></div>
+    </div>
+  `;
+}
+
+function bindTeamAutocomplete() {
+  document.querySelectorAll('[data-autocomplete="team"]').forEach((input) => {
+    const list = document.querySelector(`[data-autocomplete-list="${input.id}"]`);
+    if (!list) return;
+
+    const render = () => {
+      const query = input.value.trim().toLowerCase();
+      const teams = state.tournamentTeams
+        .filter((team) => !query || team.name.toLowerCase().includes(query))
+        .slice(0, 8);
+
+      if (!teams.length || input.disabled) {
+        list.classList.add('hidden');
+        list.innerHTML = '';
+        return;
+      }
+
+      list.innerHTML = teams.map((team) => `
+        <button type="button" class="autocomplete-item" data-team-name="${escapeForAttribute(team.name)}">
+          <span>${team.flag || '🏳️'}</span><span>${team.name}</span>
+        </button>
+      `).join('');
+      list.classList.remove('hidden');
+    };
+
+    input.addEventListener('input', render);
+    input.addEventListener('focus', render);
+
+    list.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-team-name]');
+      if (!item) return;
+
+      input.value = item.dataset.teamName;
+      list.classList.add('hidden');
+      list.innerHTML = '';
+    });
+  });
+
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('.autocomplete-field')) return;
+    document.querySelectorAll('.autocomplete-list').forEach((list) => list.classList.add('hidden'));
+  }, { once: true });
+}
+
 async function loadTournament() {
   const container = document.querySelector('#tournament');
   renderLoading(container);
 
   try {
-    const result = await api('/api/webapp/tournament-prediction/me');
+    const [result, teamsResult] = await Promise.all([
+      api('/api/webapp/tournament-prediction/me'),
+      api('/api/webapp/tournament-teams'),
+    ]);
+    state.tournamentTeams = teamsResult.teams || [];
     const p = result.prediction || {};
     container.innerHTML = `
       <section class="card">
         <h2>Мой турнирный прогноз</h2>
-        ${result.is_closed ? '<p class="badge danger">Прогнозы закрыты</p>' : '<p class="muted">До старта турнира прогноз можно менять.</p>'}
-        <label>Чемпион</label><input id="champion" value="${escapeHtml(p.champion || '')}" placeholder="Аргентина" ${result.is_closed ? 'disabled' : ''} />
-        <label>Финалист</label><input id="runnerUp" value="${escapeHtml(p.runner_up || '')}" placeholder="Франция" ${result.is_closed ? 'disabled' : ''} />
-        <label>3 место</label><input id="thirdPlace" value="${escapeHtml(p.third_place || '')}" placeholder="Бразилия" ${result.is_closed ? 'disabled' : ''} />
-        <label>Бомбардир</label><input id="topScorer" value="${escapeHtml(p.top_scorer || '')}" placeholder="Мбаппе" ${result.is_closed ? 'disabled' : ''} />
+        ${result.is_closed ? '<p class="badge danger">Прогнозы закрыты</p>' : '<p class="muted">До старта турнира прогноз можно менять. Названия сборных выбираются из списка участников ЧМ-2026.</p>'}
+        ${renderTeamAutocompleteInput('champion', 'Чемпион', p.champion || '', 'Начни вводить страну', result.is_closed)}
+        ${renderTeamAutocompleteInput('runnerUp', 'Финалист', p.runner_up || '', 'Начни вводить страну', result.is_closed)}
+        ${renderTeamAutocompleteInput('thirdPlace', '3 место', p.third_place || '', 'Начни вводить страну', result.is_closed)}
+        <label>Бомбардир</label><input id="topScorer" value="${escapeForAttribute(p.top_scorer || '')}" placeholder="Мбаппе" ${result.is_closed ? 'disabled' : ''} />
         ${result.is_closed ? '' : '<button class="primary" onclick="saveTournamentPrediction()">Сохранить</button>'}
       </section>
       <section class="card">
@@ -330,6 +489,7 @@ async function loadTournament() {
         <div id="tournamentPredictions"></div>
       </section>
     `;
+    bindTeamAutocomplete();
   } catch (error) {
     container.innerHTML = authErrorBlock(error);
   }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import random
 
@@ -24,7 +25,8 @@ from app.runtime import TOURNAMENT_CODE
 from app.services.matches import get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag
 from app.services.predictions import save_prediction_and_notify_admins
-from app.services.tournament import is_tournament_started, save_tournament_prediction_and_notify_admins
+from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins
+from app.services.forecast import build_forecast_text
 from app.team_names import get_team_name_ru
 
 router = APIRouter(prefix="/api/webapp", tags=["Telegram Mini App"])
@@ -170,6 +172,24 @@ def get_dashboard(
         if match.id not in all_predictions_by_match
     ]
 
+    nearest_missing_matches = [
+        match
+        for match in nearest_matches
+        if match.id not in predictions_by_match
+    ]
+
+    tournament_prediction = (
+        db.query(TournamentPrediction)
+        .filter(
+            TournamentPrediction.user_id == current_user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        )
+        .first()
+    )
+
+    tournament_starts_at = get_tournament_starts_at()
+    days_until_tournament = max((tournament_starts_at.date() - datetime.now(timezone.utc).date()).days, 0)
+
     table_rows = build_table_rows(db)
     current_rank = None
     current_points = 0
@@ -191,11 +211,22 @@ def get_dashboard(
             _serialize_match(match, predictions_by_match.get(match.id))
             for match in nearest_matches
         ],
+        "nearest_missing_predictions_count": len(nearest_missing_matches),
+        "nearest_missing_matches_preview": [
+            _serialize_match(match, predictions_by_match.get(match.id))
+            for match in nearest_missing_matches[:5]
+        ],
         "missing_predictions_count": len(missing_matches),
         "missing_matches_preview": [
             _serialize_match(match)
             for match in missing_matches[:5]
         ],
+        "tournament": {
+            "days_until_start": days_until_tournament,
+            "has_prediction": tournament_prediction is not None,
+            "is_started": is_tournament_started(),
+            "starts_at": tournament_starts_at.isoformat(),
+        },
     }
 
 
@@ -243,6 +274,63 @@ def get_match(
     )
 
     return {"match": _serialize_match(match, prediction)}
+
+
+@router.get("/forecast/{match_id}")
+async def get_forecast_for_match(
+    match_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return AI forecast text for a selected match."""
+    match = db.query(Match).filter(Match.id == match_id).first()
+
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    try:
+        text = await asyncio.to_thread(build_forecast_text, db, match)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Forecast generation failed: {error}") from error
+
+    return {"match_id": match.id, "text": text}
+
+
+@router.get("/tournament-teams")
+def get_tournament_teams(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return unique tournament teams for Mini App autocomplete fields."""
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    teams_by_name: dict[str, dict] = {}
+
+    for match in matches:
+        for display_name, api_name in [
+            (match.home_team, getattr(match, "home_team_api_name", None)),
+            (match.away_team, getattr(match, "away_team_api_name", None)),
+        ]:
+            if not display_name or display_name == "TBD":
+                continue
+
+            name = get_team_name_ru(display_name)
+
+            if name not in teams_by_name:
+                teams_by_name[name] = {
+                    "name": name,
+                    "api_name": api_name or display_name,
+                    "flag": get_team_flag(name, api_name, display_name),
+                }
+
+    teams = sorted(teams_by_name.values(), key=lambda item: item["name"])
+
+    return {"teams": teams}
 
 
 @router.post("/predictions")
