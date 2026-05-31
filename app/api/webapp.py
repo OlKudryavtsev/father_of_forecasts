@@ -325,7 +325,7 @@ def get_tournament_teams(
                 teams_by_name[name] = {
                     "name": name,
                     "api_name": api_name or display_name,
-                    "flag": get_team_flag(name, api_name, display_name),
+                    "flag": get_team_flag(name, api_name or display_name),
                 }
 
     teams = sorted(teams_by_name.values(), key=lambda item: item["name"])
