@@ -4,6 +4,7 @@
 from app.runtime import Message, SessionLocal
 from app.services.notifications import notify_admins, notify_group_chat
 from app.services.users import get_or_create_user, get_start_message_for_user
+from app.handlers.miniapp import answer_with_private_miniapp_button, get_miniapp_url
 
 async def start_handler(message: Message):
     """Handle asynchronous bot workflow for start_handler."""
@@ -13,6 +14,18 @@ async def start_handler(message: Message):
             "Я тут для развлечений и общей статистики: /fact, /quiz, /archive, /table.\n\n"
             "Прогнозы лучше делать в личке с ботом: /predict"
         )
+        return
+
+    if message.text and message.text.strip().startswith("/start app"):
+        miniapp_url = get_miniapp_url()
+
+        if not miniapp_url:
+            await message.answer(
+                "Mini App пока не настроен: добавь MINIAPP_URL или PUBLIC_BASE_URL."
+            )
+            return
+
+        await answer_with_private_miniapp_button(message, miniapp_url)
         return
 
     db = SessionLocal()
