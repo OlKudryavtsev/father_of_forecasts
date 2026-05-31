@@ -2,7 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Отец прогнозов</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/miniapp-static/styles.css" />
@@ -10,19 +13,19 @@
 <body>
   <div id="app">
     <header class="topbar">
-      <div>
-        <div class="eyebrow">Telegram Mini App</div>
+      <div class="brand">
+        <div class="eyebrow">Турнирный портал</div>
         <h1>🏆 Отец прогнозов</h1>
       </div>
-      <button id="refreshButton" class="icon-button" title="Обновить">↻</button>
+      <button id="refreshButton" class="icon-button" title="Обновить" aria-label="Обновить">↻</button>
     </header>
 
     <nav class="tabs" aria-label="Разделы">
-      <button class="tab active" data-tab="home">Главная</button>
-      <button class="tab" data-tab="predictions">Прогнозы</button>
-      <button class="tab" data-tab="table">Таблица</button>
-      <button class="tab" data-tab="tournament">Турнир</button>
-      <button class="tab" data-tab="fun">Факты</button>
+      <button class="tab active" data-tab="home"><span class="tab-icon">🏠</span><span>Главная</span></button>
+      <button class="tab" data-tab="predictions"><span class="tab-icon">🔮</span><span>Прогнозы</span></button>
+      <button class="tab" data-tab="table"><span class="tab-icon">🏆</span><span>Таблица</span></button>
+      <button class="tab" data-tab="tournament"><span class="tab-icon">🎯</span><span>Турнир</span></button>
+      <button class="tab" data-tab="fun"><span class="tab-icon">🎮</span><span>Фан</span></button>
     </nav>
 
     <main>
@@ -35,18 +38,6 @@
       <section id="fun" class="screen"></section>
     </main>
   </div>
-
-  <template id="scoreEditorTemplate">
-    <div class="score-editor">
-      <button type="button" data-action="minus-home">−</button>
-      <strong data-field="home">1</strong>
-      <span>:</span>
-      <strong data-field="away">1</strong>
-      <button type="button" data-action="minus-away">−</button>
-      <button type="button" data-action="plus-home">+</button>
-      <button type="button" data-action="plus-away">+</button>
-    </div>
-  </template>
 
   <script src="/miniapp-static/app.js"></script>
 </body>

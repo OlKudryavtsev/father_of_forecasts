@@ -144,7 +144,7 @@ async function loadPredictions(scope = 'all') {
   try {
     const result = await api(`/api/webapp/matches?scope=${scope}`);
     container.innerHTML = `
-      <div class="actions">
+      <div class="filter-bar">
         <button onclick="loadPredictions('nearest')">Ближайший день</button>
         <button onclick="loadPredictions('missing')">Без прогноза</button>
         <button onclick="loadPredictions('all')">Все будущие</button>
@@ -169,7 +169,7 @@ async function openPrediction(matchId) {
     state.scoreAway = match.prediction?.pred_away ?? 1;
 
     container.innerHTML = `
-      <button onclick="loadPredictions('all')">← Назад к матчам</button>
+      <button class="back-button" onclick="loadPredictions('all')">← Назад к матчам</button>
       <article class="card">
         <h2>${match.label}</h2>
         <p class="muted">Старт: ${formatDate(match.starts_at)}</p>
@@ -190,13 +190,17 @@ function renderScoreEditor() {
   return `
     <h3>Счет</h3>
     <div class="score-editor">
-      <button type="button" data-action="minus-home">−</button>
-      <strong data-field="home">${state.scoreHome}</strong>
-      <span>:</span>
-      <strong data-field="away">${state.scoreAway}</strong>
-      <button type="button" data-action="minus-away">−</button>
-      <button type="button" data-action="plus-home">+</button>
-      <button type="button" data-action="plus-away">+</button>
+      <div class="score-side" aria-label="Голы первой команды">
+        <button type="button" data-action="minus-home">−</button>
+        <strong data-field="home">${state.scoreHome}</strong>
+        <button type="button" data-action="plus-home">+</button>
+      </div>
+      <div class="score-separator">:</div>
+      <div class="score-side" aria-label="Голы второй команды">
+        <button type="button" data-action="minus-away">−</button>
+        <strong data-field="away">${state.scoreAway}</strong>
+        <button type="button" data-action="plus-away">+</button>
+      </div>
     </div>
   `;
 }
@@ -255,24 +259,46 @@ async function loadTable() {
 
   try {
     const result = await api('/api/webapp/table');
+    const tableRows = result.rows.map((row) => `
+      <tr class="${row.is_current_user ? 'current' : ''}">
+        <td>${row.rank}</td>
+        <td>${row.name}</td>
+        <td><strong>${row.points}</strong></td>
+        <td>${row.match_points}</td>
+        <td>${row.tournament_points}</td>
+        <td>${row.exact_scores}</td>
+        <td>${row.outcomes}</td>
+      </tr>
+    `).join('');
+
+    const cardRows = result.rows.map((row) => `
+      <article class="card compact table-player-card ${row.is_current_user ? 'current' : ''}">
+        <div class="rank-pill">${row.rank}</div>
+        <div>
+          <div class="player-name">${row.name}</div>
+          <div class="muted small">Матчи: ${row.match_points} · Турнир: ${row.tournament_points}</div>
+        </div>
+        <div class="points-big">${row.points}</div>
+        <div class="stat-row">
+          <div class="stat-mini"><strong>${row.match_points}</strong>матчи</div>
+          <div class="stat-mini"><strong>${row.tournament_points}</strong>турнир</div>
+          <div class="stat-mini"><strong>${row.exact_scores}</strong>🎯 счет</div>
+          <div class="stat-mini"><strong>${row.outcomes}</strong>✅ исход</div>
+        </div>
+      </article>
+    `).join('');
+
     container.innerHTML = `
       <h2>Таблица участников</h2>
+
+      <div class="table-cards">
+        ${cardRows || '<div class="card muted">Таблица пока пустая.</div>'}
+      </div>
+
       <div class="table-wrap card">
         <table>
           <thead><tr><th>№</th><th>Игрок</th><th>Очки</th><th>Матчи</th><th>Турнир</th><th>🎯</th><th>✅</th></tr></thead>
-          <tbody>
-            ${result.rows.map((row) => `
-              <tr class="${row.is_current_user ? 'current' : ''}">
-                <td>${row.rank}</td>
-                <td>${row.name}</td>
-                <td><strong>${row.points}</strong></td>
-                <td>${row.match_points}</td>
-                <td>${row.tournament_points}</td>
-                <td>${row.exact_scores}</td>
-                <td>${row.outcomes}</td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <tbody>${tableRows}</tbody>
         </table>
       </div>
     `;
@@ -349,17 +375,17 @@ async function loadFun() {
     <section class="grid">
       <div class="card">
         <h2>📚 Факт о ЧМ</h2>
-        <div id="factBox" class="muted">Нажми кнопку, чтобы получить факт.</div>
+        <div id="factBox" class="muted fun-box">Нажми кнопку, чтобы получить факт.</div>
         <div class="actions"><button onclick="loadRandomFact()">Получить факт</button></div>
       </div>
       <div class="card">
         <h2>❓ Квиз</h2>
-        <div id="quizBox" class="muted">Нажми кнопку, чтобы получить вопрос.</div>
+        <div id="quizBox" class="muted fun-box">Нажми кнопку, чтобы получить вопрос.</div>
         <div class="actions"><button onclick="loadRandomQuiz()">Запустить вопрос</button></div>
       </div>
       <div class="card">
         <h2>🗂 Архив</h2>
-        <div id="archiveBox" class="muted">Нажми кнопку, чтобы открыть карточку архива.</div>
+        <div id="archiveBox" class="muted fun-box">Нажми кнопку, чтобы открыть карточку архива.</div>
         <div class="actions"><button onclick="loadRandomArchive()">Карточка архива</button></div>
       </div>
     </section>
