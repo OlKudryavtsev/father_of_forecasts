@@ -776,3 +776,11 @@ input:focus {
     gap: 2px;
   }
 }
+
+
+.resource-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}

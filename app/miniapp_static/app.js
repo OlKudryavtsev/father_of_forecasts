@@ -724,11 +724,13 @@ async function loadResources() {
     <div class="card resource-hero">
       <div class="resource-hero-icon">🔗</div>
       <div>
-        <h3>Где быстро проверить матч, новость или состав</h3>
-        <p class="muted">
-          Ссылки открываются во внешнем браузере Telegram. Для официальных данных лучше начинать с FIFA,
-          для live-статистики — Sofascore или Flashscore, для русскоязычного контекста — Матч ТВ и Чемпионат.
-        </p>
+        <h3>Полезные ссылки по ЧМ-2026</h3>
+        <div class="resource-chip-row">
+          <span class="badge">live</span>
+          <span class="badge">статистика</span>
+          <span class="badge">новости</span>
+          <span class="badge">официально</span>
+        </div>
       </div>
     </div>
 
