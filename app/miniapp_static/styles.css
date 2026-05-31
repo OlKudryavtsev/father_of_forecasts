@@ -156,7 +156,7 @@ p {
   bottom: max(8px, env(safe-area-inset-bottom));
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
   padding: 7px;
   border: 1px solid var(--border);
@@ -669,4 +669,110 @@ input:focus {
   border-radius: 13px;
   background: rgba(148, 163, 184, 0.10);
   text-align: left;
+}
+
+
+.resource-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 13px;
+  align-items: start;
+}
+
+.resource-hero-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-size: 24px;
+}
+
+.resource-section {
+  margin: 16px 0;
+}
+
+.resource-section h3 {
+  margin-bottom: 5px;
+}
+
+.resource-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.resource-item {
+  width: 100%;
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 12px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent 44%),
+    rgba(148, 163, 184, 0.10);
+}
+
+.resource-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.14);
+  font-size: 22px;
+}
+
+.resource-body {
+  min-width: 0;
+}
+
+.resource-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.resource-title-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-arrow {
+  color: var(--muted);
+  font-size: 28px;
+  line-height: 1;
+}
+
+@media (max-width: 390px) {
+  .tabs {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .tab {
+    font-size: 9px;
+    min-height: 50px;
+  }
+
+  .tab-icon {
+    font-size: 16px;
+  }
+
+  .resource-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
 }

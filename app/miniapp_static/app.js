@@ -613,12 +613,153 @@ function authErrorBlock(error) {
   `;
 }
 
-async function loadCurrentTab() {
+async 
+const RESOURCE_GROUPS = [
+  {
+    title: 'Матч-центры и статистика',
+    description: 'Быстро смотреть расписание, live-счет, составы, форму и статистику по матчам.',
+    items: [
+      {
+        title: 'Sofascore',
+        url: 'https://www.sofascore.com/football/tournament/world/world-championship/16#id:58210',
+        emoji: '📊',
+        text: 'Live-матчи, рейтинги игроков, составы, форма и расширенная статистика.',
+        tag: 'статистика',
+      },
+      {
+        title: 'Flashscore',
+        url: 'https://www.flashscore.com/football/world/world-championship/',
+        emoji: '⚡',
+        text: 'Быстрый live-счет, календарь, таблицы, форма команд и уведомления.',
+        tag: 'live',
+      },
+      {
+        title: 'FIFA — Scores & Fixtures',
+        url: 'https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures',
+        emoji: '🌍',
+        text: 'Официальное расписание, результаты и матч-центр FIFA.',
+        tag: 'официально',
+      },
+    ],
+  },
+  {
+    title: 'Новости на русском',
+    description: 'Русскоязычные новости, составы, интервью, травмы и контекст вокруг сборных.',
+    items: [
+      {
+        title: 'Матч ТВ',
+        url: 'https://matchtv.ru/football/worldcup/2026',
+        emoji: '📺',
+        text: 'Новости ЧМ-2026, материалы, видео и эфирный футбольный контекст.',
+        tag: 'медиа',
+      },
+      {
+        title: 'Чемпионат.com',
+        url: 'https://www.championat.com/news/football/_worldcup/1.html',
+        emoji: '📰',
+        text: 'Лента новостей по чемпионату мира и сборным.',
+        tag: 'новости',
+      },
+      {
+        title: 'Sports.ru — Футбол',
+        url: 'https://www.sports.ru/football/',
+        emoji: '💬',
+        text: 'Новости, обсуждения, блоги и фанатский контекст вокруг турнира.',
+        tag: 'комьюнити',
+      },
+    ],
+  },
+  {
+    title: 'Официальное и справочное',
+    description: 'Проверять первоисточник, формат турнира, стадионы и базовую справку.',
+    items: [
+      {
+        title: 'FIFA World Cup 2026',
+        url: 'https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026',
+        emoji: '🏆',
+        text: 'Официальная страница турнира: расписание, команды, новости, стадионы.',
+        tag: 'FIFA',
+      },
+      {
+        title: 'Wikipedia: 2026 FIFA World Cup',
+        url: 'https://en.wikipedia.org/wiki/2026_FIFA_World_Cup',
+        emoji: '📚',
+        text: 'Справка по формату, городам, группам, расписанию и истории изменений.',
+        tag: 'справка',
+      },
+    ],
+  },
+];
+
+function openExternalLink(url) {
+  if (tg?.openLink) {
+    tg.openLink(url);
+    return;
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function renderResourceItem(item) {
+  return `
+    <button class="resource-item" type="button" onclick="openExternalLink('${item.url}')">
+      <div class="resource-icon">${item.emoji}</div>
+      <div class="resource-body">
+        <div class="resource-title-row">
+          <strong>${item.title}</strong>
+          <span class="badge">${item.tag}</span>
+        </div>
+        <div class="muted small">${item.text}</div>
+      </div>
+      <div class="resource-arrow">›</div>
+    </button>
+  `;
+}
+
+async function loadResources() {
+  const container = document.querySelector('#resources');
+
+  container.innerHTML = `
+    <h2>Полезные ресурсы</h2>
+
+    <div class="card resource-hero">
+      <div class="resource-hero-icon">🔗</div>
+      <div>
+        <h3>Где быстро проверить матч, новость или состав</h3>
+        <p class="muted">
+          Ссылки открываются во внешнем браузере Telegram. Для официальных данных лучше начинать с FIFA,
+          для live-статистики — Sofascore или Flashscore, для русскоязычного контекста — Матч ТВ и Чемпионат.
+        </p>
+      </div>
+    </div>
+
+    ${RESOURCE_GROUPS.map((group) => `
+      <section class="resource-section">
+        <h3>${group.title}</h3>
+        <p class="muted small">${group.description}</p>
+        <div class="resource-list">
+          ${group.items.map(renderResourceItem).join('')}
+        </div>
+      </section>
+    `).join('')}
+
+    <div class="card compact">
+      <h3>⚠️ Осторожно с билетами и фейковыми сайтами</h3>
+      <p class="muted">
+        Для билетов, расписания и официальных новостей лучше использовать домены FIFA и проверенные источники.
+        Не переходи по подозрительным рекламным ссылкам и не вводи платежные данные на похожих доменах.
+      </p>
+    </div>
+  `;
+}
+
+function loadCurrentTab() {
   if (state.tab === 'home') return loadHome();
   if (state.tab === 'predictions') return loadPredictions('all');
   if (state.tab === 'table') return loadTable();
   if (state.tab === 'tournament') return loadTournament();
   if (state.tab === 'fun') return loadFun();
+  if (state.tab === 'resources') return loadResources();
 }
 
 document.querySelectorAll('.tab').forEach((button) => {
