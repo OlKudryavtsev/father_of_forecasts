@@ -613,7 +613,6 @@ function authErrorBlock(error) {
   `;
 }
 
-async 
 const RESOURCE_GROUPS = [
   {
     title: 'Матч-центры и статистика',
