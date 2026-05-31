@@ -27,6 +27,7 @@ from app.services.misc import build_table_rows, get_team_flag
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins
 from app.services.forecast import build_forecast_text
+from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.team_names import get_team_name_ru
 
 router = APIRouter(prefix="/api/webapp", tags=["Telegram Mini App"])
@@ -390,6 +391,27 @@ def get_table(
         row["is_current_user"] = row["name"] == current_user.display_name
 
     return {"rows": rows}
+
+
+@router.get("/tournament-forecast")
+def get_father_tournament_forecast(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return static Father Forecast for tournament outcomes."""
+    return {"forecast": serialize_father_tournament_forecast()}
+
+
+@router.get("/top-scorer-candidates")
+def get_top_scorer_candidates_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return top scorer candidates and hint for Mini App."""
+    return {
+        "candidates": get_top_scorer_candidates(),
+        "hint": get_top_scorer_hint(),
+    }
 
 
 @router.get("/tournament-prediction/me")

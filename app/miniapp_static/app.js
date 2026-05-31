@@ -11,6 +11,8 @@ const state = {
   scoreAway: 1,
   quickQuizQuestion: null,
   tournamentTeams: [],
+  topScorerCandidates: [],
+  topScorerHint: '',
 };
 
 function initData() {
@@ -450,7 +452,7 @@ function bindTeamAutocomplete() {
       const item = event.target.closest('[data-team-name]');
       if (!item) return;
 
-      input.value = item.dataset.teamName;
+      input.value = item.datasetTeamName || item.dataset.teamName;
       list.classList.add('hidden');
       list.innerHTML = '';
     });
@@ -462,25 +464,134 @@ function bindTeamAutocomplete() {
   }, { once: true });
 }
 
+function renderFatherTournamentForecastCard(forecastData) {
+  const forecast = forecastData?.forecast || {};
+  const alternatives = forecastData?.alternatives || {};
+  const reasoning = forecastData?.reasoning || [];
+
+  return `
+    <section class="card father-forecast-card">
+      <div class="badge">Прогноз Отца · ${forecastData?.version || 'v1'}</div>
+      <h2>🤖 Прогноз Отца на турнир</h2>
+      <div class="forecast-picks-grid">
+        <div><span>🏆</span><strong>${forecast.champion || '—'}</strong><small>чемпион</small></div>
+        <div><span>🥈</span><strong>${forecast.runner_up || '—'}</strong><small>финалист</small></div>
+        <div><span>🥉</span><strong>${forecast.third_place || '—'}</strong><small>3 место</small></div>
+        <div><span>⚽</span><strong>${forecast.top_scorer || '—'}</strong><small>бомбардир</small></div>
+      </div>
+      <button type="button" onclick="toggleBlock('fatherForecastDetails')">Показать объяснение</button>
+      <div id="fatherForecastDetails" class="hidden forecast-details">
+        <h3>Почему так</h3>
+        <ul>${reasoning.map((item) => `<li>${item}</li>`).join('')}</ul>
+        <h3>Альтернативы</h3>
+        <p class="muted">🏆 ${alternatives.champion?.join(', ') || '—'}</p>
+        <p class="muted">🥈 ${alternatives.runner_up?.join(', ') || '—'}</p>
+        <p class="muted">🥉 ${alternatives.third_place?.join(', ') || '—'}</p>
+        <p class="muted">⚽ ${alternatives.top_scorer?.join(', ') || '—'}</p>
+        <h3>Качество данных</h3>
+        <p class="muted">${forecastData?.data_quality || '—'}</p>
+        <h3>Вердикт Отца</h3>
+        <p>${forecastData?.spicy_comment || '—'}</p>
+      </div>
+    </section>
+  `;
+}
+
+function toggleBlock(id) {
+  const block = document.querySelector(`#${id}`);
+  if (!block) return;
+  block.classList.toggle('hidden');
+}
+
+function renderTopScorerPicker(currentValue, disabled) {
+  const candidates = state.topScorerCandidates || [];
+  const normalized = (currentValue || '').trim().toLowerCase();
+  const knownCandidate = candidates.find((candidate) => candidate.name.toLowerCase() === normalized);
+  const useCustom = Boolean(currentValue && !knownCandidate);
+
+  return `
+    <div class="top-scorer-picker">
+      <label>Бомбардир</label>
+      <select id="topScorerSelect" ${disabled ? 'disabled' : ''} onchange="handleTopScorerSelectChange()">
+        <option value="">Выбери кандидата</option>
+        ${candidates.map((candidate) => `
+          <option value="${escapeForAttribute(candidate.name)}" ${candidate.name === currentValue ? 'selected' : ''}>
+            ${candidate.name} — ${candidate.team}
+          </option>
+        `).join('')}
+        <option value="__custom__" ${useCustom ? 'selected' : ''}>Свой вариант</option>
+      </select>
+      <input
+        id="topScorerCustom"
+        class="${useCustom ? '' : 'hidden'}"
+        value="${useCustom ? escapeForAttribute(currentValue) : ''}"
+        placeholder="Введи своего бомбардира"
+        ${disabled ? 'disabled' : ''}
+      />
+      <div class="actions">
+        <button type="button" onclick="toggleBlock('topScorerHint')">Подсказка по бомбардирам</button>
+      </div>
+      <div id="topScorerHint" class="hidden hint-box">
+        <p>${state.topScorerHint || ''}</p>
+        <div class="candidate-list">
+          ${candidates.slice(0, 10).map((candidate) => `
+            <div class="candidate-card">
+              <strong>${candidate.name}</strong>
+              <span class="badge">${candidate.team}</span>
+              <div class="muted small">${candidate.tier || ''}</div>
+              <div class="small">${candidate.note || ''}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function handleTopScorerSelectChange() {
+  const select = document.querySelector('#topScorerSelect');
+  const custom = document.querySelector('#topScorerCustom');
+  if (!select || !custom) return;
+  custom.classList.toggle('hidden', select.value !== '__custom__');
+  if (select.value === '__custom__') {
+    custom.focus();
+  } else {
+    custom.value = '';
+  }
+}
+
+function getTopScorerValue() {
+  const select = document.querySelector('#topScorerSelect');
+  const custom = document.querySelector('#topScorerCustom');
+  if (!select) return '';
+  if (select.value === '__custom__') return (custom?.value || '').trim();
+  return select.value.trim();
+}
+
 async function loadTournament() {
   const container = document.querySelector('#tournament');
   renderLoading(container);
 
   try {
-    const [result, teamsResult] = await Promise.all([
+    const [result, teamsResult, fatherResult, scorersResult] = await Promise.all([
       api('/api/webapp/tournament-prediction/me'),
       api('/api/webapp/tournament-teams'),
+      api('/api/webapp/tournament-forecast'),
+      api('/api/webapp/top-scorer-candidates'),
     ]);
     state.tournamentTeams = teamsResult.teams || [];
+    state.topScorerCandidates = scorersResult.candidates || [];
+    state.topScorerHint = scorersResult.hint || '';
     const p = result.prediction || {};
     container.innerHTML = `
+      ${renderFatherTournamentForecastCard(fatherResult.forecast)}
       <section class="card">
         <h2>Мой турнирный прогноз</h2>
         ${result.is_closed ? '<p class="badge danger">Прогнозы закрыты</p>' : '<p class="muted">До старта турнира прогноз можно менять. Названия сборных выбираются из списка участников ЧМ-2026.</p>'}
         ${renderTeamAutocompleteInput('champion', 'Чемпион', p.champion || '', 'Начни вводить страну', result.is_closed)}
         ${renderTeamAutocompleteInput('runnerUp', 'Финалист', p.runner_up || '', 'Начни вводить страну', result.is_closed)}
         ${renderTeamAutocompleteInput('thirdPlace', '3 место', p.third_place || '', 'Начни вводить страну', result.is_closed)}
-        <label>Бомбардир</label><input id="topScorer" value="${escapeForAttribute(p.top_scorer || '')}" placeholder="Мбаппе" ${result.is_closed ? 'disabled' : ''} />
+        ${renderTopScorerPicker(p.top_scorer || '', result.is_closed)}
         ${result.is_closed ? '' : '<button class="primary" onclick="saveTournamentPrediction()">Сохранить</button>'}
       </section>
       <section class="card">
@@ -497,13 +608,19 @@ async function loadTournament() {
 
 async function saveTournamentPrediction() {
   try {
+    const topScorer = getTopScorerValue();
+    if (!topScorer) {
+      showStatus('Выбери бомбардира или укажи свой вариант', true);
+      return;
+    }
+
     const result = await api('/api/webapp/tournament-prediction', {
       method: 'POST',
       body: JSON.stringify({
         champion: document.querySelector('#champion').value,
         runner_up: document.querySelector('#runnerUp').value,
         third_place: document.querySelector('#thirdPlace').value,
-        top_scorer: document.querySelector('#topScorer').value,
+        top_scorer: topScorer,
       }),
     });
     showStatus(result.message || 'Турнирный прогноз сохранен');

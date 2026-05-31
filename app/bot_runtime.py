@@ -94,6 +94,7 @@ from app.handlers.start import chat_id_handler, start_handler
 from app.handlers.table import ai_summary_handler, summary_handler, table_buttons_handler, table_handler, table_noop_callback
 from app.handlers.tournament import (
     tournament_champion_handler,
+    tournament_forecast_handler,
     tournament_handler,
     tournament_predictions_handler,
     tournament_runner_up_handler,
@@ -141,6 +142,7 @@ def register_handlers():
     dp.message.register(rules_handler, Command("rules"))
     dp.message.register(tournament_set_handler, Command("tournament_set"))
     dp.message.register(tournament_handler, Command("tournament"))
+    dp.message.register(tournament_forecast_handler, Command("tournament_forecast"))
     dp.message.register(tournament_predictions_handler, Command("tournament_predictions"))
     dp.message.register(admin_handler, Command("admin"))
     dp.message.register(match_handler, Command("match"))

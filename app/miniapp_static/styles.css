@@ -762,3 +762,97 @@ input:focus {
 }
 
 
+
+.father-forecast-card {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.forecast-picks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.forecast-picks-grid > div {
+  min-height: 82px;
+  border-radius: 16px;
+  padding: 10px;
+  background: rgba(148, 163, 184, 0.10);
+  display: grid;
+  gap: 3px;
+  align-content: center;
+}
+
+.forecast-picks-grid span {
+  font-size: 22px;
+}
+
+.forecast-picks-grid strong {
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.forecast-picks-grid small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.forecast-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.forecast-details ul {
+  padding-left: 18px;
+  margin: 8px 0 12px;
+}
+
+.forecast-details li {
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+select {
+  width: 100%;
+  min-height: var(--tap);
+  border-radius: 15px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.09);
+  color: var(--text);
+  margin-bottom: 8px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.top-scorer-picker {
+  margin-bottom: 12px;
+}
+
+.hint-box {
+  margin: 10px 0 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.candidate-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.candidate-card {
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(148, 163, 184, 0.10);
+}
+
+.candidate-card strong {
+  display: block;
+  margin-bottom: 4px;
+}

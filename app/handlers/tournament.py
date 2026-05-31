@@ -11,6 +11,7 @@ from app.runtime import (
     User,
 )
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, parse_tournament_prediction_payload, save_tournament_prediction_and_notify_admins
+from app.services.tournament_forecast import build_father_tournament_forecast_text
 from app.services.users import get_or_create_user
 from app.states import TournamentPredictionForm
 
@@ -291,3 +292,8 @@ async def tournament_top_scorer_handler(message: Message, state: FSMContext):
     finally:
         db.close()
 
+
+
+async def tournament_forecast_handler(message: Message):
+    """Show static Father Forecast for WC2026 tournament outcomes."""
+    await message.answer(build_father_tournament_forecast_text())

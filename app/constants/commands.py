@@ -24,6 +24,7 @@ GROUP_ALLOWED_COMMANDS = {
     "/table_buttons",
     "/predictions",
     "/tournament_predictions",
+    "/tournament_forecast",
 }
 
 GROUP_ALLOWED_CALLBACK_PREFIXES = {
