@@ -5,6 +5,7 @@ from app.constants.texts import PRIVATE_ONLY_COMMANDS_HINT
 GROUP_ALLOWED_COMMANDS = {
     "/start",
     "/help",
+    "/app",
     "/rules",
     "/fact",
     "/quiz",

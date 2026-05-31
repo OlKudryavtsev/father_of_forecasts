@@ -1,6 +1,10 @@
 from datetime import datetime
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.db import Base, SessionLocal, engine
@@ -11,6 +15,31 @@ from app.admin import require_admin_api_token
 app = FastAPI(title="Отец прогнозов")
 
 Base.metadata.create_all(bind=engine)
+
+from app.api.webapp import router as webapp_router
+
+MINIAPP_STATIC_DIR = Path(__file__).resolve().parent / "miniapp_static"
+
+app.include_router(webapp_router)
+
+if MINIAPP_STATIC_DIR.exists():
+    app.mount(
+        "/miniapp-static",
+        StaticFiles(directory=str(MINIAPP_STATIC_DIR)),
+        name="miniapp-static",
+    )
+
+
+@app.get("/app")
+def telegram_mini_app():
+    """Serve Telegram Mini App frontend."""
+    index_path = MINIAPP_STATIC_DIR / "index.html"
+
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="Mini App frontend is not built")
+
+    return FileResponse(index_path)
+
 
 
 class MatchCreate(BaseModel):

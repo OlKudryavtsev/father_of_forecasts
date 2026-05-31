@@ -1,0 +1,224 @@
+:root {
+  color-scheme: light dark;
+  --bg: var(--tg-theme-bg-color, #0f172a);
+  --card: var(--tg-theme-secondary-bg-color, #111827);
+  --text: var(--tg-theme-text-color, #e5e7eb);
+  --muted: var(--tg-theme-hint-color, #94a3b8);
+  --accent: var(--tg-theme-button-color, #3b82f6);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --border: rgba(148, 163, 184, 0.25);
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app {
+  max-width: 880px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 16px;
+  padding-bottom: 32px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1, h2, h3, p { margin-top: 0; }
+h1 { font-size: 26px; margin-bottom: 0; }
+h2 { font-size: 20px; margin-bottom: 12px; }
+h3 { font-size: 16px; margin-bottom: 8px; }
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.tab,
+button,
+.button {
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 14px;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tab.active,
+.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 20px;
+}
+
+.screen { display: none; }
+.screen.active { display: block; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+}
+
+.card.compact { padding: 12px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.badge {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--muted);
+  font-size: 12px;
+  margin: 2px 4px 2px 0;
+}
+.badge.success { color: var(--success); }
+.badge.warning { color: var(--warning); }
+.badge.danger { color: var(--danger); }
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.status {
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+.status.error {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.hidden { display: none; }
+
+.match-title {
+  font-weight: 750;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.match-meta {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.score-editor {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+.score-editor strong,
+.score-editor span {
+  text-align: center;
+  font-size: 24px;
+}
+.score-editor button { padding: 10px; }
+
+.radio-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.radio-row label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+}
+th, td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+th { color: var(--muted); font-size: 12px; }
+tr.current { background: rgba(59, 130, 246, 0.12); }
+
+input {
+  width: 100%;
+  border-radius: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text);
+  font: inherit;
+  margin-bottom: 10px;
+}
+
+.option-button {
+  width: 100%;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+@media (max-width: 520px) {
+  #app { padding: 12px; }
+  h1 { font-size: 22px; }
+  .tab { padding: 9px 11px; }
+}

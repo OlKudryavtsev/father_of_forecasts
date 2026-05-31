@@ -1,0 +1,434 @@
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+}
+
+const state = {
+  tab: 'home',
+  currentMatch: null,
+  scoreHome: 1,
+  scoreAway: 1,
+  quickQuizQuestion: null,
+};
+
+function initData() {
+  return tg?.initData || '';
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Telegram-Init-Data': initData(),
+      ...(options.headers || {}),
+    },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.detail || 'Ошибка запроса');
+  }
+
+  return payload;
+}
+
+function showStatus(text, isError = false) {
+  const status = document.querySelector('#status');
+  status.textContent = text;
+  status.classList.toggle('error', isError);
+  status.classList.remove('hidden');
+  setTimeout(() => status.classList.add('hidden'), 4500);
+}
+
+function setTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('.tab').forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  document.querySelectorAll('.screen').forEach((screen) => {
+    screen.classList.toggle('active', screen.id === tab);
+  });
+  loadCurrentTab();
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function renderLoading(container, text = 'Загружаю...') {
+  container.innerHTML = `<div class="card muted">${text}</div>`;
+}
+
+function predictionBadge(match) {
+  if (!match.prediction) {
+    return '<span class="badge warning">прогноза нет</span>';
+  }
+  const p = match.prediction;
+  return `<span class="badge success">мой прогноз ${p.pred_home}:${p.pred_away}</span>`;
+}
+
+function matchCard(match, includePredictButton = true) {
+  return `
+    <article class="card compact">
+      <div class="match-title">${match.label}</div>
+      <div class="match-meta">
+        Старт: ${formatDate(match.starts_at)}<br>
+        ${match.venue || match.city ? `Стадион: ${[match.venue, match.city].filter(Boolean).join(', ')}<br>` : ''}
+        ${predictionBadge(match)}
+        ${match.is_playoff ? '<span class="badge">плей-офф</span>' : ''}
+      </div>
+      ${includePredictButton ? `
+        <div class="actions">
+          <button class="primary" onclick="openPrediction(${match.id})">Сделать прогноз</button>
+        </div>
+      ` : ''}
+    </article>
+  `;
+}
+
+async function loadHome() {
+  const container = document.querySelector('#home');
+  renderLoading(container);
+
+  try {
+    const dashboard = await api('/api/webapp/dashboard');
+    container.innerHTML = `
+      <section class="grid">
+        <div class="card">
+          <h2>Привет, ${dashboard.user.display_name}</h2>
+          <p class="muted">Очки: <strong>${dashboard.points}</strong>${dashboard.rank ? ` · место: <strong>${dashboard.rank}</strong>` : ''}</p>
+        </div>
+        <div class="card">
+          <h2>Пропущенные прогнозы</h2>
+          <p class="muted">Матчей без прогноза: <strong>${dashboard.missing_predictions_count}</strong></p>
+          <button class="primary" onclick="setTab('predictions')">Сделать прогноз</button>
+        </div>
+      </section>
+
+      <h2>Ближайшие матчи</h2>
+      ${dashboard.nearest_matches.length ? dashboard.nearest_matches.map((match) => matchCard(match)).join('') : '<div class="card muted">Ближайших матчей нет.</div>'}
+
+      <h2>Где нет прогноза</h2>
+      ${dashboard.missing_matches_preview.length ? dashboard.missing_matches_preview.map((match) => matchCard(match)).join('') : '<div class="card muted">Все ближайшие прогнозы сделаны.</div>'}
+    `;
+  } catch (error) {
+    container.innerHTML = authErrorBlock(error);
+  }
+}
+
+async function loadPredictions(scope = 'all') {
+  const container = document.querySelector('#predictions');
+  renderLoading(container);
+
+  try {
+    const result = await api(`/api/webapp/matches?scope=${scope}`);
+    container.innerHTML = `
+      <div class="actions">
+        <button onclick="loadPredictions('nearest')">Ближайший день</button>
+        <button onclick="loadPredictions('missing')">Без прогноза</button>
+        <button onclick="loadPredictions('all')">Все будущие</button>
+      </div>
+      ${result.matches.length ? result.matches.map((match) => matchCard(match)).join('') : '<div class="card muted">Матчей не найдено.</div>'}
+    `;
+  } catch (error) {
+    container.innerHTML = authErrorBlock(error);
+  }
+}
+
+async function openPrediction(matchId) {
+  setTab('predictions');
+  const container = document.querySelector('#predictions');
+  renderLoading(container, 'Открываю матч...');
+
+  try {
+    const result = await api(`/api/webapp/matches/${matchId}`);
+    const match = result.match;
+    state.currentMatch = match;
+    state.scoreHome = match.prediction?.pred_home ?? 1;
+    state.scoreAway = match.prediction?.pred_away ?? 1;
+
+    container.innerHTML = `
+      <button onclick="loadPredictions('all')">← Назад к матчам</button>
+      <article class="card">
+        <h2>${match.label}</h2>
+        <p class="muted">Старт: ${formatDate(match.starts_at)}</p>
+        ${renderScoreEditor()}
+        ${match.is_playoff ? renderAdvancement(match) : ''}
+        <div class="actions">
+          <button class="primary" onclick="savePrediction()">Сохранить прогноз</button>
+        </div>
+      </article>
+    `;
+    bindScoreButtons();
+  } catch (error) {
+    showStatus(error.message, true);
+  }
+}
+
+function renderScoreEditor() {
+  return `
+    <h3>Счет</h3>
+    <div class="score-editor">
+      <button type="button" data-action="minus-home">−</button>
+      <strong data-field="home">${state.scoreHome}</strong>
+      <span>:</span>
+      <strong data-field="away">${state.scoreAway}</strong>
+      <button type="button" data-action="minus-away">−</button>
+      <button type="button" data-action="plus-home">+</button>
+      <button type="button" data-action="plus-away">+</button>
+    </div>
+  `;
+}
+
+function bindScoreButtons() {
+  document.querySelectorAll('[data-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.action;
+      if (action === 'plus-home') state.scoreHome += 1;
+      if (action === 'plus-away') state.scoreAway += 1;
+      if (action === 'minus-home') state.scoreHome = Math.max(0, state.scoreHome - 1);
+      if (action === 'minus-away') state.scoreAway = Math.max(0, state.scoreAway - 1);
+      document.querySelector('[data-field="home"]').textContent = state.scoreHome;
+      document.querySelector('[data-field="away"]').textContent = state.scoreAway;
+    });
+  });
+}
+
+function renderAdvancement(match) {
+  return `
+    <h3>Кто пройдет дальше?</h3>
+    <div class="radio-row">
+      <label><input type="radio" name="advance" value="none" checked /> Не ставить на проход</label>
+      <label><input type="radio" name="advance" value="home" /> ${match.home_team}</label>
+      <label><input type="radio" name="advance" value="away" /> ${match.away_team}</label>
+    </div>
+  `;
+}
+
+async function savePrediction() {
+  const match = state.currentMatch;
+  const selectedAdvance = document.querySelector('input[name="advance"]:checked')?.value || null;
+  const isAdvanceEnabled = match.is_playoff && selectedAdvance && selectedAdvance !== 'none';
+
+  try {
+    const result = await api('/api/webapp/predictions', {
+      method: 'POST',
+      body: JSON.stringify({
+        match_id: match.id,
+        pred_home: state.scoreHome,
+        pred_away: state.scoreAway,
+        advancement_bet_enabled: isAdvanceEnabled,
+        predicted_advancing_side: isAdvanceEnabled ? selectedAdvance : null,
+      }),
+    });
+    showStatus(result.message || 'Прогноз сохранен');
+    await openPrediction(match.id);
+  } catch (error) {
+    showStatus(error.message, true);
+  }
+}
+
+async function loadTable() {
+  const container = document.querySelector('#table');
+  renderLoading(container);
+
+  try {
+    const result = await api('/api/webapp/table');
+    container.innerHTML = `
+      <h2>Таблица участников</h2>
+      <div class="table-wrap card">
+        <table>
+          <thead><tr><th>№</th><th>Игрок</th><th>Очки</th><th>Матчи</th><th>Турнир</th><th>🎯</th><th>✅</th></tr></thead>
+          <tbody>
+            ${result.rows.map((row) => `
+              <tr class="${row.is_current_user ? 'current' : ''}">
+                <td>${row.rank}</td>
+                <td>${row.name}</td>
+                <td><strong>${row.points}</strong></td>
+                <td>${row.match_points}</td>
+                <td>${row.tournament_points}</td>
+                <td>${row.exact_scores}</td>
+                <td>${row.outcomes}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (error) {
+    container.innerHTML = authErrorBlock(error);
+  }
+}
+
+async function loadTournament() {
+  const container = document.querySelector('#tournament');
+  renderLoading(container);
+
+  try {
+    const result = await api('/api/webapp/tournament-prediction/me');
+    const p = result.prediction || {};
+    container.innerHTML = `
+      <section class="card">
+        <h2>Мой турнирный прогноз</h2>
+        ${result.is_closed ? '<p class="badge danger">Прогнозы закрыты</p>' : '<p class="muted">До старта турнира прогноз можно менять.</p>'}
+        <label>Чемпион</label><input id="champion" value="${escapeHtml(p.champion || '')}" placeholder="Аргентина" ${result.is_closed ? 'disabled' : ''} />
+        <label>Финалист</label><input id="runnerUp" value="${escapeHtml(p.runner_up || '')}" placeholder="Франция" ${result.is_closed ? 'disabled' : ''} />
+        <label>3 место</label><input id="thirdPlace" value="${escapeHtml(p.third_place || '')}" placeholder="Бразилия" ${result.is_closed ? 'disabled' : ''} />
+        <label>Бомбардир</label><input id="topScorer" value="${escapeHtml(p.top_scorer || '')}" placeholder="Мбаппе" ${result.is_closed ? 'disabled' : ''} />
+        ${result.is_closed ? '' : '<button class="primary" onclick="saveTournamentPrediction()">Сохранить</button>'}
+      </section>
+      <section class="card">
+        <h2>Прогнозы участников</h2>
+        <button onclick="loadTournamentPredictions()">Показать список</button>
+        <div id="tournamentPredictions"></div>
+      </section>
+    `;
+  } catch (error) {
+    container.innerHTML = authErrorBlock(error);
+  }
+}
+
+async function saveTournamentPrediction() {
+  try {
+    const result = await api('/api/webapp/tournament-prediction', {
+      method: 'POST',
+      body: JSON.stringify({
+        champion: document.querySelector('#champion').value,
+        runner_up: document.querySelector('#runnerUp').value,
+        third_place: document.querySelector('#thirdPlace').value,
+        top_scorer: document.querySelector('#topScorer').value,
+      }),
+    });
+    showStatus(result.message || 'Турнирный прогноз сохранен');
+    await loadTournament();
+  } catch (error) {
+    showStatus(error.message, true);
+  }
+}
+
+async function loadTournamentPredictions() {
+  const target = document.querySelector('#tournamentPredictions');
+  target.innerHTML = '<p class="muted">Загружаю...</p>';
+  try {
+    const result = await api('/api/webapp/tournament-predictions');
+    target.innerHTML = result.rows.map((row) => {
+      if (!row.has_prediction) return `<p>${row.user_name}: ❌ прогноза нет</p>`;
+      if (!result.revealed) return `<p>${row.user_name}: ✅ прогноз сделан</p>`;
+      const p = row.prediction;
+      return `<p><strong>${row.user_name}</strong><br>🏆 ${p.champion}<br>🥈 ${p.runner_up}<br>🥉 ${p.third_place}<br>⚽ ${p.top_scorer}</p>`;
+    }).join('');
+  } catch (error) {
+    target.innerHTML = `<p class="muted">${error.message}</p>`;
+  }
+}
+
+async function loadFun() {
+  const container = document.querySelector('#fun');
+  container.innerHTML = `
+    <section class="grid">
+      <div class="card">
+        <h2>📚 Факт о ЧМ</h2>
+        <div id="factBox" class="muted">Нажми кнопку, чтобы получить факт.</div>
+        <div class="actions"><button onclick="loadRandomFact()">Получить факт</button></div>
+      </div>
+      <div class="card">
+        <h2>❓ Квиз</h2>
+        <div id="quizBox" class="muted">Нажми кнопку, чтобы получить вопрос.</div>
+        <div class="actions"><button onclick="loadRandomQuiz()">Запустить вопрос</button></div>
+      </div>
+      <div class="card">
+        <h2>🗂 Архив</h2>
+        <div id="archiveBox" class="muted">Нажми кнопку, чтобы открыть карточку архива.</div>
+        <div class="actions"><button onclick="loadRandomArchive()">Карточка архива</button></div>
+      </div>
+    </section>
+  `;
+}
+
+async function loadRandomFact() {
+  const box = document.querySelector('#factBox');
+  box.textContent = 'Загружаю...';
+  try {
+    const result = await api('/api/webapp/facts/random');
+    const fact = result.fact;
+    box.innerHTML = `<h3>${fact.title}</h3><p>${fact.text}</p>${fact.spicy_comment ? `<p class="muted">🔥 ${fact.spicy_comment}</p>` : ''}`;
+  } catch (error) { box.textContent = error.message; }
+}
+
+async function loadRandomQuiz() {
+  const box = document.querySelector('#quizBox');
+  box.textContent = 'Загружаю...';
+  try {
+    const result = await api('/api/webapp/quiz/random');
+    state.quickQuizQuestion = result.question;
+    box.innerHTML = `
+      <h3>${result.question.text}</h3>
+      ${Object.entries(result.question.options).map(([key, value]) => `<button class="option-button" onclick="answerQuickQuiz('${key}')">${key}) ${value}</button>`).join('')}
+      <div id="quizAnswerBox"></div>
+    `;
+  } catch (error) { box.textContent = error.message; }
+}
+
+async function answerQuickQuiz(option) {
+  const answerBox = document.querySelector('#quizAnswerBox');
+  try {
+    const result = await api('/api/webapp/quiz/answer', {
+      method: 'POST',
+      body: JSON.stringify({ question_id: state.quickQuizQuestion.id, selected_option: option }),
+    });
+    answerBox.innerHTML = `<p class="${result.is_correct ? 'badge success' : 'badge danger'}">${result.is_correct ? 'Верно' : 'Мимо'}</p><p>Правильный ответ: ${result.correct_option}) ${result.correct_text}</p>${result.explanation ? `<p class="muted">${result.explanation}</p>` : ''}`;
+  } catch (error) { answerBox.textContent = error.message; }
+}
+
+async function loadRandomArchive() {
+  const box = document.querySelector('#archiveBox');
+  box.textContent = 'Загружаю...';
+  try {
+    const result = await api('/api/webapp/archive/random');
+    const card = result.card;
+    box.innerHTML = `<h3>${card.title}</h3><p>${card.text}</p>${card.related_name ? `<p class="muted">Герой карточки: ${card.related_name}</p>` : ''}`;
+  } catch (error) { box.textContent = error.message; }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[char]));
+}
+
+function authErrorBlock(error) {
+  return `
+    <div class="card">
+      <h2>Не удалось открыть портал</h2>
+      <p class="muted">${error.message}</p>
+      <p class="muted small">Mini App нужно открывать из Telegram-кнопки бота, чтобы backend получил Telegram initData.</p>
+    </div>
+  `;
+}
+
+async function loadCurrentTab() {
+  if (state.tab === 'home') return loadHome();
+  if (state.tab === 'predictions') return loadPredictions('all');
+  if (state.tab === 'table') return loadTable();
+  if (state.tab === 'tournament') return loadTournament();
+  if (state.tab === 'fun') return loadFun();
+}
+
+document.querySelectorAll('.tab').forEach((button) => {
+  button.addEventListener('click', () => setTab(button.dataset.tab));
+});
+
+document.querySelector('#refreshButton').addEventListener('click', loadCurrentTab);
+
+loadCurrentTab();

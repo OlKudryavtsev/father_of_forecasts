@@ -31,6 +31,7 @@ USER_HELP_TEXT = (
     "⚪ не ставил на проход — 0 очков\n\n"
     "\n5️⃣ Основные команды\n"
     "/rules — правила начисления очков\n"
+    "/app — открыть турнирный портал Mini App\n"
     "/predict — прогноз на ближайший игровой день\n"
     "/matches_all — все ближайшие матчи (30)\n"
     "/predictions — прогнозы участников по матчу\n"
@@ -62,7 +63,7 @@ USER_HELP_TEXT = (
     "/panini — сделать карточку игрока сборной по фото\n\n"
 
     "В общем чате доступны:\n"
-    "/fact, /quiz, /quiz_battle, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_predictions, /rules, /help\n\n"
+    "/app, /fact, /quiz, /quiz_battle, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_predictions, /rules, /help\n\n"
 )
 
 FIRST_START_MESSAGES_BY_TELEGRAM_ID = {
@@ -176,6 +177,7 @@ DEFAULT_REPEAT_START_MESSAGES = [
 PRIVATE_ONLY_COMMANDS_HINT = (
     "Эта команда доступна только в личке с ботом.\n\n"
     "В общем чате можно использовать:\n"
+    "/app — турнирный портал Mini App\n"
     "/fact — факты о ЧМ\n"
     "/quiz — квиз о ЧМ\n"
     "/archive — архив прошлых турниров\n"

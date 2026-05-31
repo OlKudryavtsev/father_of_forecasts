@@ -62,6 +62,7 @@ from app.handlers.forecast import forecast_handler, forecast_match_callback
 from app.handlers.help import help_handler, rules_handler
 from app.handlers.matches import match_card_callback, match_handler, matches_all_handler, matches_handler
 from app.handlers.misc import cancel_handler, match_custom_score_handler
+from app.handlers.miniapp import miniapp_handler
 from app.handlers.panini import panini_handler, panini_photo_handler, panini_photo_invalid_handler, panini_team_callback
 from app.handlers.predictions import (
     missing_all_handler,
@@ -168,6 +169,7 @@ def register_handlers():
     dp.message.register(summary_handler, Command("summary"))
     dp.message.register(admin_result_custom_score_handler, AdminResultForm.custom_score)
     dp.message.register(help_handler, Command("help"))
+    dp.message.register(miniapp_handler, Command("app"))
     dp.message.register(ai_summary_handler, Command("ai_summary"))
     dp.message.register(admin_sync_wc2026_schedule_handler, Command("admin_sync_wc2026_schedule"))
     dp.message.register(admin_sync_results_handler, Command("admin_sync_results"))
