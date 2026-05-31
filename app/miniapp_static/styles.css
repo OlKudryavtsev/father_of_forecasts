@@ -856,3 +856,22 @@ select {
   display: block;
   margin-bottom: 4px;
 }
+
+
+.tournament-collapsed-section {
+  margin-bottom: 10px;
+}
+
+.wide-toggle-button {
+  width: 100%;
+  justify-content: center;
+  font-weight: 750;
+}
+
+.collapsed-content {
+  margin-top: 12px;
+}
+
+.collapsed-content.hidden {
+  display: none;
+}
