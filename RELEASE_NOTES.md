@@ -1,3 +1,11 @@
+## Forecast v2
+
+— улучшена структура ИИ-прогноза `/forecast`;
+— добавлены ключевые факторы, сценарии и риски;
+— подготовлен optional-каркас для odds и lineups из API-Football;
+— добавлена админская команда `/admin_api_coverage` для мониторинга появления odds/lineups;
+— обновлен скрипт `scripts/check_api_football_wc2026_coverage.py`.
+
 # 🚀 Release Notes — Отец прогнозов
 
 ## 2026-05-17

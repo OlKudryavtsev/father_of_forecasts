@@ -60,6 +60,40 @@ class ApiFootballClient:
 
         return response[0]
 
+
+    def get_fixture_odds(self, fixture_id: int | str) -> list[dict]:
+        """Return bookmaker odds for a fixture, if API-Football has them."""
+        payload = self.get(
+            "/odds",
+            params={
+                "fixture": fixture_id,
+            },
+        )
+
+        return payload.get("response", [])
+
+    def get_fixture_lineups(self, fixture_id: int | str) -> list[dict]:
+        """Return official lineups for a fixture, if they are already available."""
+        payload = self.get(
+            "/fixtures/lineups",
+            params={
+                "fixture": fixture_id,
+            },
+        )
+
+        return payload.get("response", [])
+
+    def get_fixture_statistics(self, fixture_id: int | str) -> list[dict]:
+        """Return live/post-match fixture statistics, if available."""
+        payload = self.get(
+            "/fixtures/statistics",
+            params={
+                "fixture": fixture_id,
+            },
+        )
+
+        return payload.get("response", [])
+
     def get_fixture_head_to_head(
             self,
             home_team_id: int,

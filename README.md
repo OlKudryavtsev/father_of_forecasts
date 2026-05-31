@@ -295,6 +295,20 @@
 
 ---
 
+
+### Мониторинг данных для ИИ-прогноза
+
+Администратор может проверить, появились ли в API-Football новые данные для расширенного прогноза:
+
+```text
+/admin_api_coverage 10
+```
+
+Команда показывает наличие odds, lineups, predictions и injuries по ближайшим матчам WC2026.
+
+`/forecast` уже умеет использовать odds и официальные составы, но показывает эти блоки только тогда, когда API-Football реально возвращает данные.
+
+
 ## 📚 Факты о чемпионатах мира
 
 Команда:
@@ -899,6 +913,7 @@ uvicorn app.main:app
 | `PANINI_IMAGE_MODEL` | Модель генерации изображений |
 | `PANINI_IMAGE_SIZE` | Размер изображения, например `1024x1536` |
 | `OPENAI_TIMEOUT_SECONDS` | Таймаут OpenAI-запросов |
+| `FORECAST_EXTERNAL_CONTEXT_ENABLED` | Включить optional-запросы odds/lineups для `/forecast` |
 
 ---
 

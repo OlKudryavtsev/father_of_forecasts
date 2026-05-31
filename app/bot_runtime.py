@@ -23,6 +23,7 @@ from app.states import (
     TournamentPredictionForm,
 )
 from app.handlers.admin import (
+    admin_api_coverage_handler,
     admin_archive_count_handler,
     admin_command_stats_handler,
     admin_command_stats_user_handler,
@@ -174,6 +175,7 @@ def register_handlers():
     dp.message.register(admin_sync_wc2026_schedule_handler, Command("admin_sync_wc2026_schedule"))
     dp.message.register(admin_sync_results_handler, Command("admin_sync_results"))
     dp.message.register(admin_rankings_check_handler, Command("admin_rankings_check"))
+    dp.message.register(admin_api_coverage_handler, Command("admin_api_coverage"))
     dp.message.register(admin_notify_test_handler, Command("admin_notify_test"))
     dp.message.register(admin_release_handler, Command("admin_release"))
     dp.message.register(admin_command_stats_handler, Command("admin_command_stats"))

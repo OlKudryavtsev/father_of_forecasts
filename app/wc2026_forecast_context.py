@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import os
 from typing import Any
 
 from app.api_football import ApiFootballClient
@@ -155,6 +156,239 @@ def compact_match_rows(rows: list[dict[str, Any]], limit: int = 3) -> list[dict[
     return compact
 
 
+
+def summarize_odds_for_forecast(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a compact optional odds context for OpenAI.
+
+    The function intentionally returns only a small market snapshot, because raw
+    bookmaker responses can be very large and noisy for an LLM prompt.
+    """
+    if not rows:
+        return {
+            "available": False,
+            "reason": "API-Football returned no odds for this fixture.",
+        }
+
+    bookmakers_count = 0
+    markets: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        for bookmaker in row.get("bookmakers") or []:
+            bookmakers_count += 1
+
+            for bet in bookmaker.get("bets") or []:
+                market_name = bet.get("name")
+
+                if not market_name:
+                    continue
+
+                market = markets.setdefault(
+                    market_name,
+                    {
+                        "values": {},
+                        "samples": 0,
+                    },
+                )
+
+                for value in bet.get("values") or []:
+                    label = value.get("value")
+                    odd = value.get("odd")
+
+                    if label is None or odd is None:
+                        continue
+
+                    try:
+                        odd_float = float(odd)
+                    except (TypeError, ValueError):
+                        continue
+
+                    bucket = market["values"].setdefault(
+                        str(label),
+                        {
+                            "odds": [],
+                        },
+                    )
+                    bucket["odds"].append(odd_float)
+                    market["samples"] += 1
+
+    compact_markets = {}
+
+    for market_name, market in markets.items():
+        compact_values = {}
+
+        for label, bucket in market["values"].items():
+            odds = bucket["odds"]
+
+            if not odds:
+                continue
+
+            avg_odds = sum(odds) / len(odds)
+
+            compact_values[label] = {
+                "avg_odds": round(avg_odds, 3),
+                "implied_probability": round(1 / avg_odds, 3) if avg_odds > 0 else None,
+                "bookmakers": len(odds),
+            }
+
+        if compact_values:
+            compact_markets[market_name] = {
+                "samples": market["samples"],
+                "values": compact_values,
+            }
+
+    preferred_market_names = [
+        "Match Winner",
+        "Home/Away",
+        "Goals Over/Under",
+        "Both Teams Score",
+        "Double Chance",
+    ]
+
+    selected_markets = {
+        name: compact_markets[name]
+        for name in preferred_market_names
+        if name in compact_markets
+    }
+
+    if not selected_markets:
+        for name in sorted(compact_markets.keys())[:5]:
+            selected_markets[name] = compact_markets[name]
+
+    return {
+        "available": bool(selected_markets),
+        "bookmakers_count": bookmakers_count,
+        "markets": selected_markets,
+        "note": (
+            "Odds are optional market context. Implied probabilities are not "
+            "margin-adjusted and should be interpreted carefully."
+        ),
+    }
+
+
+def summarize_lineups_for_forecast(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a compact optional lineups context for OpenAI."""
+    if not rows:
+        return {
+            "available": False,
+            "reason": "API-Football returned no official lineups for this fixture.",
+        }
+
+    teams = []
+
+    for row in rows:
+        team = row.get("team") or {}
+        coach = row.get("coach") or {}
+
+        starters = []
+        substitutes = []
+
+        for item in row.get("startXI") or []:
+            player = item.get("player") or {}
+            name = player.get("name")
+
+            if name:
+                starters.append(name)
+
+        for item in row.get("substitutes") or []:
+            player = item.get("player") or {}
+            name = player.get("name")
+
+            if name:
+                substitutes.append(name)
+
+        teams.append(
+            {
+                "team": team.get("name"),
+                "formation": row.get("formation"),
+                "coach": coach.get("name"),
+                "starters": starters,
+                "substitutes": substitutes[:12],
+            }
+        )
+
+    return {
+        "available": True,
+        "teams": teams,
+        "note": "Official lineups should strongly influence the forecast if available.",
+    }
+
+
+def build_optional_external_forecast_context(
+    api_client: ApiFootballClient,
+    match,
+) -> dict[str, Any]:
+    """Fetch optional API-Football forecast inputs.
+
+    This is intentionally a soft/fallback context. If odds or lineups are absent
+    or API-Football temporarily fails, forecast generation must continue using
+    rankings, recent form and H2H data.
+    """
+    enabled = os.getenv("FORECAST_EXTERNAL_CONTEXT_ENABLED", "true").lower() == "true"
+
+    context = {
+        "enabled": enabled,
+        "odds": {
+            "available": False,
+            "reason": "external context disabled",
+        },
+        "lineups": {
+            "available": False,
+            "reason": "external context disabled",
+        },
+        "data_quality": {
+            "odds_available": False,
+            "lineups_available": False,
+            "notes": [],
+        },
+    }
+
+    fixture_id = getattr(match, "external_fixture_id", None)
+
+    if not enabled:
+        context["data_quality"]["notes"].append(
+            "External odds/lineups context is disabled by FORECAST_EXTERNAL_CONTEXT_ENABLED."
+        )
+        return context
+
+    if not fixture_id:
+        context["odds"]["reason"] = "match has no external_fixture_id"
+        context["lineups"]["reason"] = "match has no external_fixture_id"
+        context["data_quality"]["notes"].append(
+            "No external_fixture_id is stored for this match."
+        )
+        return context
+
+    try:
+        odds_rows = api_client.get_fixture_odds(fixture_id)
+        context["odds"] = summarize_odds_for_forecast(odds_rows)
+    except Exception as error:
+        context["odds"] = {
+            "available": False,
+            "reason": f"failed to fetch odds: {error}",
+        }
+
+    try:
+        lineups_rows = api_client.get_fixture_lineups(fixture_id)
+        context["lineups"] = summarize_lineups_for_forecast(lineups_rows)
+    except Exception as error:
+        context["lineups"] = {
+            "available": False,
+            "reason": f"failed to fetch lineups: {error}",
+        }
+
+    context["data_quality"] = {
+        "odds_available": bool(context["odds"].get("available")),
+        "lineups_available": bool(context["lineups"].get("available")),
+        "notes": [
+            "Use odds and lineups only if available=true.",
+            "If odds or lineups are unavailable, do not invent bookmaker lines, squads, injuries or absences.",
+            "Do not mention unavailable external blocks in the user-facing forecast unless they materially affect confidence.",
+        ],
+    }
+
+    return context
+
+
 def build_wc2026_openai_context(db, match) -> dict[str, Any]:
     api_client = ApiFootballClient()
     rankings = FifaRankingsStore()
@@ -196,7 +430,10 @@ def build_wc2026_openai_context(db, match) -> dict[str, Any]:
         limit=5,
     )
 
-
+    external_context = build_optional_external_forecast_context(
+        api_client=api_client,
+        match=match,
+    )
 
     return {
         "fixture": {
@@ -231,6 +468,7 @@ def build_wc2026_openai_context(db, match) -> dict[str, Any]:
             "matches": h2h_rows,
             "matches_short": compact_match_rows(h2h_rows, limit=5),
         },
+        "external_context": external_context,
         "note": (
             "For FIFA ranking, if total_points is null, use rank only. "
             "Lower rank number means stronger team. "

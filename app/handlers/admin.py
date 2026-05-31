@@ -36,6 +36,7 @@ from app.runtime import (
     timedelta,
     timezone,
 )
+from app.services.api_coverage import build_api_coverage_report
 from app.services.admin import build_command_stats_for_period, ensure_admin_or_reply, get_admin_telegram_ids, get_today_moscow_range_utc, is_user_admin
 from app.services.archive import import_historical_archive_from_seed
 from app.services.facts import get_random_archive_card_for_daily_rubric, get_random_fact_not_sent_today, import_world_cup_facts_from_seed, send_daily_fact_to_group
@@ -155,6 +156,8 @@ async def admin_handler(message: Message):
             "/admin_release group — отправить релиз в общий чат\n"
             "/admin_release users — отправить релиз всем пользователям в личку\n"
             "/admin_release both — отправить релиз и в чат, и пользователям\n\n"
+            "Покрытие API-Football для расширенного forecast:\n"
+            "/admin_api_coverage 10\n\n"
             "Статистика команд:\n"
             "/admin_command_stats\n"
             "/admin_command_stats_user Имя или TelegramID\n\n"
@@ -1497,6 +1500,38 @@ async def admin_rankings_check_handler(message: Message):
             f"Очки: {result.get('total_points')}\n"
             f"Очки доступны: {result.get('points_available')}"
         )
+
+    finally:
+        db.close()
+
+
+async def admin_api_coverage_handler(message: Message):
+    """Check API-Football availability for optional forecast inputs."""
+    db = SessionLocal()
+
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+
+        if not ensure_admin_or_reply(user):
+            await message.answer("У тебя нет админских прав.")
+            return
+
+        parts = message.text.split()
+
+        limit = 10
+
+        if len(parts) > 1:
+            try:
+                limit = int(parts[1])
+            except ValueError:
+                await message.answer("Формат: /admin_api_coverage 10")
+                return
+
+        limit = max(1, min(limit, 30))
+
+        lines = build_api_coverage_report(db=db, limit=limit)
+
+        await send_long_message(message, lines)
 
     finally:
         db.close()
