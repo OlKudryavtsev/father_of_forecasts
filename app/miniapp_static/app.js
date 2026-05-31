@@ -719,21 +719,6 @@ async function loadResources() {
   const container = document.querySelector('#resources');
 
   container.innerHTML = `
-    <h2>Полезные ресурсы</h2>
-
-    <div class="card resource-hero">
-      <div class="resource-hero-icon">🔗</div>
-      <div>
-        <h3>Полезные ссылки по ЧМ-2026</h3>
-        <div class="resource-chip-row">
-          <span class="badge">live</span>
-          <span class="badge">статистика</span>
-          <span class="badge">новости</span>
-          <span class="badge">официально</span>
-        </div>
-      </div>
-    </div>
-
     ${RESOURCE_GROUPS.map((group) => `
       <section class="resource-section">
         <h3>${group.title}</h3>
@@ -744,13 +729,6 @@ async function loadResources() {
       </section>
     `).join('')}
 
-    <div class="card compact">
-      <h3>⚠️ Осторожно с билетами и фейковыми сайтами</h3>
-      <p class="muted">
-        Для билетов, расписания и официальных новостей лучше использовать домены FIFA и проверенные источники.
-        Не переходи по подозрительным рекламным ссылкам и не вводи платежные данные на похожих доменах.
-      </p>
-    </div>
   `;
 }
 

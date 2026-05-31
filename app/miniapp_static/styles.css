@@ -672,23 +672,7 @@ input:focus {
 }
 
 
-.resource-hero {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 13px;
-  align-items: start;
-}
 
-.resource-hero-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  font-size: 24px;
-}
 
 .resource-section {
   margin: 16px 0;
@@ -778,9 +762,3 @@ input:focus {
 }
 
 
-.resource-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 7px;
-}
