@@ -383,7 +383,7 @@ def get_table(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return tournament leaderboard with prediction progress for Mini App."""
+    """Return tournament leaderboard with compact participant progress details."""
     rows = build_table_rows(db)
 
     users_by_name = {
@@ -391,9 +391,12 @@ def get_table(
         for user in db.query(User).all()
     }
 
+    available_matches_count = len(get_all_available_matches(db, limit=1000))
+
     for index, row in enumerate(rows, start=1):
         user = users_by_name.get(row["name"])
         tournament_prediction = None
+        user_predictions_count = row.get("total_predictions", 0)
 
         if user:
             tournament_prediction = (
@@ -404,13 +407,44 @@ def get_table(
                 )
                 .first()
             )
+            user_predictions_count = (
+                db.query(Prediction)
+                .filter(Prediction.user_id == user.id)
+                .count()
+            )
+
+        exact_scores = row.get("exact_scores", 0)
+        outcomes = row.get("outcomes", 0)
+        advancement_plus = row.get("advancement_plus", 0)
+        advancement_minus = row.get("advancement_minus", 0)
+        match_points = row.get("match_points", 0)
+        tournament_points = row.get("tournament_points", 0)
+        total_points = row.get("points", 0)
+        accuracy_base = max(1, user_predictions_count)
+        successful_predictions = exact_scores + outcomes
 
         row["rank"] = index
         row["is_current_user"] = row["name"] == current_user.display_name
-        row["match_predictions_count"] = row.get("total_predictions", 0)
+        row["match_predictions_count"] = user_predictions_count
+        row["match_predictions_available"] = available_matches_count
+        row["match_predictions_progress"] = (
+            f"{user_predictions_count}/{available_matches_count}"
+            if available_matches_count
+            else str(user_predictions_count)
+        )
         row["tournament_prediction_count"] = 4 if tournament_prediction else 0
         row["tournament_prediction_total"] = 4
         row["tournament_prediction_progress"] = "4/4" if tournament_prediction else "0/4"
+        row["has_tournament_prediction"] = tournament_prediction is not None
+        row["exact_scores"] = exact_scores
+        row["outcomes"] = outcomes
+        row["advancement_plus"] = advancement_plus
+        row["advancement_minus"] = advancement_minus
+        row["match_points"] = match_points
+        row["tournament_points"] = tournament_points
+        row["points"] = total_points
+        row["successful_predictions"] = successful_predictions
+        row["accuracy_percent"] = round(successful_predictions * 100 / accuracy_base)
 
     return {"rows": rows}
 

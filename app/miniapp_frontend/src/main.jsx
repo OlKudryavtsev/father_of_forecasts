@@ -885,6 +885,7 @@ function Predictions({ onPredict, onForecast }) {
 function Rating() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+
   useEffect(() => {
     api('/api/webapp/table').then(setData).catch(setError);
   }, []);
@@ -893,19 +894,47 @@ function Rating() {
   if (!data) return <LoadingCard />;
 
   return (
-    <main className="screen-content">
-      <div className="section-label">Таблица лидеров</div>
-      <div className="ranking-list">
+    <main className="screen-content rating-screen">
+      <div className="section-label">Рейтинг участников</div>
+      <div className="ranking-list compact-ranking-list">
         {(data.rows || []).map((row) => (
-          <div key={row.name} className={`ranking-row ${row.is_current_user ? 'me' : ''}`}>
-            <span className="rank">#{row.rank}</span>
-            <strong>{row.name}</strong>
-            <span>{row.points} очков</span>
-            <small>
-              Матчевые прогнозы: {row.match_predictions_count ?? row.total_predictions ?? 0} ·
-              Турнирный прогноз: {row.tournament_prediction_progress || '0/4'} ·
-              🎯 {row.exact_scores}
-            </small>
+          <div key={row.name} className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''}`}>
+            <div className="rating-main-line">
+              <span className="rank">#{row.rank}</span>
+              <div className="rating-player">
+                <strong>{row.name}</strong>
+                <small>
+                  {row.points} очков · матчи {row.match_points} · турнир {row.tournament_points}
+                </small>
+              </div>
+              <div className={`tournament-progress-pill ${row.has_tournament_prediction ? 'done' : 'empty'}`}>
+                {row.tournament_prediction_progress || '0/4'}
+              </div>
+            </div>
+
+            <div className="rating-metrics-grid">
+              <div>
+                <b>{row.match_predictions_count ?? row.total_predictions ?? 0}</b>
+                <span>прогнозов</span>
+              </div>
+              <div>
+                <b>{row.outcomes ?? 0}</b>
+                <span>исходов</span>
+              </div>
+              <div>
+                <b>{row.exact_scores ?? 0}</b>
+                <span>точных</span>
+              </div>
+              <div>
+                <b>{row.accuracy_percent ?? 0}%</b>
+                <span>попаданий</span>
+              </div>
+            </div>
+
+            <div className="rating-foot-line">
+              <span>Прогнозы на матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
+              <span>Проход: +{row.advancement_plus || 0} / {row.advancement_minus || 0}</span>
+            </div>
           </div>
         ))}
       </div>

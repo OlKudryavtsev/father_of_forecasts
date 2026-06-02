@@ -2763,3 +2763,141 @@ body {
 .ranking-row small {
   line-height: 1.45;
 }
+
+
+/* Rich rating rows */
+
+.rating-screen .section-label {
+  margin-bottom: 10px;
+}
+
+.compact-ranking-list {
+  gap: 9px;
+}
+
+.rating-rich-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px;
+}
+
+.rating-main-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.rating-player {
+  min-width: 0;
+}
+
+.rating-player strong,
+.rating-player small {
+  display: block;
+}
+
+.rating-player strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rating-player small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  margin-top: 3px;
+}
+
+.tournament-progress-pill {
+  min-width: 46px;
+  min-height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.tournament-progress-pill.done {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.tournament-progress-pill.empty {
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.rating-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.rating-metrics-grid div {
+  min-height: 54px;
+  padding: 8px 6px;
+  border-radius: 13px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(148, 163, 184, 0.10);
+  text-align: center;
+}
+
+.rating-metrics-grid b {
+  display: block;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.rating-metrics-grid span {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.rating-foot-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.rating-foot-line span {
+  min-width: 0;
+}
+
+@media (max-width: 390px) {
+  .rating-rich-row {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .rating-metrics-grid {
+    gap: 5px;
+  }
+
+  .rating-metrics-grid div {
+    min-height: 50px;
+    padding: 7px 4px;
+  }
+
+  .rating-metrics-grid b {
+    font-size: 16px;
+  }
+
+  .rating-metrics-grid span {
+    font-size: 9px;
+  }
+
+  .rating-foot-line {
+    font-size: 10px;
+  }
+}

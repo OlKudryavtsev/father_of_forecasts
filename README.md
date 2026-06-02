@@ -1118,3 +1118,8 @@ scripts/data/
 ## Mini App profile/rating fix
 
 См. `MINIAPP_2_PROFILE_RATING_FIX.md`.
+
+
+## Mini App rating details update
+
+См. `MINIAPP_2_RATING_DETAILS_UPDATE.md`.
