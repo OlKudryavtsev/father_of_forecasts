@@ -1083,3 +1083,8 @@ scripts/data/
 - Упрощенные экраны `Турнир` и `Еще`.
 - React/Vite frontend в `app/miniapp_frontend`.
 
+
+
+## Mini App 2.0: iPhone/UX polish
+
+См. `MINIAPP_2_IPHONE_UX_POLISH.md`.

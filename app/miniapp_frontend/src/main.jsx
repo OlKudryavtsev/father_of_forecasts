@@ -11,7 +11,7 @@ if (tg) {
 }
 
 const TABS = [
-  { id: 'matches', label: 'Матчи', icon: '🏀' },
+  { id: 'matches', label: 'Матч-центр', icon: '⚽' },
   { id: 'predictions', label: 'Прогнозы', icon: '🎯' },
   { id: 'tournament', label: 'Турнир', icon: '🏆' },
   { id: 'rating', label: 'Рейтинг', icon: '🏅' },
@@ -83,6 +83,36 @@ function formatCountdown(days) {
   return `до ЧМ ${days} ${word}`;
 }
 
+function useNowTick() {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return now;
+}
+
+function formatLiveCountdown(targetValue, now) {
+  if (!targetValue) return 'до ЧМ';
+  const target = new Date(targetValue).getTime();
+  const diff = Math.max(0, target - now);
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const pad = (value) => String(value).padStart(2, '0');
+
+  if (days > 0) {
+    return `до ЧМ ${days}д ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  }
+
+  return `до ЧМ ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
 function compactDate(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -107,21 +137,24 @@ function LoadingCard({ text = 'Загружаю...' }) {
 }
 
 function Header({ dashboard, onRules }) {
+  const now = useNowTick();
+  const countdownText = formatLiveCountdown(dashboard?.tournament?.starts_at, now);
+
   return (
     <header className="league-header">
-      <div className="telegram-title">ЛИГА ПРОГНОЗОВ — ЧМ 2026</div>
+      <div className="telegram-title">ОТЕЦ ПРОГНОЗОВ · ЧМ-2026</div>
 
       <div className="league-main">
         <div className="league-logo">🏆</div>
         <div className="league-text">
-          <h1>Лига Прогнозов</h1>
-          <div className="muted">ЧМ-2026 · США · Мексика · Канада</div>
+          <h1>Отец прогнозов</h1>
+          <div className="league-subtitle">ЧМ-2026 · США · Мексика · Канада</div>
         </div>
         <button className="rules-button" onClick={onRules}>Правила</button>
       </div>
 
       <div className="league-status">
-        <span className="status-section">{formatCountdown(dashboard?.tournament?.days_until_start)}</span>
+        <span className="status-section live-countdown">{countdownText}</span>
         <span className="divider" />
         <span className="points">{dashboard?.points ?? 0} очков</span>
         <span className="muted">#{dashboard?.rank || '—'}</span>
@@ -130,9 +163,10 @@ function Header({ dashboard, onRules }) {
   );
 }
 
-function HomeHero({ dashboard, setTab }) {
+function HomeHero({ dashboard, tournamentPrediction, setTab }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
-  const tournamentDone = dashboard?.tournament?.has_prediction;
+  const tournamentProgress = tournamentPrediction?.prediction ? '4/4' : '0/4';
+
   return (
     <section className="home-hero">
       <button className="hero-action hero-primary" onClick={() => setTab('predictions')}>
@@ -150,7 +184,7 @@ function HomeHero({ dashboard, setTab }) {
           <strong>Прогнозы на турнир</strong>
           <small>Победитель · призеры · бомбардир</small>
         </span>
-        <b>{tournamentDone ? '4/4' : '0/4'}</b>
+        <b>{tournamentProgress}</b>
       </button>
     </section>
   );
@@ -181,7 +215,7 @@ function PredictionBars({ distribution }) {
   );
 }
 
-function MatchCard({ match, onPredict, showDistribution = true }) {
+function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const scoreText = match.is_finished && match.score_home !== null
     ? `${match.score_home}:${match.score_away}`
@@ -212,6 +246,11 @@ function MatchCard({ match, onPredict, showDistribution = true }) {
           <span className="flag">{match.away_flag || '🏳️'}</span>
           <strong>{match.away_team}</strong>
         </div>
+      </div>
+
+      <div className="match-actions">
+        {!locked && <button onClick={() => onPredict(match)}>✍️ Прогноз</button>}
+        <button onClick={() => onForecast(match)}>🤖 Прогноз Отца</button>
       </div>
 
       {showDistribution && <PredictionBars distribution={match.prediction_distribution} />}
@@ -266,7 +305,7 @@ function GroupTable({ group }) {
   );
 }
 
-function MatchCenter({ onPredict }) {
+function MatchCenter({ onPredict, onForecast }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [data, setData] = useState(null);
@@ -318,7 +357,7 @@ function MatchCenter({ onPredict }) {
                 <span>{formatDayTitle(matches[0]?.starts_at)}</span>
                 <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
               </div>
-              {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} />)}
+              {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} />)}
             </section>
           ))}
         </>
@@ -412,7 +451,42 @@ function ScorePicker({ match, onClose, onSaved }) {
   );
 }
 
-function Predictions({ onPredict }) {
+
+function ForecastModal({ match, onClose }) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    setText('');
+    setError(null);
+
+    api(`/api/webapp/forecast/${match.id}`)
+      .then((result) => {
+        if (active) setText(result.text || 'Прогноз пока не получен.');
+      })
+      .catch((err) => {
+        if (active) setError(err);
+      });
+
+    return () => { active = false; };
+  }, [match.id]);
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card forecast-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>🤖 Прогноз Отца</h2>
+        <p className="muted">{match.home_team} — {match.away_team}</p>
+        {error && <p className="error-text">{error.message}</p>}
+        {!error && !text && <LoadingCard text="Отец прогнозов думает..." />}
+        {text && <pre className="forecast-text">{text}</pre>}
+      </section>
+    </div>
+  );
+}
+
+function Predictions({ onPredict, onForecast }) {
   const [data, setData] = useState(null);
   const [scope, setScope] = useState('missing');
   const [error, setError] = useState(null);
@@ -449,7 +523,7 @@ function Predictions({ onPredict }) {
         groupMatchesByDay(matches).map(([day, dayMatches]) => (
           <section key={day} className="match-day">
             <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-            {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} showDistribution={false} />)}
+            {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
           </section>
         ))
       )}
@@ -484,17 +558,29 @@ function Rating() {
   );
 }
 
-function Tournament() {
-  const [prediction, setPrediction] = useState(null);
+function Tournament({ tournamentPrediction }) {
+  const [prediction, setPrediction] = useState(tournamentPrediction);
   const [forecast, setForecast] = useState(null);
+  const [scorers, setScorers] = useState(null);
+  const [openFather, setOpenFather] = useState(false);
+  const [openHelp, setOpenHelp] = useState(false);
+
   useEffect(() => {
-    api('/api/webapp/tournament-prediction/me').then(setPrediction).catch(() => {});
+    if (!tournamentPrediction) {
+      api('/api/webapp/tournament-prediction/me').then(setPrediction).catch(() => {});
+    }
     api('/api/webapp/tournament-forecast').then(setForecast).catch(() => {});
-  }, []);
-  const p = prediction?.prediction;
+    api('/api/webapp/top-scorer-candidates').then(setScorers).catch(() => {});
+  }, [tournamentPrediction]);
+
+  const p = (prediction || tournamentPrediction)?.prediction;
+  const father = forecast?.forecast;
+  const fatherPicks = father?.forecast || {};
+
   return (
     <main className="screen-content">
-      <div className="section-label">Турнир</div>
+      <div className="section-label">Турнирный прогноз</div>
+
       <section className="card">
         <h2>Мой турнирный прогноз</h2>
         {p ? (
@@ -505,19 +591,55 @@ function Tournament() {
             <div>⚽ <b>{p.top_scorer}</b><small>Бомбардир</small></div>
           </div>
         ) : (
-          <p className="muted">Турнирный прогноз пока не заполнен.</p>
+          <p className="muted">Турнирный прогноз пока не заполнен. Заполни его в боте или предыдущей форме Mini App.</p>
         )}
       </section>
-      <section className="card">
-        <h2>🤖 Прогноз Отца прогнозов</h2>
-        {forecast ? (
-          <div className="tournament-grid">
-            <div>🏆 <b>{forecast.forecast.forecast.champion}</b><small>Победитель</small></div>
-            <div>🥈 <b>{forecast.forecast.forecast.runner_up}</b><small>Финалист</small></div>
-            <div>🥉 <b>{forecast.forecast.forecast.third_place}</b><small>3 место</small></div>
-            <div>⚽ <b>{forecast.forecast.forecast.top_scorer}</b><small>Бомбардир</small></div>
+
+      <section className="card compact-card">
+        <button className="wide-toggle" onClick={() => setOpenFather(!openFather)}>🤖 Прогноз Отца прогнозов</button>
+        {openFather && (
+          <div className="collapsed-panel">
+            {father ? (
+              <>
+                <div className="tournament-grid">
+                  <div>🏆 <b>{fatherPicks.champion}</b><small>Победитель</small></div>
+                  <div>🥈 <b>{fatherPicks.runner_up}</b><small>Финалист</small></div>
+                  <div>🥉 <b>{fatherPicks.third_place}</b><small>3 место</small></div>
+                  <div>⚽ <b>{fatherPicks.top_scorer}</b><small>Бомбардир</small></div>
+                </div>
+                <h3>Почему так</h3>
+                <ul className="nice-list">
+                  {(father.reasoning || []).map((item) => <li key={item}>{item}</li>)}
+                </ul>
+                <h3>Альтернативы</h3>
+                <p className="muted">🏆 {(father.alternatives?.champion || []).join(', ') || '—'}</p>
+                <p className="muted">🥈 {(father.alternatives?.runner_up || []).join(', ') || '—'}</p>
+                <p className="muted">🥉 {(father.alternatives?.third_place || []).join(', ') || '—'}</p>
+                <p className="muted">⚽ {(father.alternatives?.top_scorer || []).join(', ') || '—'}</p>
+                <p className="father-comment">{father.spicy_comment}</p>
+              </>
+            ) : <LoadingCard />}
           </div>
-        ) : <p className="muted">Загружаю...</p>}
+        )}
+      </section>
+
+      <section className="card compact-card">
+        <button className="wide-toggle" onClick={() => setOpenHelp(!openHelp)}>⚽ Помощь Отца по бомбардирам</button>
+        {openHelp && (
+          <div className="collapsed-panel">
+            <p>{scorers?.hint || 'Загружаю подсказку...'}</p>
+            <div className="scorer-list">
+              {(scorers?.candidates || []).map((candidate) => (
+                <div className="scorer-card" key={candidate.name}>
+                  <strong>{candidate.name}</strong>
+                  <span>{candidate.team}</span>
+                  <small>{candidate.tier}</small>
+                  <p>{candidate.note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     </main>
   );
@@ -567,15 +689,41 @@ function More() {
 function RulesModal({ onClose }) {
   return (
     <div className="modal-backdrop">
-      <section className="modal-card">
+      <section className="modal-card rules-modal">
         <button className="modal-close" onClick={onClose}>×</button>
-        <h2>Правила</h2>
-        <ul className="rules-list">
-          <li>Прогноз на матч принимается до стартового свистка.</li>
-          <li>Точный счет — максимум очков.</li>
-          <li>Исход без точного счета — частичные очки.</li>
-          <li>Турнирный прогноз можно менять до старта ЧМ.</li>
-        </ul>
+        <h2>📜 Правила начисления очков</h2>
+
+        <div className="rules-section">
+          <h3>За каждый матч</h3>
+          <div className="rules-score-grid">
+            <div><b>🎯 3</b><span>точный счет</span></div>
+            <div><b>✅ 1</b><span>угаданный исход</span></div>
+            <div><b>❌ 0</b><span>счет и исход не угаданы</span></div>
+          </div>
+          <p className="muted">
+            Пример: прогноз Мексика — ЮАР 2:1. Если матч закончился 2:1 — 3 очка.
+            Если 3:1 — 1 очко. Если 2:2 или 0:1 — 0 очков.
+          </p>
+        </div>
+
+        <div className="rules-section">
+          <h3>Плей-офф</h3>
+          <ul className="nice-list">
+            <li>🟢 +1 очко — если проход дальше угадан.</li>
+            <li>🔴 -1 очко — если проход не угадан.</li>
+            <li>⚪ 0 очков — если участник решил не ставить на проход.</li>
+          </ul>
+        </div>
+
+        <div className="rules-section">
+          <h3>Прогноз на итоги турнира</h3>
+          <div className="rules-score-grid tournament-rules">
+            <div><b>🏆 15</b><span>чемпион</span></div>
+            <div><b>🥈 10</b><span>финалист</span></div>
+            <div><b>🥉 5</b><span>3 место</span></div>
+            <div><b>⚽ 15</b><span>бомбардир</span></div>
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -586,12 +734,19 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
+  const [forecastMatch, setForecastMatch] = useState(null);
+  const [tournamentPrediction, setTournamentPrediction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
 
   async function loadDashboard() {
     try {
-      setDashboard(await api('/api/webapp/dashboard'));
+      const [dashboardResult, tournamentPredictionResult] = await Promise.all([
+        api('/api/webapp/dashboard'),
+        api('/api/webapp/tournament-prediction/me').catch(() => null),
+      ]);
+      setDashboard(dashboardResult);
+      setTournamentPrediction(tournamentPredictionResult);
     } catch (err) {
       setDashboardError(err);
     }
@@ -613,12 +768,12 @@ function App() {
 
       {tab === 'matches' && (
         <>
-          <HomeHero dashboard={dashboard} setTab={setTab} />
-          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} />
+          <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} setTab={setTab} />
+          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />
         </>
       )}
-      {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} />}
-      {tab === 'tournament' && <Tournament />}
+      {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
+      {tab === 'tournament' && <Tournament tournamentPrediction={tournamentPrediction} />}
       {tab === 'rating' && <Rating />}
       {tab === 'more' && <More />}
 
@@ -632,6 +787,7 @@ function App() {
       </nav>
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
+      {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   );
