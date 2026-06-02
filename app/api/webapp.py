@@ -659,3 +659,235 @@ def get_random_archive_card(
             "related_name": card.related_name,
         }
     }
+
+
+def _empty_group_row(team_name: str, api_name: str | None = None) -> dict:
+    """Create an empty group standings row for a national team."""
+    display_name = get_team_name_ru(team_name)
+
+    return {
+        "team": display_name,
+        "flag": get_team_flag(display_name, api_name),
+        "played": 0,
+        "wins": 0,
+        "draws": 0,
+        "losses": 0,
+        "goals_for": 0,
+        "goals_against": 0,
+        "goal_difference": 0,
+        "points": 0,
+    }
+
+
+def _apply_group_match_result(row_home: dict, row_away: dict, match: Match) -> None:
+    """Apply a finished group-stage match result to two standings rows."""
+    if match.score_home is None or match.score_away is None:
+        return
+
+    home_goals = int(match.score_home)
+    away_goals = int(match.score_away)
+
+    row_home["played"] += 1
+    row_away["played"] += 1
+
+    row_home["goals_for"] += home_goals
+    row_home["goals_against"] += away_goals
+    row_home["goal_difference"] = row_home["goals_for"] - row_home["goals_against"]
+
+    row_away["goals_for"] += away_goals
+    row_away["goals_against"] += home_goals
+    row_away["goal_difference"] = row_away["goals_for"] - row_away["goals_against"]
+
+    if home_goals > away_goals:
+        row_home["wins"] += 1
+        row_home["points"] += 3
+        row_away["losses"] += 1
+    elif home_goals < away_goals:
+        row_away["wins"] += 1
+        row_away["points"] += 3
+        row_home["losses"] += 1
+    else:
+        row_home["draws"] += 1
+        row_away["draws"] += 1
+        row_home["points"] += 1
+        row_away["points"] += 1
+
+
+def _prediction_distribution(db: Session, match: Match) -> dict:
+    """Return aggregated user prediction distribution for a match."""
+    predictions = db.query(Prediction).filter(Prediction.match_id == match.id).all()
+    total = len(predictions)
+
+    home = 0
+    draw = 0
+    away = 0
+
+    for prediction in predictions:
+        if prediction.pred_home > prediction.pred_away:
+            home += 1
+        elif prediction.pred_home < prediction.pred_away:
+            away += 1
+        else:
+            draw += 1
+
+    def percent(value: int) -> int:
+        if total <= 0:
+            return 0
+        return round(value * 100 / total)
+
+    return {
+        "total": total,
+        "home": home,
+        "draw": draw,
+        "away": away,
+        "home_percent": percent(home),
+        "draw_percent": percent(draw),
+        "away_percent": percent(away),
+    }
+
+
+def _serialize_match_center_match(
+    db: Session,
+    match: Match,
+    user_prediction: Prediction | None = None,
+) -> dict:
+    """Serialize a match card for Mini App 2.0 match center."""
+    payload = _serialize_match(match, user_prediction)
+    payload["prediction_distribution"] = _prediction_distribution(db, match)
+    payload["fifa_match_no"] = match.fifa_match_no
+    payload["status_short"] = match.status_short
+    payload["status_long"] = match.status_long
+    payload["day_key"] = _ensure_utc(match.starts_at).date().isoformat()
+    return payload
+
+
+def _build_group_standings(db: Session) -> list[dict]:
+    """Build group standings for all WC2026 groups from stored results."""
+    group_matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.group_code.isnot(None),
+        )
+        .order_by(Match.group_code.asc(), Match.starts_at.asc())
+        .all()
+    )
+
+    groups: dict[str, dict[str, dict]] = {}
+
+    for match in group_matches:
+        group_code = str(match.group_code or "").strip()
+
+        if not group_code:
+            continue
+
+        if group_code not in groups:
+            groups[group_code] = {}
+
+        for team_name, api_name in [
+            (match.home_team, getattr(match, "home_team_api_name", None)),
+            (match.away_team, getattr(match, "away_team_api_name", None)),
+        ]:
+            if not team_name or team_name == "TBD":
+                continue
+
+            display_name = get_team_name_ru(team_name)
+
+            if display_name not in groups[group_code]:
+                groups[group_code][display_name] = _empty_group_row(team_name, api_name)
+
+        if bool(match.is_finished):
+            home_name = get_team_name_ru(match.home_team)
+            away_name = get_team_name_ru(match.away_team)
+
+            if home_name in groups[group_code] and away_name in groups[group_code]:
+                _apply_group_match_result(
+                    groups[group_code][home_name],
+                    groups[group_code][away_name],
+                    match,
+                )
+
+    result = []
+
+    for group_code in sorted(groups):
+        rows = list(groups[group_code].values())
+        rows.sort(
+            key=lambda row: (
+                row["points"],
+                row["goal_difference"],
+                row["goals_for"],
+                row["team"],
+            ),
+            reverse=True,
+        )
+
+        for index, row in enumerate(rows, start=1):
+            row["rank"] = index
+            row["qualification_zone"] = (
+                "direct" if index <= 2 else "playoff" if index == 3 else "out"
+            )
+
+        result.append(
+            {
+                "group_code": group_code,
+                "rows": rows,
+                "matches_played": sum(row["played"] for row in rows) // 2,
+            }
+        )
+
+    return result
+
+
+@router.get("/match-center")
+def get_match_center(
+    scope: str = Query(default="all", pattern="^(all|results)$"),
+    group_code: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return Mini App 2.0 match center data with filters and standings."""
+    query = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+    )
+
+    if group_code:
+        query = query.filter(Match.group_code == group_code)
+
+    if scope == "results":
+        query = query.filter(Match.is_finished == True)
+
+    matches = query.all()
+    predictions_by_match = _prediction_by_match_id(db, current_user, matches)
+
+    all_group_standings = _build_group_standings(db)
+    selected_group_standings = (
+        [
+            group
+            for group in all_group_standings
+            if not group_code or group["group_code"] == group_code
+        ]
+    )
+
+    groups = [
+        {
+            "group_code": group["group_code"],
+            "teams_count": len(group["rows"]),
+            "matches_played": group["matches_played"],
+        }
+        for group in all_group_standings
+    ]
+
+    return {
+        "filters": {
+            "scope": scope,
+            "group_code": group_code,
+        },
+        "groups": groups,
+        "standings": selected_group_standings,
+        "matches": [
+            _serialize_match_center_match(db, match, predictions_by_match.get(match.id))
+            for match in matches
+        ],
+    }
