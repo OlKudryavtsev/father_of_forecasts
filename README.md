@@ -1093,3 +1093,8 @@ scripts/data/
 ## Mini App 2.0 round 2 polish
 
 См. `MINIAPP_2_ROUND2_POLISH.md`.
+
+
+## Mini App 2.0 round 3 polish
+
+См. `MINIAPP_2_ROUND3_POLISH.md`.

@@ -172,6 +172,18 @@ function formatCountdown(days) {
   return `до ЧМ ${days} ${word}`;
 }
 
+function pluralRu(value, one, few, many) {
+  const number = Math.abs(Number(value) || 0);
+  const lastTwo = number % 100;
+  const last = number % 10;
+
+  if (lastTwo >= 11 && lastTwo <= 14) return many;
+  if (last === 1) return one;
+  if ([2, 3, 4].includes(last)) return few;
+  return many;
+}
+
+
 function useNowTick() {
   const [now, setNow] = useState(Date.now());
 
@@ -250,7 +262,7 @@ function Header({ dashboard, onRules }) {
   );
 }
 
-function HomeHero({ dashboard, tournamentPrediction, setTab }) {
+function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, setTab }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
   const p = tournamentPrediction?.prediction;
   const items = [
@@ -278,7 +290,7 @@ function HomeHero({ dashboard, tournamentPrediction, setTab }) {
         </div>
         <div className="tournament-mini-grid">
           {items.map((item) => (
-            <button key={item.key} onClick={() => setTab('tournament')}>
+            <button key={item.key} onClick={() => onTournamentPick(item.key)}>
               <i><Icon name={item.icon} /></i>
               <span>{item.label}</span>
               <strong>{item.value || 'Выбрать'}</strong>
@@ -300,7 +312,7 @@ function PredictionBars({ distribution }) {
     <div className="prediction-bars">
       <div className="bar-title">
         <span>Мнение участников</span>
-        <span>{data.total || 0} прогнозов</span>
+        <span>{data.total || 0} {pluralRu(data.total || 0, 'прогноз', 'прогноза', 'прогнозов')}</span>
       </div>
       <div className="bar-track" aria-label="Распределение прогнозов">
         <span className="bar-home" style={{ width: `${home}%` }} />
@@ -372,7 +384,7 @@ function groupMatchesByDay(matches) {
 function GroupTable({ group }) {
   if (!group) return null;
   return (
-    <section className="group-table-card">
+    <section className={`group-table-card group-color group-${group.group_code}`}>
       <div className="group-header">
         <div className="group-letter">{group.group_code}</div>
         <div>
@@ -386,7 +398,7 @@ function GroupTable({ group }) {
         </div>
         {group.rows.map((row) => (
           <div key={row.team} className={`standings-row zone-${row.qualification_zone}`}>
-            <span>{row.rank}</span>
+            <span className="rank-cell">{row.rank}</span>
             <span className="team-name">{row.flag} {row.team}</span>
             <span>{row.played}</span>
             <span>{row.wins}</span>
@@ -448,7 +460,7 @@ function MatchCenter({ onPredict, onForecast }) {
           <span>Результаты</span>
         </button>
         {(data?.groups || []).map((item) => (
-          <button key={item.group_code} className={group === item.group_code ? 'active group' : ''} onClick={() => { setGroup(item.group_code); setScope('all'); }}>
+          <button key={item.group_code} className={`group-color group-${item.group_code} ${group === item.group_code ? 'active group' : ''}`} onClick={() => { setGroup(item.group_code); setScope('all'); }}>
             <b>{item.group_code}</b>
             <span>группа</span>
           </button>
@@ -561,6 +573,130 @@ function ScorePicker({ match, onClose, onSaved }) {
   );
 }
 
+
+function TournamentPredictionModal({ currentPrediction, initialField = 'champion', onClose, onSaved }) {
+  const [teams, setTeams] = useState([]);
+  const [scorers, setScorers] = useState([]);
+  const existing = currentPrediction?.prediction || {};
+  const [champion, setChampion] = useState(existing.champion || '');
+  const [runnerUp, setRunnerUp] = useState(existing.runner_up || '');
+  const [thirdPlace, setThirdPlace] = useState(existing.third_place || '');
+  const [topScorerSelect, setTopScorerSelect] = useState(existing.top_scorer || '');
+  const [customTopScorer, setCustomTopScorer] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    api('/api/webapp/tournament-teams')
+      .then((result) => setTeams(result.teams || []))
+      .catch(setError);
+    api('/api/webapp/top-scorer-candidates')
+      .then((result) => setScorers(result.candidates || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const node = document.querySelector(`[data-field="${initialField}"]`);
+    if (node?.scrollIntoView) {
+      window.setTimeout(() => node.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+    }
+  }, [initialField]);
+
+  const teamOptions = teams.map((team) => team.name);
+  const scorerNames = scorers.map((candidate) => candidate.name);
+  const selectTopScorerValue = scorerNames.includes(topScorerSelect) ? topScorerSelect : topScorerSelect ? '__custom__' : '';
+  const currentTopScorer = selectTopScorerValue === '__custom__' ? customTopScorer.trim() : topScorerSelect;
+
+  useEffect(() => {
+    if (existing.top_scorer && scorers.length && !scorerNames.includes(existing.top_scorer)) {
+      setTopScorerSelect('__custom__');
+      setCustomTopScorer(existing.top_scorer);
+    }
+  }, [scorers.length]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+
+    if (!champion || !runnerUp || !thirdPlace || !currentTopScorer) {
+      setError(new Error('Заполни все 4 поля турнирного прогноза.'));
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await api('/api/webapp/tournament-prediction', {
+        method: 'POST',
+        body: JSON.stringify({
+          champion,
+          runner_up: runnerUp,
+          third_place: thirdPlace,
+          top_scorer: currentTopScorer,
+        }),
+      });
+      onSaved?.();
+      onClose?.();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function renderTeamSelect(label, value, setter, field) {
+    return (
+      <label className="tournament-field" data-field={field}>
+        <span>{label}</span>
+        <select value={value} onChange={(event) => setter(event.target.value)}>
+          <option value="">Выбрать</option>
+          {teamOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card tournament-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>Турнирный прогноз</h2>
+        <p className="muted">Заполни 4 позиции. До старта турнира прогноз можно менять.</p>
+
+        {renderTeamSelect('Победитель', champion, setChampion, 'champion')}
+        {renderTeamSelect('2-е место', runnerUp, setRunnerUp, 'runner_up')}
+        {renderTeamSelect('3-е место', thirdPlace, setThirdPlace, 'third_place')}
+
+        <label className="tournament-field" data-field="top_scorer">
+          <span>Бомбардир</span>
+          <select
+            value={selectTopScorerValue}
+            onChange={(event) => {
+              setTopScorerSelect(event.target.value);
+              if (event.target.value !== '__custom__') setCustomTopScorer('');
+            }}
+          >
+            <option value="">Выбрать</option>
+            {scorerNames.map((name) => <option key={name} value={name}>{name}</option>)}
+            <option value="__custom__">Свой вариант</option>
+          </select>
+        </label>
+
+        {topScorerSelect === '__custom__' && (
+          <input
+            className="custom-scorer-input"
+            value={customTopScorer}
+            onChange={(event) => setCustomTopScorer(event.target.value)}
+            placeholder="Введите своего бомбардира"
+          />
+        )}
+
+        {error && <p className="error-text">{error.message}</p>}
+        <button className="primary full" disabled={saving} onClick={save}>{saving ? 'Сохраняю...' : 'Сохранить турнирный прогноз'}</button>
+      </section>
+    </div>
+  );
+}
+
 function ForecastModal({ match, onClose }) {
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
@@ -597,6 +733,7 @@ function ForecastModal({ match, onClose }) {
 
 function Predictions({ onPredict, onForecast }) {
   const [data, setData] = useState(null);
+  const [activeSection, setActiveSection] = useState('missing');
   const [error, setError] = useState(null);
 
   async function load() {
@@ -616,51 +753,43 @@ function Predictions({ onPredict, onForecast }) {
   const matches = data?.matches || [];
   const missingMatches = matches.filter((match) => !match.prediction);
   const editableMatches = matches.filter((match) => match.prediction);
+  const visibleMatches = activeSection === 'missing' ? missingMatches : editableMatches;
 
   return (
     <main className="screen-content">
       <div className="section-label">Мои прогнозы</div>
-      <div className="stat-grid">
-        <div className="stat-card"><b>{data ? missingMatches.length : '—'}</b><span>Нужен прогноз</span></div>
-        <div className="stat-card"><b>{data ? editableMatches.length : '—'}</b><span>Можно изменить</span></div>
+      <div className="stat-grid prediction-tabs">
+        <button className={`stat-card ${activeSection === 'missing' ? 'active' : ''}`} onClick={() => setActiveSection('missing')}>
+          <b>{data ? missingMatches.length : '—'}</b>
+          <span>Нужен прогноз</span>
+        </button>
+        <button className={`stat-card ${activeSection === 'editable' ? 'active' : ''}`} onClick={() => setActiveSection('editable')}>
+          <b>{data ? editableMatches.length : '—'}</b>
+          <span>Можно изменить</span>
+        </button>
       </div>
 
       {!data ? <LoadingCard /> : (
-        <>
-          <section className="prediction-section">
-            <div className="subsection-title">
-              <h2>Нужен прогноз</h2>
-              <span>{missingMatches.length}</span>
-            </div>
-            {missingMatches.length === 0 ? (
-              <EmptyState iconName="target" title="Все готово" text="Нет матчей без вашего прогноза" />
-            ) : (
-              groupMatchesByDay(missingMatches).map(([day, dayMatches]) => (
-                <section key={day} className="match-day">
-                  <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-                  {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
-                </section>
-              ))
-            )}
-          </section>
-
-          <section className="prediction-section">
-            <div className="subsection-title">
-              <h2>Можно изменить</h2>
-              <span>{editableMatches.length}</span>
-            </div>
-            {editableMatches.length === 0 ? (
-              <p className="muted">Пока нет будущих матчей с вашим прогнозом.</p>
-            ) : (
-              groupMatchesByDay(editableMatches).map(([day, dayMatches]) => (
-                <section key={day} className="match-day">
-                  <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-                  {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
-                </section>
-              ))
-            )}
-          </section>
-        </>
+        <section className="prediction-section">
+          <div className="subsection-title">
+            <h2>{activeSection === 'missing' ? 'Нужен прогноз' : 'Можно изменить'}</h2>
+            <span>{visibleMatches.length}</span>
+          </div>
+          {visibleMatches.length === 0 ? (
+            <EmptyState
+              iconName="target"
+              title={activeSection === 'missing' ? 'Все готово' : 'Пока пусто'}
+              text={activeSection === 'missing' ? 'Нет матчей без вашего прогноза' : 'Нет будущих матчей с вашим прогнозом'}
+            />
+          ) : (
+            groupMatchesByDay(visibleMatches).map(([day, dayMatches]) => (
+              <section key={day} className="match-day">
+                <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
+                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
+              </section>
+            ))
+          )}
+        </section>
       )}
     </main>
   );
@@ -870,6 +999,7 @@ function App() {
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
   const [forecastMatch, setForecastMatch] = useState(null);
+  const [tournamentPickField, setTournamentPickField] = useState(null);
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -893,6 +1023,10 @@ function App() {
     setRefreshKey((value) => value + 1);
   }
 
+  function handleTournamentSaved() {
+    setRefreshKey((value) => value + 1);
+  }
+
   if (dashboardError) {
     return <div className="app"><ErrorCard error={dashboardError} onRetry={loadDashboard} /></div>;
   }
@@ -903,7 +1037,7 @@ function App() {
 
       {tab === 'matches' && (
         <>
-          <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} setTab={setTab} />
+          <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} setTab={setTab} />
           <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />
         </>
       )}
@@ -923,6 +1057,7 @@ function App() {
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
+      {tournamentPickField && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   );

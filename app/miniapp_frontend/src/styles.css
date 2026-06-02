@@ -1791,3 +1791,320 @@ body {
     max-width: 52px;
   }
 }
+
+
+/* Round 3 refinements */
+
+.league-status {
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  justify-content: flex-end;
+  width: fit-content;
+}
+
+.status-section,
+.points {
+  text-align: right;
+}
+
+.tournament-mini-grid button {
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.tournament-mini-grid button:active {
+  transform: scale(0.98);
+}
+
+.tournament-field {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.tournament-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tournament-field select,
+.custom-scorer-input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+}
+
+.tournament-modal {
+  max-height: 88vh;
+}
+
+.tournament-modal h2 {
+  padding-right: 40px;
+}
+
+.standings-row {
+  grid-template-columns: 32px minmax(92px, 1fr) 24px 24px 24px 24px 45px 30px 32px;
+  padding-left: 12px;
+}
+
+.rank-cell {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  font-weight: 900;
+  z-index: 1;
+}
+
+.standings-row.zone-direct::before,
+.standings-row.zone-playoff::before {
+  left: 2px;
+  width: 3px;
+  height: 22px;
+}
+
+.standings-row.zone-direct .rank-cell,
+.standings-row.zone-playoff .rank-cell {
+  color: var(--text);
+}
+
+.prediction-bars {
+  padding-top: 10px;
+}
+
+.bar-title {
+  font-size: 10px;
+  margin-bottom: 7px;
+}
+
+.bar-track {
+  height: 8px;
+}
+
+.bar-numbers {
+  margin-top: 6px;
+}
+
+.bar-numbers b {
+  font-size: 16px;
+}
+
+.bar-numbers small {
+  font-size: 10px;
+}
+
+.match-card {
+  padding: 12px;
+  margin-bottom: 9px;
+  border-radius: 18px;
+}
+
+.match-card-top {
+  min-height: 28px;
+}
+
+.group-pill {
+  min-height: 25px;
+  padding: 0 9px;
+  font-size: 10px;
+  border-radius: 9px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+}
+
+.match-teams {
+  margin: 10px 0 8px;
+}
+
+.flag {
+  font-size: 30px;
+}
+
+.team-side {
+  gap: 5px;
+}
+
+.team-side strong {
+  font-size: 13px;
+}
+
+.score-block {
+  min-width: 76px;
+}
+
+.score-block strong {
+  font-size: 20px;
+}
+
+.match-actions {
+  gap: 7px;
+  margin: 8px 0 9px;
+}
+
+.match-actions button {
+  min-height: 34px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.day-heading {
+  margin: 12px 6px 8px;
+}
+
+.day-heading span {
+  font-size: 15px;
+}
+
+.modern-filters button {
+  border: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.modern-filters button::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 17px;
+  background: rgba(11, 17, 32, 0.72);
+  z-index: 0;
+}
+
+.modern-filters button > * {
+  position: relative;
+  z-index: 1;
+}
+
+.modern-filters button:first-child {
+  background: linear-gradient(135deg, rgba(22,199,132,0.92), rgba(21,70,87,0.72));
+  color: var(--green);
+}
+
+.modern-filters button.result {
+  background: linear-gradient(135deg, rgba(244,191,54,0.95), rgba(90,70,22,0.72));
+  color: var(--gold);
+}
+
+.group-A { --group-color: #ff6872; --group-soft: rgba(255,104,114,0.16); }
+.group-B { --group-color: #5a8dff; --group-soft: rgba(90,141,255,0.16); }
+.group-C { --group-color: #16c784; --group-soft: rgba(22,199,132,0.16); }
+.group-D { --group-color: #a855f7; --group-soft: rgba(168,85,247,0.16); }
+.group-E { --group-color: #f97316; --group-soft: rgba(249,115,22,0.16); }
+.group-F { --group-color: #06b6d4; --group-soft: rgba(6,182,212,0.16); }
+.group-G { --group-color: #e879f9; --group-soft: rgba(232,121,249,0.16); }
+.group-H { --group-color: #84cc16; --group-soft: rgba(132,204,22,0.16); }
+.group-I { --group-color: #f43f5e; --group-soft: rgba(244,63,94,0.16); }
+.group-J { --group-color: #38bdf8; --group-soft: rgba(56,189,248,0.16); }
+.group-K { --group-color: #c084fc; --group-soft: rgba(192,132,252,0.16); }
+.group-L { --group-color: #2dd4bf; --group-soft: rgba(45,212,191,0.16); }
+
+.modern-filters .group-color {
+  background: linear-gradient(135deg, var(--group-color), rgba(25, 33, 54, 0.80));
+  color: var(--group-color);
+}
+
+.modern-filters button.active::after {
+  background: rgba(11, 17, 32, 0.52);
+}
+
+.modern-filters button.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.group-table-card.group-color {
+  border-color: color-mix(in srgb, var(--group-color) 55%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--group-color) 22%, transparent), rgba(13, 18, 31, 0.98));
+}
+
+.group-table-card.group-color .group-letter,
+.group-table-card.group-color .group-header h2 {
+  color: var(--group-color);
+}
+
+.group-table-card.group-color .group-letter {
+  background: var(--group-soft);
+  border-color: color-mix(in srgb, var(--group-color) 40%, transparent);
+}
+
+.group-table-card.group-color .standings-row.zone-direct::before {
+  background: var(--green);
+}
+
+.group-table-card.group-color .standings-row.zone-playoff::before {
+  background: var(--gold);
+}
+
+.prediction-tabs .stat-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.prediction-tabs .stat-card:active {
+  transform: scale(0.98);
+}
+
+.prediction-tabs .stat-card.active {
+  border-color: rgba(22,199,132,0.55);
+  background: var(--green-soft);
+}
+
+.prediction-tabs .stat-card.active b {
+  color: var(--green);
+}
+
+@media (max-width: 390px) {
+  .match-card {
+    padding: 10px;
+  }
+
+  .match-teams {
+    grid-template-columns: minmax(0, 1fr) 68px minmax(0, 1fr);
+  }
+
+  .flag {
+    font-size: 27px;
+  }
+
+  .team-side strong {
+    font-size: 12px;
+  }
+
+  .score-block {
+    min-width: 68px;
+  }
+
+  .score-block strong {
+    font-size: 18px;
+  }
+
+  .match-actions button {
+    font-size: 11px;
+    padding: 0 6px;
+  }
+
+  .bar-title {
+    font-size: 9px;
+  }
+
+  .bar-numbers b {
+    font-size: 15px;
+  }
+
+  .standings-row {
+    grid-template-columns: 30px minmax(80px, 1fr) 20px 20px 20px 20px 38px 25px 25px;
+    padding-left: 10px;
+    font-size: 11px;
+  }
+}
