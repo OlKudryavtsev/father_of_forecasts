@@ -1123,3 +1123,8 @@ scripts/data/
 ## Mini App rating details update
 
 См. `MINIAPP_2_RATING_DETAILS_UPDATE.md`.
+
+
+## Fantasy Release 1
+
+См. `FANTASY_RELEASE_1.md`.

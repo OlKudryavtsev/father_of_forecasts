@@ -159,6 +159,143 @@ class TournamentResult(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+
+
+class FantasyPlayer(Base):
+    __tablename__ = "fantasy_players"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    tournament_code = Column(String, nullable=False, default="wc2026", index=True)
+
+    external_player_id = Column(Integer, nullable=False, index=True)
+    external_team_id = Column(Integer, nullable=False, index=True)
+
+    team_name = Column(String, nullable=False, index=True)
+    team_display_name = Column(String, nullable=False, index=True)
+    team_flag = Column(String, nullable=True)
+
+    player_name = Column(String, nullable=False, index=True)
+    age = Column(Integer, nullable=True)
+    number = Column(Integer, nullable=True)
+    position = Column(String, nullable=False, index=True)
+    photo = Column(Text, nullable=True)
+
+    fifa_rank = Column(Integer, nullable=True)
+    fifa_category = Column(Integer, nullable=False, default=4, index=True)
+
+    is_active = Column(Boolean, default=True, index=True)
+    source_updated_at = Column(DateTime(timezone=True), nullable=True)
+    imported_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tournament_code",
+            "external_player_id",
+            "external_team_id",
+            name="uq_fantasy_player_tournament_external_player_team",
+        ),
+    )
+
+
+class FantasyTeam(Base):
+    __tablename__ = "fantasy_teams"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    tournament_code = Column(String, nullable=False, default="wc2026", index=True)
+
+    formation = Column(String, nullable=False, default="4-3-3")
+    captain_player_id = Column(Integer, ForeignKey("fantasy_players.id"), nullable=True)
+
+    points = Column(Integer, default=0)
+    is_locked = Column(Boolean, default=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+    captain = relationship("FantasyPlayer", foreign_keys=[captain_player_id])
+    players = relationship(
+        "FantasyTeamPlayer",
+        back_populates="fantasy_team",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "tournament_code",
+            name="uq_fantasy_team_user_tournament",
+        ),
+    )
+
+
+class FantasyTeamPlayer(Base):
+    __tablename__ = "fantasy_team_players"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    fantasy_team_id = Column(Integer, ForeignKey("fantasy_teams.id"), nullable=False, index=True)
+    player_id = Column(Integer, ForeignKey("fantasy_players.id"), nullable=False, index=True)
+
+    position_slot = Column(String, nullable=False)
+    position = Column(String, nullable=False, index=True)
+    is_captain = Column(Boolean, default=False)
+
+    points = Column(Integer, default=0)
+
+    fantasy_team = relationship("FantasyTeam", back_populates="players")
+    player = relationship("FantasyPlayer")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "fantasy_team_id",
+            "position_slot",
+            name="uq_fantasy_team_position_slot",
+        ),
+        UniqueConstraint(
+            "fantasy_team_id",
+            "player_id",
+            name="uq_fantasy_team_player",
+        ),
+    )
+
+
+class FantasyPlayerMatchStat(Base):
+    __tablename__ = "fantasy_player_match_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    player_id = Column(Integer, ForeignKey("fantasy_players.id"), nullable=False, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+
+    minutes = Column(Integer, default=0)
+    goals = Column(Integer, default=0)
+    assists = Column(Integer, default=0)
+    yellow_cards = Column(Integer, default=0)
+    red_cards = Column(Integer, default=0)
+    clean_sheet = Column(Boolean, default=False)
+    goals_conceded = Column(Integer, default=0)
+    own_goals = Column(Integer, default=0)
+    penalty_missed = Column(Integer, default=0)
+
+    points = Column(Integer, default=0)
+    source_updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    player = relationship("FantasyPlayer")
+    match = relationship("Match")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "player_id",
+            "match_id",
+            name="uq_fantasy_player_match_stat",
+        ),
+    )
+
+
 class ReminderLog(Base):
     __tablename__ = "reminder_logs"
 

@@ -12,6 +12,7 @@ if (tg) {
 
 const TABS = [
   { id: 'matches', label: 'Матч-центр', icon: 'ball' },
+  { id: 'fantasy', label: 'Команда', icon: 'team' },
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
@@ -257,6 +258,24 @@ function pluralRu(value, one, few, many) {
 
 function getTelegramPhotoUrl() {
   return tg?.initDataUnsafe?.user?.photo_url || '';
+}
+
+const FANTASY_SLOTS = [
+  { slot: 'НП1', position: 'Attacker', label: 'НП', top: 9, left: 20 },
+  { slot: 'НП2', position: 'Attacker', label: 'НП', top: 5, left: 50 },
+  { slot: 'НП3', position: 'Attacker', label: 'НП', top: 9, left: 80 },
+  { slot: 'ПЗ1', position: 'Midfielder', label: 'ПЗ', top: 39, left: 23 },
+  { slot: 'ПЗ2', position: 'Midfielder', label: 'ПЗ', top: 43, left: 50 },
+  { slot: 'ПЗ3', position: 'Midfielder', label: 'ПЗ', top: 39, left: 77 },
+  { slot: 'ЗЩ1', position: 'Defender', label: 'ЗЩ', top: 68, left: 12 },
+  { slot: 'ЗЩ2', position: 'Defender', label: 'ЗЩ', top: 72, left: 35 },
+  { slot: 'ЗЩ3', position: 'Defender', label: 'ЗЩ', top: 72, left: 65 },
+  { slot: 'ЗЩ4', position: 'Defender', label: 'ЗЩ', top: 68, left: 88 },
+  { slot: 'ВР1', position: 'Goalkeeper', label: 'ВР', top: 90, left: 50 },
+];
+
+function positionOrder(position) {
+  return { Goalkeeper: 0, Defender: 1, Midfielder: 2, Attacker: 3 }[position] ?? 9;
 }
 
 
@@ -818,6 +837,335 @@ function ForecastModal({ match, onClose }) {
   );
 }
 
+function Fantasy() {
+  const [players, setPlayers] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [rules, setRules] = useState(null);
+  const [team, setTeam] = useState(null);
+  const [selectedBySlot, setSelectedBySlot] = useState({});
+  const [captainId, setCaptainId] = useState(null);
+  const [pickerSlot, setPickerSlot] = useState(null);
+  const [q, setQ] = useState('');
+  const [filterTeam, setFilterTeam] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setError(null);
+    try {
+      const [playersResult, teamResult] = await Promise.all([
+        api('/api/webapp/fantasy/players?limit=1000'),
+        api('/api/webapp/fantasy/team/me'),
+      ]);
+      setPlayers(playersResult.players || []);
+      setTeams(playersResult.teams || []);
+      setRules(playersResult.rules || teamResult.rules || null);
+      setTeam(teamResult.team || null);
+
+      const nextSelected = {};
+      for (const item of teamResult.team?.players || []) {
+        nextSelected[item.position_slot] = item.player;
+      }
+      setSelectedBySlot(nextSelected);
+      setCaptainId(teamResult.team?.captain_player_id || null);
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const selectedPlayers = Object.values(selectedBySlot).filter(Boolean);
+  const selectedIds = new Set(selectedPlayers.map((player) => player.id));
+  const selectedCount = selectedPlayers.length;
+  const points = team?.points || 0;
+  const categoryCounts = selectedPlayers.reduce((acc, player) => {
+    acc[player.fifa_category] = (acc[player.fifa_category] || 0) + 1;
+    return acc;
+  }, {});
+  const teamCounts = selectedPlayers.reduce((acc, player) => {
+    acc[player.team_display_name] = (acc[player.team_display_name] || 0) + 1;
+    return acc;
+  }, {});
+
+  function selectPlayer(slot, player) {
+    const previous = selectedBySlot[slot.slot];
+    const nextSelected = { ...selectedBySlot };
+    nextSelected[slot.slot] = player;
+
+    if (previous?.id === captainId) {
+      setCaptainId(null);
+    }
+
+    setSelectedBySlot(nextSelected);
+    setPickerSlot(null);
+    setQ('');
+  }
+
+  function removePlayer(slotName) {
+    const player = selectedBySlot[slotName];
+    const nextSelected = { ...selectedBySlot };
+    delete nextSelected[slotName];
+    setSelectedBySlot(nextSelected);
+
+    if (player?.id === captainId) {
+      setCaptainId(null);
+    }
+  }
+
+  function setRandomTeam() {
+    const nextSelected = {};
+    const nextTeamCounts = {};
+    const nextCategoryCounts = {};
+    const shuffled = [...players].sort(() => Math.random() - 0.5);
+
+    for (const slot of FANTASY_SLOTS) {
+      const candidate = shuffled.find((player) => {
+        if (player.position !== slot.position) return false;
+        if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
+        if ((nextTeamCounts[player.team_display_name] || 0) >= 2) return false;
+        const categoryLimit = rules?.category_limits?.[player.fifa_category] || (player.fifa_category === 4 ? 2 : 3);
+        if ((nextCategoryCounts[player.fifa_category] || 0) >= categoryLimit) return false;
+        return true;
+      });
+
+      if (candidate) {
+        nextSelected[slot.slot] = candidate;
+        nextTeamCounts[candidate.team_display_name] = (nextTeamCounts[candidate.team_display_name] || 0) + 1;
+        nextCategoryCounts[candidate.fifa_category] = (nextCategoryCounts[candidate.fifa_category] || 0) + 1;
+      }
+    }
+
+    setSelectedBySlot(nextSelected);
+    const first = Object.values(nextSelected)[0];
+    setCaptainId(first?.id || null);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const playerIds = FANTASY_SLOTS.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
+      if (playerIds.length !== 11) throw new Error('Выберите всех 11 игроков.');
+      if (!captainId) throw new Error('Выберите капитана — его очки будут удваиваться.');
+      const result = await api('/api/webapp/fantasy/team', {
+        method: 'POST',
+        body: JSON.stringify({ formation: '4-3-3', player_ids: playerIds, captain_player_id: captainId }),
+      });
+      setTeam(result.team);
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (error && !players.length) return <ErrorCard error={error} onRetry={load} />;
+  if (!rules) return <LoadingCard />;
+
+  return (
+    <main className="screen-content fantasy-screen">
+      <div className="section-label">Собрать команду</div>
+
+      <section className="fantasy-hero">
+        <div>
+          <h2>Fantasy ЧМ-2026</h2>
+          <p>{selectedCount}/11 · до 2 из сборной · капитан x2</p>
+        </div>
+        <div className="fantasy-points"><b>{points}</b><span>очков</span></div>
+      </section>
+
+      <div className="fantasy-toolbar">
+        <strong>4 — 3 — 3</strong>
+        <span>Ваш состав</span>
+      </div>
+
+      <section className="football-pitch">
+        <div className="pitch-line box-top" />
+        <div className="pitch-line center-line" />
+        <div className="pitch-circle" />
+        <div className="pitch-line box-bottom" />
+        {FANTASY_SLOTS.map((slot) => {
+          const player = selectedBySlot[slot.slot];
+          const isCaptain = player?.id === captainId;
+          return (
+            <button
+              key={slot.slot}
+              className={`pitch-slot ${player ? 'filled' : ''} ${isCaptain ? 'captain' : ''}`}
+              style={{ top: `${slot.top}%`, left: `${slot.left}%` }}
+              onClick={() => setPickerSlot(slot)}
+            >
+              {player ? (
+                <>
+                  <span>{player.team_flag}</span>
+                  <strong>{player.name}</strong>
+                  {isCaptain && <em>C</em>}
+                </>
+              ) : (
+                <>
+                  <b>+</b>
+                  <small>{slot.label}</small>
+                </>
+              )}
+            </button>
+          );
+        })}
+        <button className="random-team-button" onClick={setRandomTeam}>случайный состав</button>
+      </section>
+
+      <section className="card fantasy-rules-card">
+        <h2>Правила набора</h2>
+        <ul className="nice-list">
+          <li><b>Главное правило:</b> очки и штрафы начисляются только если игрок принял участие в матче.</li>
+          <li>Соберите 11 игроков по схеме 4-3-3.</li>
+          <li>Из одной сборной можно взять максимум 2 игроков.</li>
+          <li>Выберите капитана — его очки удваиваются.</li>
+        </ul>
+        <div className="fantasy-categories">
+          {rules.categories.map((category) => (
+            <div key={category.id} className={`category-line category-${category.id}`}>
+              <i>Г{category.id}</i>
+              <span><strong>{category.title}</strong><small>{category.range}</small></span>
+              <b>{categoryCounts[category.id] || 0}/{category.limit}</b>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="card fantasy-scoring-card">
+        <h2>Как начисляются очки</h2>
+        <p className="gold-text">Очки капитана удваиваются. Очки считаются только если игрок участвовал в матче.</p>
+        <div className="fantasy-scoring-grid">
+          {rules.scoring.map((item) => (
+            <div key={item.title} className={item.type === 'minus' ? 'minus' : ''}>
+              <strong>{item.title}</strong>
+              <span>{item.description}</span>
+              <b>{item.points > 0 ? '+' : ''}{item.points}</b>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="card fantasy-save-card">
+        <div>
+          <strong>{selectedCount}/11 игроков</strong>
+          <span>Капитан: {selectedPlayers.find((player) => player.id === captainId)?.name || 'не выбран'}</span>
+        </div>
+        {error && <p className="error-text">{error.message}</p>}
+        <button className="primary full" disabled={saving || rules.is_locked} onClick={save}>
+          {rules.is_locked ? 'Команда закрыта' : saving ? 'Сохраняю...' : 'Сохранить команду'}
+        </button>
+      </section>
+
+      {pickerSlot && (
+        <FantasyPlayerPicker
+          slot={pickerSlot}
+          players={players}
+          teams={teams}
+          selectedIds={selectedIds}
+          selectedBySlot={selectedBySlot}
+          teamCounts={teamCounts}
+          categoryCounts={categoryCounts}
+          rules={rules}
+          q={q}
+          setQ={setQ}
+          filterTeam={filterTeam}
+          setFilterTeam={setFilterTeam}
+          captainId={captainId}
+          setCaptainId={setCaptainId}
+          onSelect={selectPlayer}
+          onRemove={removePlayer}
+          onClose={() => setPickerSlot(null)}
+        />
+      )}
+    </main>
+  );
+}
+
+function FantasyPlayerPicker({
+  slot,
+  players,
+  teams,
+  selectedIds,
+  selectedBySlot,
+  teamCounts,
+  categoryCounts,
+  rules,
+  q,
+  setQ,
+  filterTeam,
+  setFilterTeam,
+  captainId,
+  setCaptainId,
+  onSelect,
+  onRemove,
+  onClose,
+}) {
+  const current = selectedBySlot[slot.slot];
+  const query = q.trim().toLowerCase();
+  const filtered = players
+    .filter((player) => player.position === slot.position)
+    .filter((player) => !filterTeam || player.team_display_name === filterTeam)
+    .filter((player) => !query || player.name.toLowerCase().includes(query))
+    .sort((a, b) => (a.fifa_category - b.fifa_category) || a.team_display_name.localeCompare(b.team_display_name) || a.name.localeCompare(b.name));
+
+  function disabledReason(player) {
+    if (current?.id === player.id) return '';
+    if (selectedIds.has(player.id)) return 'уже выбран';
+
+    const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
+    if (effectiveTeamCount >= 2) return 'лимит сборной';
+
+    const categoryLimit = rules?.category_limits?.[player.fifa_category] || (player.fifa_category === 4 ? 2 : 3);
+    const effectiveCategoryCount = (categoryCounts[player.fifa_category] || 0) - (current?.fifa_category === player.fifa_category ? 1 : 0);
+    if (effectiveCategoryCount >= categoryLimit) return 'лимит категории';
+
+    return '';
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card fantasy-picker-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>Выбор игрока · {slot.label}</h2>
+        <p className="muted">Выберите сборную и игрока. Капитана можно отметить после выбора игрока.</p>
+
+        <div className="fantasy-picker-filters">
+          <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Поиск игрока" />
+          <select value={filterTeam} onChange={(event) => setFilterTeam(event.target.value)}>
+            <option value="">Все сборные</option>
+            {teams.map((team) => <option key={team.name} value={team.name}>{team.flag} {team.name}</option>)}
+          </select>
+        </div>
+
+        {current && (
+          <div className="current-player-card">
+            <span>{current.team_flag}</span>
+            <strong>{current.name}</strong>
+            <button onClick={() => setCaptainId(current.id)}>{captainId === current.id ? 'Капитан выбран' : 'Сделать капитаном'}</button>
+            <button className="danger" onClick={() => onRemove(slot.slot)}>Убрать</button>
+          </div>
+        )}
+
+        <div className="player-list">
+          {filtered.slice(0, 160).map((player) => {
+            const reason = disabledReason(player);
+            return (
+              <button key={player.id} disabled={Boolean(reason)} onClick={() => onSelect(slot, player)}>
+                <span>{player.team_flag}</span>
+                <strong>{player.name}</strong>
+                <small>{player.team_display_name} · {player.position_label} · Г{player.fifa_category}</small>
+                {reason && <em>{reason}</em>}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function Predictions({ onPredict, onForecast }) {
   const [data, setData] = useState(null);
   const [activeSection, setActiveSection] = useState('missing');
@@ -932,7 +1280,8 @@ function Rating() {
             </div>
 
             <div className="rating-foot-line">
-              <span>Прогнозы на матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
+              <span>Матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
+              <span>Fantasy: {row.fantasy_team_progress || '0/11'}</span>
               <span>Проход: +{row.advancement_plus || 0} / {row.advancement_minus || 0}</span>
             </div>
           </div>
@@ -1309,6 +1658,7 @@ function App() {
           <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />
         </>
       )}
+      {tab === 'fantasy' && <Fantasy />}
       {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
       {tab === 'resources' && <Resources />}
       {tab === 'rating' && <Rating />}

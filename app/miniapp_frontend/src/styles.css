@@ -2901,3 +2901,485 @@ body {
     font-size: 10px;
   }
 }
+
+/* Fantasy Release 1 */
+
+.bottom-nav {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+}
+
+.bottom-nav button small {
+  font-size: 9px !important;
+  max-width: 54px !important;
+  white-space: normal !important;
+  line-height: 1.05 !important;
+}
+
+.bottom-nav button .svg-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.fantasy-screen .section-label {
+  margin-bottom: 14px;
+}
+
+.fantasy-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.fantasy-hero h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.05;
+}
+
+.fantasy-hero p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.25;
+}
+
+.fantasy-points {
+  min-height: 72px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  background: var(--green-soft);
+  border: 1px solid rgba(22,199,132,0.42);
+}
+
+.fantasy-points b {
+  color: var(--green);
+  font-size: 32px;
+  line-height: 1;
+}
+
+.fantasy-points span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.fantasy-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  margin: 0 8px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.fantasy-toolbar strong {
+  color: var(--green);
+  font-size: 18px;
+}
+
+.football-pitch {
+  position: relative;
+  height: 560px;
+  border-radius: 28px 28px 10px 10px;
+  overflow: hidden;
+  margin-bottom: 18px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px) 0 0/72px 72px,
+    linear-gradient(180deg, rgba(255,255,255,0.05) 1px, transparent 1px) 0 0/72px 72px,
+    linear-gradient(180deg, #126934, #0c582e 55%, #0a4427);
+  border: 2px solid rgba(109, 193, 139, 0.48);
+  box-shadow: inset 0 0 0 8px rgba(255,255,255,0.06), var(--shadow);
+}
+
+.pitch-line {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 2px solid rgba(255,255,255,0.28);
+}
+
+.box-top {
+  top: -2px;
+  width: 54%;
+  height: 78px;
+  border-top: 0;
+}
+
+.center-line {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 0;
+  transform: none;
+  border-width: 1px 0 0;
+}
+
+.pitch-circle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 116px;
+  height: 116px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255,255,255,0.28);
+  border-radius: 50%;
+}
+
+.pitch-circle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(255,255,255,0.55);
+}
+
+.box-bottom {
+  bottom: -2px;
+  width: 54%;
+  height: 88px;
+  border-bottom: 0;
+}
+
+.pitch-slot {
+  position: absolute;
+  width: 78px;
+  min-height: 54px;
+  transform: translate(-50%, -50%);
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  color: rgba(255,255,255,0.72);
+  background: rgba(3, 18, 14, 0.16);
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 6px;
+  text-align: center;
+}
+
+.pitch-slot b {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.pitch-slot small {
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.pitch-slot.filled {
+  color: var(--text);
+  background: rgba(5, 17, 24, 0.72);
+  border-color: rgba(255,255,255,0.18);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+}
+
+.pitch-slot.filled span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.pitch-slot.filled strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.pitch-slot.captain {
+  border-color: rgba(244,191,54,0.7);
+  box-shadow: 0 0 0 2px rgba(244,191,54,0.16), 0 10px 24px rgba(0,0,0,0.25);
+}
+
+.pitch-slot em {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #140f03;
+  background: var(--gold);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.random-team-button {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 76px;
+  min-height: 58px;
+  padding: 8px;
+  border-radius: 18px;
+  color: var(--gold);
+  background: rgba(20, 29, 49, 0.76);
+  border: 1px solid rgba(244,191,54,0.52);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.fantasy-rules-card h2,
+.fantasy-scoring-card h2 {
+  margin-top: 0;
+}
+
+.fantasy-categories {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.category-line {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-radius: 18px;
+  padding: 10px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.category-line i {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.category-line span strong,
+.category-line span small {
+  display: block;
+}
+
+.category-line span small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.category-line b {
+  font-size: 18px;
+}
+
+.category-1 i { color: var(--gold); background: var(--gold-soft); }
+.category-2 i { color: var(--green); background: var(--green-soft); }
+.category-3 i { color: var(--blue); background: var(--blue-soft); }
+.category-4 i { color: var(--muted); background: rgba(148,163,184,0.12); }
+
+.gold-text {
+  color: var(--gold);
+  line-height: 1.4;
+}
+
+.fantasy-scoring-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.fantasy-scoring-grid div {
+  position: relative;
+  min-height: 108px;
+  border-radius: 17px;
+  padding: 14px 46px 14px 12px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(22,199,132,0.28);
+}
+
+.fantasy-scoring-grid div.minus {
+  border-color: rgba(255,104,114,0.32);
+}
+
+.fantasy-scoring-grid strong,
+.fantasy-scoring-grid span {
+  display: block;
+}
+
+.fantasy-scoring-grid span {
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.18;
+  font-size: 12px;
+}
+
+.fantasy-scoring-grid b {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.fantasy-scoring-grid div.minus b {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.fantasy-save-card {
+  display: grid;
+  gap: 12px;
+}
+
+.fantasy-save-card strong,
+.fantasy-save-card span {
+  display: block;
+}
+
+.fantasy-save-card span {
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.fantasy-picker-modal {
+  max-height: 88vh;
+}
+
+.fantasy-picker-modal h2 {
+  padding-right: 42px;
+}
+
+.fantasy-picker-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.fantasy-picker-filters input,
+.fantasy-picker-filters select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  border-radius: 13px;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.current-player-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-radius: 16px;
+  padding: 10px;
+  background: var(--green-soft);
+  margin-bottom: 10px;
+}
+
+.current-player-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current-player-card button {
+  min-height: 34px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.08);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.current-player-card button.danger {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.player-list {
+  display: grid;
+  gap: 8px;
+}
+
+.player-list button {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border-radius: 15px;
+  padding: 9px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.player-list button:disabled {
+  opacity: 0.48;
+}
+
+.player-list button > span {
+  font-size: 22px;
+}
+
+.player-list strong,
+.player-list small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-list small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.player-list em {
+  color: var(--gold);
+  font-style: normal;
+  font-size: 11px;
+}
+
+@media (max-width: 390px) {
+  .football-pitch {
+    height: 510px;
+  }
+
+  .pitch-slot {
+    width: 66px;
+    min-height: 50px;
+  }
+
+  .pitch-slot.filled strong {
+    font-size: 10px;
+  }
+
+  .fantasy-scoring-grid {
+    gap: 8px;
+  }
+
+  .fantasy-scoring-grid div {
+    min-height: 100px;
+    padding: 12px 42px 12px 10px;
+  }
+
+  .fantasy-picker-filters {
+    grid-template-columns: 1fr;
+  }
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from datetime import datetime, timezone
 import random
 
@@ -12,6 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user, get_db
 from app.models import (
+    FantasyPlayer,
+    FantasyTeam,
+    FantasyTeamPlayer,
     HistoricalArchiveCard,
     Match,
     Prediction,
@@ -57,6 +61,14 @@ class QuizAnswerPayload(BaseModel):
 
     question_id: int
     selected_option: str
+
+
+class FantasyTeamPayload(BaseModel):
+    """Payload for saving a user's fantasy team."""
+
+    formation: str = "4-3-3"
+    player_ids: list[int] = Field(min_length=11, max_length=11)
+    captain_player_id: int
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -396,6 +408,7 @@ def get_table(
     for index, row in enumerate(rows, start=1):
         user = users_by_name.get(row["name"])
         tournament_prediction = None
+        fantasy_team = None
         user_predictions_count = row.get("total_predictions", 0)
 
         if user:
@@ -411,6 +424,14 @@ def get_table(
                 db.query(Prediction)
                 .filter(Prediction.user_id == user.id)
                 .count()
+            )
+            fantasy_team = (
+                db.query(FantasyTeam)
+                .filter(
+                    FantasyTeam.user_id == user.id,
+                    FantasyTeam.tournament_code == TOURNAMENT_CODE,
+                )
+                .first()
             )
 
         exact_scores = row.get("exact_scores", 0)
@@ -436,6 +457,10 @@ def get_table(
         row["tournament_prediction_total"] = 4
         row["tournament_prediction_progress"] = "4/4" if tournament_prediction else "0/4"
         row["has_tournament_prediction"] = tournament_prediction is not None
+        fantasy_selected_count = len(fantasy_team.players) if fantasy_team else 0
+        row["fantasy_team_progress"] = f"{fantasy_selected_count}/11"
+        row["fantasy_team_complete"] = fantasy_selected_count == 11 and bool(fantasy_team and fantasy_team.captain_player_id)
+        row["fantasy_points"] = fantasy_team.points if fantasy_team else 0
         row["exact_scores"] = exact_scores
         row["outcomes"] = outcomes
         row["advancement_plus"] = advancement_plus
@@ -672,6 +697,351 @@ def _profile_badges(
     ]
 
     return badges
+
+
+
+FANTASY_FORMATION = "4-3-3"
+FANTASY_POSITION_LIMITS = {
+    "Goalkeeper": 1,
+    "Defender": 4,
+    "Midfielder": 3,
+    "Attacker": 3,
+}
+FANTASY_POSITION_LABELS = {
+    "Goalkeeper": "ВР",
+    "Defender": "ЗЩ",
+    "Midfielder": "ПЗ",
+    "Attacker": "НП",
+}
+FANTASY_CATEGORY_LIMITS = {1: 3, 2: 3, 3: 3, 4: 2}
+FANTASY_MAX_FROM_ONE_TEAM = 2
+
+
+def _fantasy_category_title(category: int) -> str:
+    """Return readable FIFA ranking category title."""
+    return {
+        1: "Элита",
+        2: "Сильные претенденты",
+        3: "Середина",
+        4: "Аутсайдеры и дебютанты",
+    }.get(category, "Категория")
+
+
+def _serialize_fantasy_player(player: FantasyPlayer) -> dict:
+    """Serialize a fantasy player for Mini App."""
+    return {
+        "id": player.id,
+        "external_player_id": player.external_player_id,
+        "external_team_id": player.external_team_id,
+        "name": player.player_name,
+        "team_name": player.team_name,
+        "team_display_name": player.team_display_name,
+        "team_flag": player.team_flag or get_team_flag(player.team_display_name, player.team_name),
+        "age": player.age,
+        "number": player.number,
+        "position": player.position,
+        "position_label": FANTASY_POSITION_LABELS.get(player.position, player.position),
+        "photo": player.photo,
+        "fifa_rank": player.fifa_rank,
+        "fifa_category": player.fifa_category,
+        "fifa_category_title": _fantasy_category_title(player.fifa_category),
+        "is_active": bool(player.is_active),
+    }
+
+
+def _serialize_fantasy_team(team: FantasyTeam | None) -> dict | None:
+    """Serialize user's fantasy team."""
+    if not team:
+        return None
+
+    team_players = sorted(
+        team.players,
+        key=lambda item: (
+            {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Attacker": 3}.get(item.position, 9),
+            item.position_slot,
+        ),
+    )
+
+    return {
+        "id": team.id,
+        "formation": team.formation,
+        "captain_player_id": team.captain_player_id,
+        "points": team.points or 0,
+        "is_locked": bool(team.is_locked),
+        "players": [
+            {
+                "position_slot": item.position_slot,
+                "position": item.position,
+                "position_label": FANTASY_POSITION_LABELS.get(item.position, item.position),
+                "is_captain": bool(item.is_captain),
+                "points": item.points or 0,
+                "player": _serialize_fantasy_player(item.player),
+            }
+            for item in team_players
+        ],
+    }
+
+
+def _fantasy_rules_payload() -> dict:
+    """Return rules and scoring for fantasy MVP."""
+    return {
+        "formation": FANTASY_FORMATION,
+        "positions": FANTASY_POSITION_LIMITS,
+        "position_labels": FANTASY_POSITION_LABELS,
+        "max_from_one_team": FANTASY_MAX_FROM_ONE_TEAM,
+        "category_limits": FANTASY_CATEGORY_LIMITS,
+        "categories": [
+            {"id": 1, "title": "Элита", "range": "ФИФА 1–12", "limit": 3},
+            {"id": 2, "title": "Сильные претенденты", "range": "ФИФА 13–24", "limit": 3},
+            {"id": 3, "title": "Середина", "range": "ФИФА 25–36", "limit": 3},
+            {"id": 4, "title": "Аутсайдеры и дебютанты", "range": "ФИФА 37–48", "limit": 2},
+        ],
+        "scoring": [
+            {"title": "Победа", "description": "участие в матче, сборная выиграла", "points": 1, "type": "plus"},
+            {"title": "Гол", "description": "участие в матче и гол", "points": 2, "type": "plus"},
+            {"title": "Передача", "description": "участие в матче и голевая", "points": 1, "type": "plus"},
+            {"title": "Сухой матч", "description": "ВР или ЗЩ, участие в матче", "points": 2, "type": "plus"},
+            {"title": "Пропущенный гол", "description": "ВР или ЗЩ, участие в матче", "points": -1, "type": "minus"},
+            {"title": "Удаление", "description": "участие в матче, красная карточка", "points": -2, "type": "minus"},
+        ],
+        "captain": {
+            "enabled": True,
+            "multiplier": 2,
+            "description": "Очки капитана удваиваются.",
+        },
+        "is_locked": is_tournament_started(),
+    }
+
+
+def _fantasy_team_summary(team: FantasyTeam | None) -> dict:
+    """Build fantasy progress summary."""
+    if not team:
+        return {
+            "selected": 0,
+            "total": 11,
+            "progress": "0/11",
+            "points": 0,
+            "captain_selected": False,
+            "complete": False,
+        }
+
+    selected = len(team.players)
+    return {
+        "selected": selected,
+        "total": 11,
+        "progress": f"{selected}/11",
+        "points": team.points or 0,
+        "captain_selected": team.captain_player_id is not None,
+        "complete": selected == 11 and team.captain_player_id is not None,
+    }
+
+
+def _validate_fantasy_payload(players: list[FantasyPlayer], captain_player_id: int) -> None:
+    """Validate fantasy team constraints."""
+    if len(players) != 11:
+        raise HTTPException(status_code=400, detail="В fantasy-команде должно быть ровно 11 игроков.")
+
+    player_ids = [player.id for player in players]
+
+    if len(set(player_ids)) != 11:
+        raise HTTPException(status_code=400, detail="Игроки в fantasy-команде не должны повторяться.")
+
+    if captain_player_id not in player_ids:
+        raise HTTPException(status_code=400, detail="Капитан должен быть выбран из состава fantasy-команды.")
+
+    position_counts = Counter(player.position for player in players)
+
+    for position, limit in FANTASY_POSITION_LIMITS.items():
+        if position_counts.get(position, 0) != limit:
+            label = FANTASY_POSITION_LABELS.get(position, position)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Для схемы {FANTASY_FORMATION} нужно выбрать {limit} игроков позиции {label}.",
+            )
+
+    team_counts = Counter(player.team_display_name for player in players)
+    too_many_team = [team for team, count in team_counts.items() if count > FANTASY_MAX_FROM_ONE_TEAM]
+
+    if too_many_team:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Из одной сборной можно взять не больше {FANTASY_MAX_FROM_ONE_TEAM} игроков: {too_many_team[0]}.",
+        )
+
+    category_counts = Counter(player.fifa_category for player in players)
+
+    for category, limit in FANTASY_CATEGORY_LIMITS.items():
+        if category_counts.get(category, 0) > limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"В категории «{_fantasy_category_title(category)}» можно выбрать не больше {limit} игроков.",
+            )
+
+
+@router.get("/fantasy/rules")
+def get_fantasy_rules(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return fantasy rules and scoring."""
+    return _fantasy_rules_payload()
+
+
+@router.get("/fantasy/players")
+def get_fantasy_players(
+    position: str | None = Query(default=None),
+    team: str | None = Query(default=None),
+    category: int | None = Query(default=None, ge=1, le=4),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=300, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return fantasy players with filters."""
+    query = db.query(FantasyPlayer).filter(
+        FantasyPlayer.tournament_code == TOURNAMENT_CODE,
+        FantasyPlayer.is_active == True,
+    )
+
+    if position:
+        query = query.filter(FantasyPlayer.position == position)
+
+    if team:
+        query = query.filter(FantasyPlayer.team_display_name == team)
+
+    if category:
+        query = query.filter(FantasyPlayer.fifa_category == category)
+
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(FantasyPlayer.player_name.ilike(like))
+
+    players = (
+        query
+        .order_by(
+            FantasyPlayer.fifa_category.asc(),
+            FantasyPlayer.team_display_name.asc(),
+            FantasyPlayer.position.asc(),
+            FantasyPlayer.player_name.asc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+    teams = [
+        {"name": name, "flag": get_team_flag(name)}
+        for (name,) in db.query(FantasyPlayer.team_display_name)
+        .filter(FantasyPlayer.tournament_code == TOURNAMENT_CODE, FantasyPlayer.is_active == True)
+        .distinct()
+        .order_by(FantasyPlayer.team_display_name.asc())
+        .all()
+    ]
+
+    return {
+        "players": [_serialize_fantasy_player(player) for player in players],
+        "teams": teams,
+        "rules": _fantasy_rules_payload(),
+    }
+
+
+@router.get("/fantasy/team/me")
+def get_my_fantasy_team(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return current user's fantasy team."""
+    team = (
+        db.query(FantasyTeam)
+        .filter(
+            FantasyTeam.user_id == current_user.id,
+            FantasyTeam.tournament_code == TOURNAMENT_CODE,
+        )
+        .first()
+    )
+
+    return {
+        "team": _serialize_fantasy_team(team),
+        "summary": _fantasy_team_summary(team),
+        "rules": _fantasy_rules_payload(),
+    }
+
+
+@router.post("/fantasy/team")
+def save_my_fantasy_team(
+    payload: FantasyTeamPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Save current user's fantasy team."""
+    if is_tournament_started():
+        raise HTTPException(status_code=400, detail="Fantasy-команду уже нельзя менять после старта турнира.")
+
+    if payload.formation != FANTASY_FORMATION:
+        raise HTTPException(status_code=400, detail=f"Пока поддерживается только схема {FANTASY_FORMATION}.")
+
+    players = (
+        db.query(FantasyPlayer)
+        .filter(
+            FantasyPlayer.tournament_code == TOURNAMENT_CODE,
+            FantasyPlayer.is_active == True,
+            FantasyPlayer.id.in_(payload.player_ids),
+        )
+        .all()
+    )
+
+    if len(players) != len(set(payload.player_ids)):
+        raise HTTPException(status_code=400, detail="Не все выбранные игроки найдены в fantasy-списке.")
+
+    _validate_fantasy_payload(players, payload.captain_player_id)
+
+    team = (
+        db.query(FantasyTeam)
+        .filter(
+            FantasyTeam.user_id == current_user.id,
+            FantasyTeam.tournament_code == TOURNAMENT_CODE,
+        )
+        .first()
+    )
+
+    if not team:
+        team = FantasyTeam(
+            user_id=current_user.id,
+            tournament_code=TOURNAMENT_CODE,
+            formation=payload.formation,
+        )
+        db.add(team)
+        db.flush()
+
+    team.formation = payload.formation
+    team.captain_player_id = payload.captain_player_id
+    team.updated_at = datetime.now(timezone.utc)
+
+    db.query(FantasyTeamPlayer).filter(FantasyTeamPlayer.fantasy_team_id == team.id).delete()
+
+    position_indexes: dict[str, int] = {}
+    order = {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Attacker": 3}
+
+    for player in sorted(players, key=lambda item: (order.get(item.position, 9), item.team_display_name, item.player_name)):
+        position_indexes[player.position] = position_indexes.get(player.position, 0) + 1
+        slot = f"{FANTASY_POSITION_LABELS.get(player.position, player.position)}{position_indexes[player.position]}"
+        db.add(
+            FantasyTeamPlayer(
+                fantasy_team_id=team.id,
+                player_id=player.id,
+                position_slot=slot,
+                position=player.position,
+                is_captain=player.id == payload.captain_player_id,
+            )
+        )
+
+    db.commit()
+    db.refresh(team)
+
+    return {
+        "team": _serialize_fantasy_team(team),
+        "summary": _fantasy_team_summary(team),
+        "rules": _fantasy_rules_payload(),
+    }
 
 
 @router.get("/profile")
