@@ -15,7 +15,7 @@ const TABS = [
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
   { id: 'tournament', label: 'Турнир', icon: 'cup' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
-  { id: 'more', label: 'Еще', icon: 'more' },
+  { id: 'profile', label: 'Профиль', icon: 'profile' },
 ];
 
 const QUICK_SCORES = [
@@ -84,6 +84,42 @@ function Icon({ name, className = '' }) {
         <circle cx="5" cy="12" r="1.5" />
         <circle cx="12" cy="12" r="1.5" />
         <circle cx="19" cy="12" r="1.5" />
+      </svg>
+    );
+  }
+
+  if (name === 'profile') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </svg>
+    );
+  }
+
+  if (name === 'team') {
+    return (
+      <svg {...common}>
+        <circle cx="9" cy="8" r="3" />
+        <circle cx="17" cy="9" r="2.5" />
+        <path d="M3 21a6 6 0 0 1 12 0" />
+        <path d="M14 18a5 5 0 0 1 7 3" />
+      </svg>
+    );
+  }
+
+  if (name === 'fire') {
+    return (
+      <svg {...common}>
+        <path d="M12 22c4 0 7-2.7 7-6.7 0-2.6-1.4-5-4.1-7.2.1 2.3-.8 3.7-2.1 4.5.1-3-1.6-5.7-4.1-7.6.1 3.7-3.7 5.6-3.7 10.2C5 19.2 8 22 12 22Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'shield') {
+    return (
+      <svg {...common}>
+        <path d="M12 3 20 6v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6l8-3Z" />
       </svg>
     );
   }
@@ -181,6 +217,10 @@ function pluralRu(value, one, few, many) {
   if (last === 1) return one;
   if ([2, 3, 4].includes(last)) return few;
   return many;
+}
+
+function getTelegramPhotoUrl() {
+  return tg?.initDataUnsafe?.user?.photo_url || '';
 }
 
 
@@ -909,6 +949,146 @@ function Tournament({ tournamentPrediction }) {
   );
 }
 
+
+function Profile({ tournamentPrediction }) {
+  const [profile, setProfile] = useState(null);
+  const [error, setError] = useState(null);
+  const photoUrl = getTelegramPhotoUrl();
+
+  async function load() {
+    setError(null);
+    try {
+      setProfile(await api('/api/webapp/profile'));
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  if (error) return <ErrorCard error={error} onRetry={load} />;
+  if (!profile) return <LoadingCard />;
+
+  const user = profile.user || {};
+  const summary = profile.summary || {};
+  const pointsBreakdown = profile.points_breakdown || [];
+  const badges = profile.badges || [];
+  const tournament = profile.tournament_prediction || tournamentPrediction?.prediction;
+  const earnedBadges = badges.filter((badge) => badge.earned);
+  const lockedBadges = badges.filter((badge) => !badge.earned);
+
+  return (
+    <main className="screen-content profile-screen">
+      <div className="section-label">Мой профиль</div>
+
+      <section className="profile-hero-card">
+        <div className="avatar-ring">
+          {photoUrl ? <img src={photoUrl} alt="" /> : <span>{user.initials || 'ОП'}</span>}
+        </div>
+        <div className="profile-identity">
+          <div className="profile-rank">#{summary.rank || '—'}</div>
+          <h2>{user.display_name}</h2>
+          {user.username && <p className="muted">@{user.username}</p>}
+          <span className="status-pill">{summary.status}</span>
+        </div>
+        <div className="profile-points">
+          <b>{summary.points || 0}</b>
+          <span>очков</span>
+        </div>
+      </section>
+
+      <section className="card team-card">
+        <button className="team-support-button" type="button">
+          <span className="team-support-flag">⚐</span>
+          <span>
+            <strong>Укажите, за какую сборную болеете</strong>
+            <small>Флаг появится на вашем профиле — его увидят все</small>
+          </span>
+          <b>→</b>
+        </button>
+      </section>
+
+      <section className="card">
+        <h2>Откуда очки</h2>
+        <div className="points-breakdown">
+          {pointsBreakdown.map((item) => (
+            <div key={item.key} className="points-row">
+              <i><Icon name={item.icon} /></i>
+              <span>{item.title}</span>
+              <b>{item.points} очков</b>
+              <em style={{ width: `${Math.min(100, Math.max(4, item.points || 0))}%` }} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="profile-section-head">
+          <h2>Статистика</h2>
+          <span>{summary.total_predictions || 0} {pluralRu(summary.total_predictions || 0, 'прогноз', 'прогноза', 'прогнозов')}</span>
+        </div>
+        <div className="stats-grid">
+          <div><b>{summary.match_points || 0}</b><span>очки за матчи</span></div>
+          <div><b>{summary.tournament_points || 0}</b><span>очки за турнир</span></div>
+          <div><b>{summary.exact_scores || 0}</b><span>точные счета</span></div>
+          <div><b>{summary.outcomes || 0}</b><span>исходы</span></div>
+          <div><b>{summary.favorite_score || '—'}</b><span>любимый счет</span></div>
+          <div><b>{summary.missing_predictions || 0}</b><span>ждут прогноза</span></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="profile-section-head">
+          <h2>Прогнозы на турнир</h2>
+          <span>{tournament ? '4/4' : '0/4'}</span>
+        </div>
+        {tournament ? (
+          <div className="profile-tournament-grid">
+            <div><Icon name="cup" /><span>Победитель</span><b>{tournament.champion}</b></div>
+            <div><Icon name="rank" /><span>2-е место</span><b>{tournament.runner_up}</b></div>
+            <div><Icon name="rank" /><span>3-е место</span><b>{tournament.third_place}</b></div>
+            <div><Icon name="ball" /><span>Бомбардир</span><b>{tournament.top_scorer}</b></div>
+          </div>
+        ) : (
+          <p className="muted">Турнирный прогноз пока не заполнен.</p>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="profile-section-head">
+          <h2>Достижения</h2>
+          <span>{earnedBadges.length}/{badges.length}</span>
+        </div>
+        <div className="badges-grid">
+          {badges.map((badge) => (
+            <div key={badge.code} className={`badge-card ${badge.earned ? 'earned' : 'locked'}`}>
+              <i><Icon name={badge.icon} /></i>
+              <strong>{badge.title}</strong>
+              <span>{badge.description}</span>
+              <div className="badge-progress">
+                <em style={{ width: `${Math.round((badge.progress || 0) * 100 / (badge.goal || 1))}%` }} />
+              </div>
+              <small>{badge.progress}/{badge.goal}</small>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {lockedBadges.length > 0 && (
+        <section className="card funny-card">
+          <h2>Вердикт Отца</h2>
+          <p>
+            {summary.missing_predictions > 0
+              ? `Еще ${summary.missing_predictions} ${pluralRu(summary.missing_predictions, 'матч', 'матча', 'матчей')} ждут прогноза. Отец прогнозов уже смотрит осуждающе.`
+              : 'Все доступные прогнозы сделаны. Теперь остается только молиться футбольным богам.'}
+          </p>
+        </section>
+      )}
+    </main>
+  );
+}
+
+
 function More() {
   const [fact, setFact] = useState('');
   const [archive, setArchive] = useState('');
@@ -1044,7 +1224,7 @@ function App() {
       {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
       {tab === 'tournament' && <Tournament tournamentPrediction={tournamentPrediction} />}
       {tab === 'rating' && <Rating />}
-      {tab === 'more' && <More />}
+      {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} />}
 
       <nav className="bottom-nav">
         {TABS.map((item) => (

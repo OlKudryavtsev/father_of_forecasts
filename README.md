@@ -1098,3 +1098,8 @@ scripts/data/
 ## Mini App 2.0 round 3 polish
 
 См. `MINIAPP_2_ROUND3_POLISH.md`.
+
+
+## Release 3: Profile and achievements
+
+См. `MINIAPP_2_PROFILE_ACHIEVEMENTS_RELEASE.md`.

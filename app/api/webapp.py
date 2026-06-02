@@ -517,6 +517,208 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None) ->
     }
 
 
+
+
+def _favorite_score(predictions: list[Prediction]) -> str | None:
+    """Return the user's most frequent predicted score."""
+    if not predictions:
+        return None
+
+    counts: dict[str, int] = {}
+
+    for prediction in predictions:
+        key = f"{prediction.pred_home}:{prediction.pred_away}"
+        counts[key] = counts.get(key, 0) + 1
+
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _profile_status(points: int, exact_scores: int, total_predictions: int, missing_count: int) -> str:
+    """Return a playful profile status based on current user stats."""
+    if missing_count > 0:
+        return "Думающий стратег"
+    if total_predictions == 0:
+        return "Тень будущего прогноза"
+    if exact_scores >= 5:
+        return "Снайпер счета"
+    if points >= 25:
+        return "Кандидат в Отцы"
+    if total_predictions >= 20:
+        return "Стабильный участник"
+    return "Футбольный шаман в разогреве"
+
+
+def _profile_badges(
+    *,
+    exact_scores: int,
+    outcomes: int,
+    total_predictions: int,
+    missing_count: int,
+    tournament_prediction: TournamentPrediction | None,
+    rank: int | None,
+) -> list[dict]:
+    """Build achievement badges for the Mini App profile."""
+    badges = [
+        {
+            "code": "early_bird",
+            "title": "Хладнокровный",
+            "description": "Все доступные прогнозы сделаны",
+            "icon": "check",
+            "earned": total_predictions > 0 and missing_count == 0,
+            "progress": 1 if total_predictions > 0 and missing_count == 0 else 0,
+            "goal": 1,
+        },
+        {
+            "code": "sniper",
+            "title": "Снайпер",
+            "description": "Точные счета",
+            "icon": "target",
+            "earned": exact_scores >= 3,
+            "progress": min(exact_scores, 3),
+            "goal": 3,
+        },
+        {
+            "code": "oracle",
+            "title": "Оракул исходов",
+            "description": "Угаданные исходы",
+            "icon": "fire",
+            "earned": outcomes >= 5,
+            "progress": min(outcomes, 5),
+            "goal": 5,
+        },
+        {
+            "code": "marathon",
+            "title": "Марафонец",
+            "description": "Прогнозы на матчи",
+            "icon": "ball",
+            "earned": total_predictions >= 20,
+            "progress": min(total_predictions, 20),
+            "goal": 20,
+        },
+        {
+            "code": "longterm",
+            "title": "Долгосрочник",
+            "description": "Турнирный прогноз заполнен",
+            "icon": "cup",
+            "earned": tournament_prediction is not None,
+            "progress": 1 if tournament_prediction else 0,
+            "goal": 1,
+        },
+        {
+            "code": "top3",
+            "title": "На пьедестале",
+            "description": "Попасть в топ-3 рейтинга",
+            "icon": "rank",
+            "earned": bool(rank and rank <= 3),
+            "progress": 1 if rank and rank <= 3 else 0,
+            "goal": 1,
+        },
+    ]
+
+    return badges
+
+
+@router.get("/profile")
+def get_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return current user's Mini App profile, stats and achievements."""
+    predictions = (
+        db.query(Prediction)
+        .filter(Prediction.user_id == current_user.id)
+        .all()
+    )
+
+    future_matches = get_all_available_matches(db, limit=1000)
+    predictions_by_future_match = _prediction_by_match_id(db, current_user, future_matches)
+
+    missing_count = sum(
+        1
+        for match in future_matches
+        if match.id not in predictions_by_future_match
+    )
+    editable_count = sum(
+        1
+        for match in future_matches
+        if match.id in predictions_by_future_match
+    )
+
+    tournament_prediction = (
+        db.query(TournamentPrediction)
+        .filter(
+            TournamentPrediction.user_id == current_user.id,
+            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+        )
+        .first()
+    )
+
+    table_rows = build_table_rows(db)
+    rank = None
+    total_points = 0
+    match_points = 0
+    tournament_points = 0
+
+    for index, row in enumerate(table_rows, start=1):
+        if row["name"] == current_user.display_name:
+            rank = index
+            total_points = row["points"]
+            match_points = row["match_points"]
+            tournament_points = row["tournament_points"]
+            break
+
+    exact_scores = sum(1 for prediction in predictions if prediction.score_points == 3)
+    outcomes = sum(1 for prediction in predictions if prediction.score_points == 1)
+    advancement_plus = sum(1 for prediction in predictions if prediction.advancement_points == 1)
+    advancement_minus = sum(1 for prediction in predictions if prediction.advancement_points == -1)
+
+    total_predictions = len(predictions)
+    favorite_score = _favorite_score(predictions)
+    status_text = _profile_status(total_points, exact_scores, total_predictions, missing_count)
+
+    return {
+        "user": {
+            "id": current_user.id,
+            "telegram_id": current_user.telegram_id,
+            "username": current_user.username,
+            "display_name": current_user.display_name,
+            "initials": "".join(part[:1] for part in current_user.display_name.split()[:2]).upper() or "ОП",
+            "is_admin": bool(current_user.is_admin),
+            "created_at": _ensure_utc(current_user.created_at).isoformat() if current_user.created_at else None,
+        },
+        "summary": {
+            "rank": rank,
+            "status": status_text,
+            "points": total_points,
+            "match_points": match_points,
+            "tournament_points": tournament_points,
+            "fantasy_points": 0,
+            "total_predictions": total_predictions,
+            "missing_predictions": missing_count,
+            "editable_predictions": editable_count,
+            "exact_scores": exact_scores,
+            "outcomes": outcomes,
+            "advancement_plus": advancement_plus,
+            "advancement_minus": advancement_minus,
+            "favorite_score": favorite_score,
+        },
+        "points_breakdown": [
+            {"key": "matches", "title": "Прогнозы", "points": match_points, "icon": "ball"},
+            {"key": "tournament", "title": "Турнир", "points": tournament_points, "icon": "cup"},
+            {"key": "fantasy", "title": "Fantasy-команда", "points": 0, "icon": "team"},
+        ],
+        "tournament_prediction": _serialize_tournament_prediction(tournament_prediction) if tournament_prediction else None,
+        "badges": _profile_badges(
+            exact_scores=exact_scores,
+            outcomes=outcomes,
+            total_predictions=total_predictions,
+            missing_count=missing_count,
+            tournament_prediction=tournament_prediction,
+            rank=rank,
+        ),
+    }
+
+
 @router.get("/facts/random")
 def get_random_fact(
     category: str | None = None,
