@@ -11,11 +11,11 @@ if (tg) {
 }
 
 const TABS = [
-  { id: 'matches', label: 'Матч-центр', icon: '⚽' },
-  { id: 'predictions', label: 'Прогнозы', icon: '🎯' },
-  { id: 'tournament', label: 'Турнир', icon: '🏆' },
-  { id: 'rating', label: 'Рейтинг', icon: '🏅' },
-  { id: 'more', label: 'Еще', icon: '☰' },
+  { id: 'matches', label: 'Матч-центр', icon: 'ball' },
+  { id: 'predictions', label: 'Прогнозы', icon: 'target' },
+  { id: 'tournament', label: 'Турнир', icon: 'cup' },
+  { id: 'rating', label: 'Рейтинг', icon: 'rank' },
+  { id: 'more', label: 'Еще', icon: 'more' },
 ];
 
 const QUICK_SCORES = [
@@ -26,6 +26,95 @@ const QUICK_SCORES = [
   [0, 0],
   [0, 1],
 ];
+
+function Icon({ name, className = '' }) {
+  const common = {
+    className: `svg-icon ${className}`,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  };
+
+  if (name === 'ball') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3v18M3 12h18" />
+        <path d="M5.6 6.4c4.1 2.6 8.7 2.6 12.8 0M5.6 17.6c4.1-2.6 8.7-2.6 12.8 0" />
+      </svg>
+    );
+  }
+
+  if (name === 'target') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1.5" />
+      </svg>
+    );
+  }
+
+  if (name === 'cup') {
+    return (
+      <svg {...common}>
+        <path d="M8 4h8v4a4 4 0 0 1-8 0V4Z" />
+        <path d="M8 6H5a3 3 0 0 0 3 3M16 6h3a3 3 0 0 1-3 3" />
+        <path d="M12 12v5M8 20h8M10 17h4" />
+      </svg>
+    );
+  }
+
+  if (name === 'rank') {
+    return (
+      <svg {...common}>
+        <path d="M5 20V10M12 20V4M19 20v-7" />
+        <path d="M3 20h18" />
+      </svg>
+    );
+  }
+
+  if (name === 'more') {
+    return (
+      <svg {...common}>
+        <circle cx="5" cy="12" r="1.5" />
+        <circle cx="12" cy="12" r="1.5" />
+        <circle cx="19" cy="12" r="1.5" />
+      </svg>
+    );
+  }
+
+  if (name === 'star') {
+    return (
+      <svg {...common}>
+        <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.9L12 3Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'check') {
+    return (
+      <svg {...common}>
+        <path d="m5 12 4 4L19 6" />
+      </svg>
+    );
+  }
+
+  if (name === 'robot') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="8" width="14" height="10" rx="3" />
+        <path d="M12 8V4M9 13h.01M15 13h.01M8 21h8" />
+      </svg>
+    );
+  }
+
+  return null;
+}
 
 function initData() {
   return tg?.initData || '';
@@ -142,10 +231,8 @@ function Header({ dashboard, onRules }) {
 
   return (
     <header className="league-header">
-      <div className="telegram-title">ОТЕЦ ПРОГНОЗОВ · ЧМ-2026</div>
-
       <div className="league-main">
-        <div className="league-logo">🏆</div>
+        <div className="league-logo"><Icon name="cup" /></div>
         <div className="league-text">
           <h1>Отец прогнозов</h1>
           <div className="league-subtitle">ЧМ-2026 · США · Мексика · Канада</div>
@@ -165,27 +252,41 @@ function Header({ dashboard, onRules }) {
 
 function HomeHero({ dashboard, tournamentPrediction, setTab }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
-  const tournamentProgress = tournamentPrediction?.prediction ? '4/4' : '0/4';
+  const p = tournamentPrediction?.prediction;
+  const items = [
+    { key: 'champion', label: 'Победитель', value: p?.champion, points: '+15', icon: 'cup' },
+    { key: 'runner_up', label: '2-е место', value: p?.runner_up, points: '+10', icon: 'rank' },
+    { key: 'third_place', label: '3-е место', value: p?.third_place, points: '+5', icon: 'rank' },
+    { key: 'top_scorer', label: 'Бомбардир', value: p?.top_scorer, points: '+15', icon: 'ball' },
+  ];
 
   return (
-    <section className="home-hero">
-      <button className="hero-action hero-primary" onClick={() => setTab('predictions')}>
-        <span className="hero-icon">🎯</span>
+    <section className="matchcenter-top">
+      <button className="compact-action" onClick={() => setTab('predictions')}>
+        <span className="compact-action-icon"><Icon name="target" /></span>
         <span>
-          <strong>Выберите счет для {missing} матчей</strong>
-          <small>Откроем матчи, на которые еще можно ставить</small>
+          <strong>Нужен прогноз для {missing} матчей</strong>
+          <small>Перейти к матчам без вашего счета</small>
         </span>
         <b>{missing}</b>
       </button>
 
-      <button className="hero-action hero-green" onClick={() => setTab('tournament')}>
-        <span className="hero-icon">🏆</span>
-        <span>
-          <strong>Прогнозы на турнир</strong>
-          <small>Победитель · призеры · бомбардир</small>
-        </span>
-        <b>{tournamentProgress}</b>
-      </button>
+      <section className="tournament-mini">
+        <div className="tournament-mini-head">
+          <h2>Прогнозы на турнир</h2>
+          <span>{p ? '4/4' : '0/4'}</span>
+        </div>
+        <div className="tournament-mini-grid">
+          {items.map((item) => (
+            <button key={item.key} onClick={() => setTab('tournament')}>
+              <i><Icon name={item.icon} /></i>
+              <span>{item.label}</span>
+              <strong>{item.value || 'Выбрать'}</strong>
+              <small>{item.points}</small>
+            </button>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }
@@ -239,7 +340,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
         <div className="score-block">
           <strong>{scoreText}</strong>
           {match.prediction && !match.is_finished && <small>мой прогноз</small>}
-          {!match.prediction && !locked && <button onClick={() => onPredict(match)}>Сделать прогноз</button>}
+          {!match.prediction && !locked && <small>прогноза нет</small>}
           {locked && !match.is_finished && <small>закрыт</small>}
         </div>
         <div className="team-side">
@@ -249,8 +350,8 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
       </div>
 
       <div className="match-actions">
-        {!locked && <button onClick={() => onPredict(match)}>✍️ Прогноз</button>}
-        <button onClick={() => onForecast(match)}>🤖 Прогноз Отца</button>
+        {!locked && <button onClick={() => onPredict(match)}>{match.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}</button>}
+        <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>
       </div>
 
       {showDistribution && <PredictionBars distribution={match.prediction_distribution} />}
@@ -329,7 +430,7 @@ function MatchCenter({ onPredict, onForecast }) {
   useEffect(() => { load(); }, [scope, group]);
 
   const grouped = useMemo(() => groupMatchesByDay(data?.matches || []), [data]);
-  const selectedStanding = data?.standings?.[0];
+  const selectedStanding = group ? data?.standings?.[0] : null;
 
   if (error) return <ErrorCard error={error} onRetry={load} />;
 
@@ -337,39 +438,49 @@ function MatchCenter({ onPredict, onForecast }) {
     <main className="screen-content">
       <div className="section-label">Матч-центр</div>
 
-      <div className="filter-strip">
-        <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}>⭐ Все</button>
-        <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}>✓ Результаты</button>
+      <div className="filter-strip modern-filters">
+        <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}>
+          <Icon name="star" />
+          <span>Все</span>
+        </button>
+        <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}>
+          <Icon name="check" />
+          <span>Результаты</span>
+        </button>
         {(data?.groups || []).map((item) => (
           <button key={item.group_code} className={group === item.group_code ? 'active group' : ''} onClick={() => { setGroup(item.group_code); setScope('all'); }}>
-            {item.group_code} группа
+            <b>{item.group_code}</b>
+            <span>группа</span>
           </button>
         ))}
       </div>
 
-      {loading ? <LoadingCard /> : (
-        <>
-          {selectedStanding && <GroupTable group={selectedStanding} />}
-          {grouped.length === 0 && <EmptyState icon="🏀" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : 'Матчи не найдены'} />}
-          {grouped.map(([day, matches]) => (
-            <section key={day} className="match-day">
-              <div className="day-heading">
-                <span>{formatDayTitle(matches[0]?.starts_at)}</span>
-                <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
-              </div>
-              {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} />)}
-            </section>
-          ))}
-        </>
-      )}
+      <div className="match-center-results">
+        {loading && !data ? <LoadingCard /> : (
+          <>
+            {selectedStanding && <GroupTable group={selectedStanding} />}
+            {loading && <LoadingCard text="Обновляю список..." />}
+            {!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : 'Матчи не найдены'} />}
+            {!loading && grouped.map(([day, matches]) => (
+              <section key={day} className="match-day">
+                <div className="day-heading">
+                  <span>{formatDayTitle(matches[0]?.starts_at)}</span>
+                  <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
+                </div>
+                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} />)}
+              </section>
+            ))}
+          </>
+        )}
+      </div>
     </main>
   );
 }
 
-function EmptyState({ icon, title, text }) {
+function EmptyState({ iconName = 'ball', title, text }) {
   return (
     <div className="empty-state">
-      <div>{icon}</div>
+      <div className="empty-icon"><Icon name={iconName} /></div>
       <h2>{title}</h2>
       <p>{text}</p>
     </div>
@@ -412,25 +523,24 @@ function ScorePicker({ match, onClose, onSaved }) {
 
   return (
     <div className="modal-backdrop">
-      <section className="modal-card">
+      <section className="modal-card score-modal">
         <button className="modal-close" onClick={onClose}>×</button>
-        <h2>{match.home_team} — {match.away_team}</h2>
-        <p className="muted">{formatDateTime(match.starts_at)}</p>
+        <h2>Прогноз на матч</h2>
+        <p className="muted match-title-modal">{match.home_team} — {match.away_team}</p>
+        <p className="muted small">{formatDateTime(match.starts_at)}</p>
 
-        <div className="score-editor-2">
-          <div>
-            <span>{match.home_flag}</span>
-            <strong>{match.home_team}</strong>
-            <div className="counter">
+        <div className="score-editor-compact">
+          <div className="score-row">
+            <span className="score-team"><span className="flag mini">{match.home_flag}</span><strong>{match.home_team}</strong></span>
+            <div className="counter compact-counter">
               <button onClick={() => dec(setHome, home)}>−</button>
               <b>{home}</b>
               <button onClick={() => inc(setHome, home)}>+</button>
             </div>
           </div>
-          <div>
-            <span>{match.away_flag}</span>
-            <strong>{match.away_team}</strong>
-            <div className="counter">
+          <div className="score-row">
+            <span className="score-team"><span className="flag mini">{match.away_flag}</span><strong>{match.away_team}</strong></span>
+            <div className="counter compact-counter">
               <button onClick={() => dec(setAway, away)}>−</button>
               <b>{away}</b>
               <button onClick={() => inc(setAway, away)}>+</button>
@@ -450,7 +560,6 @@ function ScorePicker({ match, onClose, onSaved }) {
     </div>
   );
 }
-
 
 function ForecastModal({ match, onClose }) {
   const [text, setText] = useState('');
@@ -488,44 +597,70 @@ function ForecastModal({ match, onClose }) {
 
 function Predictions({ onPredict, onForecast }) {
   const [data, setData] = useState(null);
-  const [scope, setScope] = useState('missing');
   const [error, setError] = useState(null);
 
-  async function load(nextScope = scope) {
+  async function load() {
     setError(null);
     try {
-      const result = await api(`/api/webapp/matches?scope=${nextScope}`);
+      const result = await api('/api/webapp/matches?scope=all');
       setData(result);
     } catch (err) {
       setError(err);
     }
   }
 
-  useEffect(() => { load(scope); }, [scope]);
+  useEffect(() => { load(); }, []);
 
-  if (error) return <ErrorCard error={error} onRetry={() => load(scope)} />;
+  if (error) return <ErrorCard error={error} onRetry={load} />;
 
   const matches = data?.matches || [];
+  const missingMatches = matches.filter((match) => !match.prediction);
+  const editableMatches = matches.filter((match) => match.prediction);
+
   return (
     <main className="screen-content">
       <div className="section-label">Мои прогнозы</div>
       <div className="stat-grid">
-        <div className="stat-card"><b>{scope === 'missing' ? matches.length : '—'}</b><span>Нужен прогноз</span></div>
-        <div className="stat-card"><b>{scope === 'all' ? matches.length : '—'}</b><span>Можно изменить</span></div>
+        <div className="stat-card"><b>{data ? missingMatches.length : '—'}</b><span>Нужен прогноз</span></div>
+        <div className="stat-card"><b>{data ? editableMatches.length : '—'}</b><span>Можно изменить</span></div>
       </div>
 
-      <div className="segmented">
-        <button className={scope === 'missing' ? 'active' : ''} onClick={() => setScope('missing')}>Нужен прогноз</button>
-        <button className={scope === 'all' ? 'active' : ''} onClick={() => setScope('all')}>Все будущие</button>
-      </div>
-
-      {!data ? <LoadingCard /> : matches.length === 0 ? <EmptyState icon="🎯" title="Все готово" text="Нет матчей в выбранном фильтре" /> : (
-        groupMatchesByDay(matches).map(([day, dayMatches]) => (
-          <section key={day} className="match-day">
-            <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-            {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
+      {!data ? <LoadingCard /> : (
+        <>
+          <section className="prediction-section">
+            <div className="subsection-title">
+              <h2>Нужен прогноз</h2>
+              <span>{missingMatches.length}</span>
+            </div>
+            {missingMatches.length === 0 ? (
+              <EmptyState iconName="target" title="Все готово" text="Нет матчей без вашего прогноза" />
+            ) : (
+              groupMatchesByDay(missingMatches).map(([day, dayMatches]) => (
+                <section key={day} className="match-day">
+                  <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
+                  {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
+                </section>
+              ))
+            )}
           </section>
-        ))
+
+          <section className="prediction-section">
+            <div className="subsection-title">
+              <h2>Можно изменить</h2>
+              <span>{editableMatches.length}</span>
+            </div>
+            {editableMatches.length === 0 ? (
+              <p className="muted">Пока нет будущих матчей с вашим прогнозом.</p>
+            ) : (
+              groupMatchesByDay(editableMatches).map(([day, dayMatches]) => (
+                <section key={day} className="match-day">
+                  <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
+                  {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
+                </section>
+              ))
+            )}
+          </section>
+        </>
       )}
     </main>
   );
@@ -780,7 +915,7 @@ function App() {
       <nav className="bottom-nav">
         {TABS.map((item) => (
           <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>
-            <span>{item.icon}</span>
+            <Icon name={item.icon} />
             <small>{item.label}</small>
           </button>
         ))}
