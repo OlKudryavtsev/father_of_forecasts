@@ -1113,3 +1113,8 @@ scripts/data/
 ## Mini App resources/match-center polish
 
 См. `MINIAPP_2_RESOURCES_MATCHCENTER_POLISH.md`.
+
+
+## Mini App profile/rating fix
+
+См. `MINIAPP_2_PROFILE_RATING_FIX.md`.

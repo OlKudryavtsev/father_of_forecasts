@@ -383,12 +383,34 @@ def get_table(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return tournament leaderboard."""
+    """Return tournament leaderboard with prediction progress for Mini App."""
     rows = build_table_rows(db)
 
+    users_by_name = {
+        user.display_name: user
+        for user in db.query(User).all()
+    }
+
     for index, row in enumerate(rows, start=1):
+        user = users_by_name.get(row["name"])
+        tournament_prediction = None
+
+        if user:
+            tournament_prediction = (
+                db.query(TournamentPrediction)
+                .filter(
+                    TournamentPrediction.user_id == user.id,
+                    TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+                )
+                .first()
+            )
+
         row["rank"] = index
         row["is_current_user"] = row["name"] == current_user.display_name
+        row["match_predictions_count"] = row.get("total_predictions", 0)
+        row["tournament_prediction_count"] = 4 if tournament_prediction else 0
+        row["tournament_prediction_total"] = 4
+        row["tournament_prediction_progress"] = "4/4" if tournament_prediction else "0/4"
 
     return {"rows": rows}
 

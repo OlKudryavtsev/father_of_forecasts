@@ -901,13 +901,146 @@ function Rating() {
             <span className="rank">#{row.rank}</span>
             <strong>{row.name}</strong>
             <span>{row.points} очков</span>
-            <small>Матчи: {row.match_points} · Турнир: {row.tournament_points} · 🎯 {row.exact_scores}</small>
+            <small>
+              Матчевые прогнозы: {row.match_predictions_count ?? row.total_predictions ?? 0} ·
+              Турнирный прогноз: {row.tournament_prediction_progress || '0/4'} ·
+              🎯 {row.exact_scores}
+            </small>
           </div>
         ))}
       </div>
     </main>
   );
 }
+
+
+function Profile({ tournamentPrediction }) {
+  const [profile, setProfile] = useState(null);
+  const [error, setError] = useState(null);
+  const photoUrl = getTelegramPhotoUrl();
+
+  async function load() {
+    setError(null);
+    try {
+      setProfile(await api('/api/webapp/profile'));
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  if (error) return <ErrorCard error={error} onRetry={load} />;
+  if (!profile) return <LoadingCard />;
+
+  const user = profile.user || {};
+  const summary = profile.summary || {};
+  const pointsBreakdown = profile.points_breakdown || [];
+  const badges = profile.badges || [];
+  const tournament = profile.tournament_prediction || tournamentPrediction?.prediction;
+  const earnedBadges = badges.filter((badge) => badge.earned);
+  const lockedBadges = badges.filter((badge) => !badge.earned);
+
+  return (
+    <main className="screen-content profile-screen">
+      <div className="section-label">Мой профиль</div>
+
+      <section className="profile-hero-card">
+        <div className="avatar-ring">
+          {photoUrl ? <img src={photoUrl} alt="" /> : <span>{user.initials || 'ОП'}</span>}
+        </div>
+        <div className="profile-identity">
+          <div className="profile-rank">#{summary.rank || '—'}</div>
+          <h2>{user.display_name}</h2>
+          {user.username && <p className="muted">@{user.username}</p>}
+          <span className="status-pill">{summary.status}</span>
+        </div>
+        <div className="profile-points">
+          <b>{summary.points || 0}</b>
+          <span>очков</span>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Откуда очки</h2>
+        <div className="points-breakdown">
+          {pointsBreakdown.map((item) => (
+            <div key={item.key} className="points-row">
+              <i><Icon name={item.icon} /></i>
+              <span>{item.title}</span>
+              <b>{item.points} очков</b>
+              <em style={{ width: `${Math.min(100, Math.max(4, item.points || 0))}%` }} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="profile-section-head">
+          <h2>Статистика</h2>
+          <span>{summary.total_predictions || 0} {pluralRu(summary.total_predictions || 0, 'прогноз', 'прогноза', 'прогнозов')}</span>
+        </div>
+        <div className="stats-grid">
+          <div><b>{summary.match_points || 0}</b><span>очки за матчи</span></div>
+          <div><b>{summary.tournament_points || 0}</b><span>очки за турнир</span></div>
+          <div><b>{summary.exact_scores || 0}</b><span>точные счета</span></div>
+          <div><b>{summary.outcomes || 0}</b><span>исходы</span></div>
+          <div><b>{summary.favorite_score || '—'}</b><span>любимый счет</span></div>
+          <div><b>{summary.missing_predictions || 0}</b><span>ждут прогноза</span></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="profile-section-head">
+          <h2>Прогнозы на турнир</h2>
+          <span>{tournament ? '4/4' : '0/4'}</span>
+        </div>
+        {tournament ? (
+          <div className="profile-tournament-grid">
+            <div><Icon name="cup" /><span>Победитель</span><b>{tournament.champion}</b></div>
+            <div><Icon name="rank" /><span>2-е место</span><b>{tournament.runner_up}</b></div>
+            <div><Icon name="rank" /><span>3-е место</span><b>{tournament.third_place}</b></div>
+            <div><Icon name="ball" /><span>Бомбардир</span><b>{tournament.top_scorer}</b></div>
+          </div>
+        ) : (
+          <p className="muted">Турнирный прогноз пока не заполнен.</p>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="profile-section-head">
+          <h2>Достижения</h2>
+          <span>{earnedBadges.length}/{badges.length}</span>
+        </div>
+        <div className="badges-grid">
+          {badges.map((badge) => (
+            <div key={badge.code} className={`badge-card ${badge.earned ? 'earned' : 'locked'}`}>
+              <i><Icon name={badge.icon} /></i>
+              <strong>{badge.title}</strong>
+              <span>{badge.description}</span>
+              <div className="badge-progress">
+                <em style={{ width: `${Math.round((badge.progress || 0) * 100 / (badge.goal || 1))}%` }} />
+              </div>
+              <small>{badge.progress}/{badge.goal}</small>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {lockedBadges.length > 0 && (
+        <section className="card funny-card">
+          <h2>Вердикт Отца</h2>
+          <p>
+            {summary.missing_predictions > 0
+              ? `Еще ${summary.missing_predictions} ${pluralRu(summary.missing_predictions, 'матч', 'матча', 'матчей')} ждут прогноза. Отец прогнозов уже смотрит осуждающе.`
+              : 'Все доступные прогнозы сделаны. Теперь остается только молиться футбольным богам.'}
+          </p>
+        </section>
+      )}
+    </main>
+  );
+}
+
 
 function Resources() {
   const [fact, setFact] = useState('');

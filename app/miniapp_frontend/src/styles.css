@@ -2758,3 +2758,8 @@ body {
     font-size: 20px;
   }
 }
+
+
+.ranking-row small {
+  line-height: 1.45;
+}
