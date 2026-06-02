@@ -1108,3 +1108,8 @@ scripts/data/
 ## Mini App resources/profile update
 
 См. `MINIAPP_2_RESOURCES_PROFILE_UPDATE.md`.
+
+
+## Mini App resources/match-center polish
+
+См. `MINIAPP_2_RESOURCES_MATCHCENTER_POLISH.md`.

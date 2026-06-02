@@ -13,8 +13,8 @@ if (tg) {
 const TABS = [
   { id: 'matches', label: 'Матч-центр', icon: 'ball' },
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
-  { id: 'resources', label: 'Ресурсы', icon: 'more' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
+  { id: 'resources', label: 'Ресурсы', icon: 'link' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
 ];
 
@@ -74,6 +74,15 @@ function Icon({ name, className = '' }) {
       <svg {...common}>
         <path d="M5 20V10M12 20V4M19 20v-7" />
         <path d="M3 20h18" />
+      </svg>
+    );
+  }
+
+  if (name === 'link') {
+    return (
+      <svg {...common}>
+        <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+        <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
       </svg>
     );
   }
@@ -194,6 +203,33 @@ function formatDayTitle(value) {
     month: 'long',
     weekday: 'long',
   });
+}
+
+function formatRoundLabel(match) {
+  if (!match) return '';
+
+  if (match.stage === 'group') {
+    if (match.match_round) {
+      const value = String(match.match_round).replace(/^тур\s*/i, '').trim();
+      return `Тур ${value}`;
+    }
+
+    return 'Группа';
+  }
+
+  const round = match.match_round || match.stage || '';
+
+  if (!round) return 'Плей-офф';
+
+  const normalized = String(round).toLowerCase();
+
+  if (normalized.includes('round of 16') || normalized.includes('1/8')) return '1/8 финала';
+  if (normalized.includes('quarter') || normalized.includes('1/4')) return '1/4 финала';
+  if (normalized.includes('semi') || normalized.includes('1/2')) return '1/2 финала';
+  if (normalized.includes('third') || normalized.includes('3')) return 'Матч за 3 место';
+  if (normalized.includes('final')) return 'Финал';
+
+  return round;
 }
 
 function formatCountdown(days) {
@@ -380,8 +416,9 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
     <article className="match-card">
       <div className="match-card-top">
         <span className="group-pill">{match.group_code ? `Группа ${match.group_code}` : match.stage}</span>
+        <span className="round-pill">{formatRoundLabel(match)}</span>
         <span className={match.is_finished ? 'dot dot-finished' : 'dot'} />
-        <span className="muted small">{formatDateTime(match.starts_at)}</span>
+        <span className="muted small match-date">{formatDateTime(match.starts_at)}</span>
       </div>
 
       <div className="match-teams">
@@ -413,11 +450,21 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
 
 function groupMatchesByDay(matches) {
   const map = new Map();
+
   for (const match of matches || []) {
-    const key = match.day_key || (match.starts_at || '').slice(0, 10);
+    const date = new Date(match.starts_at);
+    const key = Number.isNaN(date.getTime())
+      ? (match.starts_at || '').slice(0, 10)
+      : [
+          date.getFullYear(),
+          String(date.getMonth() + 1).padStart(2, '0'),
+          String(date.getDate()).padStart(2, '0'),
+        ].join('-');
+
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(match);
   }
+
   return [...map.entries()];
 }
 
@@ -888,219 +935,126 @@ function Resources() {
   const father = forecast?.forecast;
   const fatherPicks = father?.forecast || {};
   const links = [
-    ['Sofascore', 'https://www.sofascore.com/football/tournament/world/world-championship/16#id:58210'],
-    ['Flashscore', 'https://www.flashscore.com/football/world/world-championship/'],
-    ['FIFA', 'https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures'],
-    ['Матч ТВ', 'https://matchtv.ru/football/worldcup/2026'],
-    ['Чемпионат', 'https://www.championat.com/news/football/_worldcup/1.html'],
+    {
+      title: 'Sofascore',
+      icon: '📊',
+      description: 'лайв-центр, составы, форма и статистика матчей',
+      url: 'https://www.sofascore.com/football/tournament/world/world-championship/16#id:58210',
+    },
+    {
+      title: 'Flashscore',
+      icon: '⚡',
+      description: 'быстрые результаты, календарь и таблицы',
+      url: 'https://www.flashscore.com/football/world/world-championship/',
+    },
+    {
+      title: 'FIFA',
+      icon: '🏆',
+      description: 'официальное расписание, стадионы и матч-центр',
+      url: 'https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures',
+    },
+    {
+      title: 'Матч ТВ',
+      icon: '📺',
+      description: 'русскоязычные новости, трансляции и контекст',
+      url: 'https://matchtv.ru/football/worldcup/2026',
+    },
+    {
+      title: 'Чемпионат',
+      icon: '📰',
+      description: 'новости сборных, травмы и турнирные сюжеты',
+      url: 'https://www.championat.com/news/football/_worldcup/1.html',
+    },
   ];
 
   return (
     <main className="screen-content resources-screen">
       <div className="section-label">Полезные ресурсы</div>
 
-      <section className="card compact-card">
-        <button className="wide-toggle" onClick={() => setOpenFather(!openFather)}>
-          <Icon name="robot" /> Прогноз Отца прогнозов
+      <section className="resource-quick-grid">
+        <button className="resource-quick-card father" onClick={() => setOpenFather(!openFather)}>
+          <span>🤖</span>
+          <strong>Прогноз Отца</strong>
+          <small>итоги турнира</small>
         </button>
-        {openFather && (
-          <div className="collapsed-panel">
-            {father ? (
-              <>
-                <div className="tournament-grid">
-                  <div><Icon name="cup" /> <b>{fatherPicks.champion}</b><small>Победитель</small></div>
-                  <div><Icon name="rank" /> <b>{fatherPicks.runner_up}</b><small>Финалист</small></div>
-                  <div><Icon name="rank" /> <b>{fatherPicks.third_place}</b><small>3 место</small></div>
-                  <div><Icon name="ball" /> <b>{fatherPicks.top_scorer}</b><small>Бомбардир</small></div>
-                </div>
-                <h3>Почему так</h3>
-                <ul className="nice-list">
-                  {(father.reasoning || []).map((item) => <li key={item}>{item}</li>)}
-                </ul>
-                <h3>Альтернативы</h3>
-                <p className="muted">🏆 {(father.alternatives?.champion || []).join(', ') || '—'}</p>
-                <p className="muted">🥈 {(father.alternatives?.runner_up || []).join(', ') || '—'}</p>
-                <p className="muted">🥉 {(father.alternatives?.third_place || []).join(', ') || '—'}</p>
-                <p className="muted">⚽ {(father.alternatives?.top_scorer || []).join(', ') || '—'}</p>
-                <p className="father-comment">{father.spicy_comment}</p>
-              </>
-            ) : <LoadingCard />}
-          </div>
-        )}
-      </section>
-
-      <section className="card compact-card">
-        <button className="wide-toggle" onClick={() => setOpenHelp(!openHelp)}>
-          <Icon name="ball" /> Помощь по бомбардирам
+        <button className="resource-quick-card scorers" onClick={() => setOpenHelp(!openHelp)}>
+          <span>⚽</span>
+          <strong>Бомбардиры</strong>
+          <small>кого выбрать</small>
         </button>
-        {openHelp && (
-          <div className="collapsed-panel">
-            <p>{scorers?.hint || 'Загружаю подсказку...'}</p>
-            <div className="scorer-list">
-              {(scorers?.candidates || []).map((candidate) => (
-                <div className="scorer-card" key={candidate.name}>
-                  <strong>{candidate.name}</strong>
-                  <span>{candidate.team}</span>
-                  <small>{candidate.tier}</small>
-                  <p>{candidate.note}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </section>
 
-      <section className="card actions-card">
-        <button onClick={loadFact}>Получить факт</button>
-        {fact && <p>{fact}</p>}
-      </section>
-
-      <section className="card actions-card">
-        <button onClick={loadArchive}>Карточка архива</button>
-        {archive && <pre>{archive}</pre>}
-      </section>
-
-      <section className="card">
-        <h2>Матч-центры и статистика</h2>
-        <div className="links-list">
-          {links.map(([title, url]) => (
-            <button key={title} onClick={() => tg?.openLink ? tg.openLink(url) : window.open(url, '_blank')}>{title} ›</button>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
-}
-
-
-function Profile({ tournamentPrediction }) {
-  const [profile, setProfile] = useState(null);
-  const [error, setError] = useState(null);
-  const photoUrl = getTelegramPhotoUrl();
-
-  async function load() {
-    setError(null);
-    try {
-      setProfile(await api('/api/webapp/profile'));
-    } catch (err) {
-      setError(err);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  if (error) return <ErrorCard error={error} onRetry={load} />;
-  if (!profile) return <LoadingCard />;
-
-  const user = profile.user || {};
-  const summary = profile.summary || {};
-  const pointsBreakdown = profile.points_breakdown || [];
-  const badges = profile.badges || [];
-  const tournament = profile.tournament_prediction || tournamentPrediction?.prediction;
-  const earnedBadges = badges.filter((badge) => badge.earned);
-  const lockedBadges = badges.filter((badge) => !badge.earned);
-
-  return (
-    <main className="screen-content profile-screen">
-      <div className="section-label">Мой профиль</div>
-
-      <section className="profile-hero-card">
-        <div className="avatar-ring">
-          {photoUrl ? <img src={photoUrl} alt="" /> : <span>{user.initials || 'ОП'}</span>}
-        </div>
-        <div className="profile-identity">
-          <div className="profile-rank">#{summary.rank || '—'}</div>
-          <h2>{user.display_name}</h2>
-          {user.username && <p className="muted">@{user.username}</p>}
-          <span className="status-pill">{summary.status}</span>
-        </div>
-        <div className="profile-points">
-          <b>{summary.points || 0}</b>
-          <span>очков</span>
-        </div>
-      </section>
-
-
-      <section className="card">
-        <h2>Откуда очки</h2>
-        <div className="points-breakdown">
-          {pointsBreakdown.map((item) => (
-            <div key={item.key} className="points-row">
-              <i><Icon name={item.icon} /></i>
-              <span>{item.title}</span>
-              <b>{item.points} очков</b>
-              <em style={{ width: `${Math.min(100, Math.max(4, item.points || 0))}%` }} />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="profile-section-head">
-          <h2>Статистика</h2>
-          <span>{summary.total_predictions || 0} {pluralRu(summary.total_predictions || 0, 'прогноз', 'прогноза', 'прогнозов')}</span>
-        </div>
-        <div className="stats-grid">
-          <div><b>{summary.match_points || 0}</b><span>очки за матчи</span></div>
-          <div><b>{summary.tournament_points || 0}</b><span>очки за турнир</span></div>
-          <div><b>{summary.exact_scores || 0}</b><span>точные счета</span></div>
-          <div><b>{summary.outcomes || 0}</b><span>исходы</span></div>
-          <div><b>{summary.favorite_score || '—'}</b><span>любимый счет</span></div>
-          <div><b>{summary.missing_predictions || 0}</b><span>ждут прогноза</span></div>
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="profile-section-head">
-          <h2>Прогнозы на турнир</h2>
-          <span>{tournament ? '4/4' : '0/4'}</span>
-        </div>
-        {tournament ? (
-          <div className="profile-tournament-grid">
-            <div><Icon name="cup" /><span>Победитель</span><b>{tournament.champion}</b></div>
-            <div><Icon name="rank" /><span>2-е место</span><b>{tournament.runner_up}</b></div>
-            <div><Icon name="rank" /><span>3-е место</span><b>{tournament.third_place}</b></div>
-            <div><Icon name="ball" /><span>Бомбардир</span><b>{tournament.top_scorer}</b></div>
-          </div>
-        ) : (
-          <p className="muted">Турнирный прогноз пока не заполнен.</p>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="profile-section-head">
-          <h2>Достижения</h2>
-          <span>{earnedBadges.length}/{badges.length}</span>
-        </div>
-        <div className="badges-grid">
-          {badges.map((badge) => (
-            <div key={badge.code} className={`badge-card ${badge.earned ? 'earned' : 'locked'}`}>
-              <i><Icon name={badge.icon} /></i>
-              <strong>{badge.title}</strong>
-              <span>{badge.description}</span>
-              <div className="badge-progress">
-                <em style={{ width: `${Math.round((badge.progress || 0) * 100 / (badge.goal || 1))}%` }} />
+      {openFather && (
+        <section className="card resource-panel">
+          {father ? (
+            <>
+              <div className="tournament-grid">
+                <div><Icon name="cup" /> <b>{fatherPicks.champion}</b><small>Победитель</small></div>
+                <div><Icon name="rank" /> <b>{fatherPicks.runner_up}</b><small>Финалист</small></div>
+                <div><Icon name="rank" /> <b>{fatherPicks.third_place}</b><small>3 место</small></div>
+                <div><Icon name="ball" /> <b>{fatherPicks.top_scorer}</b><small>Бомбардир</small></div>
               </div>
-              <small>{badge.progress}/{badge.goal}</small>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {lockedBadges.length > 0 && (
-        <section className="card funny-card">
-          <h2>Вердикт Отца</h2>
-          <p>
-            {summary.missing_predictions > 0
-              ? `Еще ${summary.missing_predictions} ${pluralRu(summary.missing_predictions, 'матч', 'матча', 'матчей')} ждут прогноза. Отец прогнозов уже смотрит осуждающе.`
-              : 'Все доступные прогнозы сделаны. Теперь остается только молиться футбольным богам.'}
-          </p>
+              <h3>Почему так</h3>
+              <ul className="nice-list">
+                {(father.reasoning || []).map((item) => <li key={item}>{item}</li>)}
+              </ul>
+              <p className="father-comment">{father.spicy_comment}</p>
+            </>
+          ) : <LoadingCard />}
         </section>
       )}
+
+      {openHelp && (
+        <section className="card resource-panel">
+          <h2>⚽ Помощь по бомбардирам</h2>
+          <p className="muted">{scorers?.hint || 'Загружаю подсказку...'}</p>
+          <div className="scorer-list">
+            {(scorers?.candidates || []).map((candidate) => (
+              <div className="scorer-card" key={candidate.name}>
+                <strong>{candidate.name}</strong>
+                <span>{candidate.team}</span>
+                <small>{candidate.tier}</small>
+                <p>{candidate.note}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="resource-actions">
+        <button className="resource-action-card" onClick={loadFact}>
+          <span>📚</span>
+          <strong>Факт о ЧМ</strong>
+          <small>короткая футбольная история</small>
+        </button>
+        <button className="resource-action-card" onClick={loadArchive}>
+          <span>🗂</span>
+          <strong>Архив Отца</strong>
+          <small>случайная карточка прошлого</small>
+        </button>
+      </section>
+
+      {fact && <section className="card resource-text-card"><p>{fact}</p></section>}
+      {archive && <section className="card resource-text-card"><pre>{archive}</pre></section>}
+
+      <section className="card resources-links-card">
+        <h2>Матч-центры и статистика</h2>
+        <div className="resource-links-list">
+          {links.map((item) => (
+            <button key={item.title} onClick={() => tg?.openLink ? tg.openLink(item.url) : window.open(item.url, '_blank')}>
+              <span className="resource-link-icon">{item.icon}</span>
+              <span className="resource-link-text">
+                <strong>{item.title}</strong>
+                <small>{item.description}</small>
+              </span>
+              <b>→</b>
+            </button>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
-
 
 function RulesModal({ onClose }) {
   return (
