@@ -1103,3 +1103,8 @@ scripts/data/
 ## Release 3: Profile and achievements
 
 См. `MINIAPP_2_PROFILE_ACHIEVEMENTS_RELEASE.md`.
+
+
+## Mini App resources/profile update
+
+См. `MINIAPP_2_RESOURCES_PROFILE_UPDATE.md`.

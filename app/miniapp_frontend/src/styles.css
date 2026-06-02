@@ -2533,3 +2533,27 @@ body {
     padding: 10px;
   }
 }
+
+
+/* Resources tab restore + profile cleanup */
+
+.resources-screen .wide-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.resources-screen .wide-toggle .svg-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.resources-screen .tournament-grid .svg-icon {
+  color: var(--gold);
+  margin-bottom: 6px;
+}
+
+.team-card {
+  display: none;
+}

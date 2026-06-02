@@ -13,7 +13,7 @@ if (tg) {
 const TABS = [
   { id: 'matches', label: 'Матч-центр', icon: 'ball' },
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
-  { id: 'tournament', label: 'Турнир', icon: 'cup' },
+  { id: 'resources', label: 'Ресурсы', icon: 'more' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
 ];
@@ -862,54 +862,56 @@ function Rating() {
   );
 }
 
-function Tournament({ tournamentPrediction }) {
-  const [prediction, setPrediction] = useState(tournamentPrediction);
+function Resources() {
+  const [fact, setFact] = useState('');
+  const [archive, setArchive] = useState('');
   const [forecast, setForecast] = useState(null);
   const [scorers, setScorers] = useState(null);
   const [openFather, setOpenFather] = useState(false);
   const [openHelp, setOpenHelp] = useState(false);
 
   useEffect(() => {
-    if (!tournamentPrediction) {
-      api('/api/webapp/tournament-prediction/me').then(setPrediction).catch(() => {});
-    }
     api('/api/webapp/tournament-forecast').then(setForecast).catch(() => {});
     api('/api/webapp/top-scorer-candidates').then(setScorers).catch(() => {});
-  }, [tournamentPrediction]);
+  }, []);
 
-  const p = (prediction || tournamentPrediction)?.prediction;
+  async function loadFact() {
+    const result = await api('/api/webapp/facts/random');
+    setFact(result.fact?.text || '');
+  }
+
+  async function loadArchive() {
+    const result = await api('/api/webapp/archive/random');
+    setArchive(`${result.card?.title || ''}\n${result.card?.text || ''}`);
+  }
+
   const father = forecast?.forecast;
   const fatherPicks = father?.forecast || {};
+  const links = [
+    ['Sofascore', 'https://www.sofascore.com/football/tournament/world/world-championship/16#id:58210'],
+    ['Flashscore', 'https://www.flashscore.com/football/world/world-championship/'],
+    ['FIFA', 'https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures'],
+    ['Матч ТВ', 'https://matchtv.ru/football/worldcup/2026'],
+    ['Чемпионат', 'https://www.championat.com/news/football/_worldcup/1.html'],
+  ];
 
   return (
-    <main className="screen-content">
-      <div className="section-label">Турнирный прогноз</div>
-
-      <section className="card">
-        <h2>Мой турнирный прогноз</h2>
-        {p ? (
-          <div className="tournament-grid">
-            <div>🏆 <b>{p.champion}</b><small>Победитель</small></div>
-            <div>🥈 <b>{p.runner_up}</b><small>Финалист</small></div>
-            <div>🥉 <b>{p.third_place}</b><small>3 место</small></div>
-            <div>⚽ <b>{p.top_scorer}</b><small>Бомбардир</small></div>
-          </div>
-        ) : (
-          <p className="muted">Турнирный прогноз пока не заполнен. Заполни его в боте или предыдущей форме Mini App.</p>
-        )}
-      </section>
+    <main className="screen-content resources-screen">
+      <div className="section-label">Полезные ресурсы</div>
 
       <section className="card compact-card">
-        <button className="wide-toggle" onClick={() => setOpenFather(!openFather)}>🤖 Прогноз Отца прогнозов</button>
+        <button className="wide-toggle" onClick={() => setOpenFather(!openFather)}>
+          <Icon name="robot" /> Прогноз Отца прогнозов
+        </button>
         {openFather && (
           <div className="collapsed-panel">
             {father ? (
               <>
                 <div className="tournament-grid">
-                  <div>🏆 <b>{fatherPicks.champion}</b><small>Победитель</small></div>
-                  <div>🥈 <b>{fatherPicks.runner_up}</b><small>Финалист</small></div>
-                  <div>🥉 <b>{fatherPicks.third_place}</b><small>3 место</small></div>
-                  <div>⚽ <b>{fatherPicks.top_scorer}</b><small>Бомбардир</small></div>
+                  <div><Icon name="cup" /> <b>{fatherPicks.champion}</b><small>Победитель</small></div>
+                  <div><Icon name="rank" /> <b>{fatherPicks.runner_up}</b><small>Финалист</small></div>
+                  <div><Icon name="rank" /> <b>{fatherPicks.third_place}</b><small>3 место</small></div>
+                  <div><Icon name="ball" /> <b>{fatherPicks.top_scorer}</b><small>Бомбардир</small></div>
                 </div>
                 <h3>Почему так</h3>
                 <ul className="nice-list">
@@ -928,7 +930,9 @@ function Tournament({ tournamentPrediction }) {
       </section>
 
       <section className="card compact-card">
-        <button className="wide-toggle" onClick={() => setOpenHelp(!openHelp)}>⚽ Помощь Отца по бомбардирам</button>
+        <button className="wide-toggle" onClick={() => setOpenHelp(!openHelp)}>
+          <Icon name="ball" /> Помощь по бомбардирам
+        </button>
         {openHelp && (
           <div className="collapsed-panel">
             <p>{scorers?.hint || 'Загружаю подсказку...'}</p>
@@ -944,6 +948,25 @@ function Tournament({ tournamentPrediction }) {
             </div>
           </div>
         )}
+      </section>
+
+      <section className="card actions-card">
+        <button onClick={loadFact}>Получить факт</button>
+        {fact && <p>{fact}</p>}
+      </section>
+
+      <section className="card actions-card">
+        <button onClick={loadArchive}>Карточка архива</button>
+        {archive && <pre>{archive}</pre>}
+      </section>
+
+      <section className="card">
+        <h2>Матч-центры и статистика</h2>
+        <div className="links-list">
+          {links.map(([title, url]) => (
+            <button key={title} onClick={() => tg?.openLink ? tg.openLink(url) : window.open(url, '_blank')}>{title} ›</button>
+          ))}
+        </div>
       </section>
     </main>
   );
@@ -997,16 +1020,6 @@ function Profile({ tournamentPrediction }) {
         </div>
       </section>
 
-      <section className="card team-card">
-        <button className="team-support-button" type="button">
-          <span className="team-support-flag">⚐</span>
-          <span>
-            <strong>Укажите, за какую сборную болеете</strong>
-            <small>Флаг появится на вашем профиле — его увидят все</small>
-          </span>
-          <b>→</b>
-        </button>
-      </section>
 
       <section className="card">
         <h2>Откуда очки</h2>
@@ -1088,47 +1101,6 @@ function Profile({ tournamentPrediction }) {
   );
 }
 
-
-function More() {
-  const [fact, setFact] = useState('');
-  const [archive, setArchive] = useState('');
-  async function loadFact() {
-    const result = await api('/api/webapp/facts/random');
-    setFact(result.fact?.text || '');
-  }
-  async function loadArchive() {
-    const result = await api('/api/webapp/archive/random');
-    setArchive(`${result.card?.title || ''}\n${result.card?.text || ''}`);
-  }
-  const links = [
-    ['Sofascore', 'https://www.sofascore.com/football/tournament/world/world-championship/16#id:58210'],
-    ['Flashscore', 'https://www.flashscore.com/football/world/world-championship/'],
-    ['FIFA', 'https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures'],
-    ['Матч ТВ', 'https://matchtv.ru/football/worldcup/2026'],
-    ['Чемпионат', 'https://www.championat.com/news/football/_worldcup/1.html'],
-  ];
-  return (
-    <main className="screen-content">
-      <div className="section-label">Еще</div>
-      <section className="card actions-card">
-        <button onClick={loadFact}>📚 Получить факт</button>
-        {fact && <p>{fact}</p>}
-      </section>
-      <section className="card actions-card">
-        <button onClick={loadArchive}>🗂 Карточка архива</button>
-        {archive && <pre>{archive}</pre>}
-      </section>
-      <section className="card">
-        <h2>Полезные ссылки</h2>
-        <div className="links-list">
-          {links.map(([title, url]) => (
-            <button key={title} onClick={() => tg?.openLink ? tg.openLink(url) : window.open(url, '_blank')}>{title} ›</button>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
-}
 
 function RulesModal({ onClose }) {
   return (
@@ -1222,7 +1194,7 @@ function App() {
         </>
       )}
       {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
-      {tab === 'tournament' && <Tournament tournamentPrediction={tournamentPrediction} />}
+      {tab === 'resources' && <Resources />}
       {tab === 'rating' && <Rating />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} />}
 
