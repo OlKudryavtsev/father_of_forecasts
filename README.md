@@ -1147,3 +1147,8 @@ scripts/data/
 ## Match results, Fantasy bench and light theme
 
 См. `MINIAPP_MATCH_RESULTS_FANTASY_LIGHT_THEME.md`.
+
+
+## Light theme polish
+
+См. `MINIAPP_LIGHT_THEME_POLISH.md`.

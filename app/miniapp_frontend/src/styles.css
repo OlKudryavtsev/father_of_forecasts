@@ -4085,3 +4085,284 @@ body {
     min-width: 78px;
   }
 }
+
+
+/* Light theme full polish */
+
+.app.theme-light .league-header {
+  background:
+    linear-gradient(to bottom, rgba(244,247,251,0.98) 72%, rgba(244,247,251,0));
+  color: var(--text);
+}
+
+.app.theme-light .league-logo {
+  background: #ffffff;
+  color: var(--gold);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.app.theme-light .league-status {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.10);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .rules-button {
+  background: #ffffff;
+  color: var(--blue);
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+.app.theme-light .compact-action {
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), #ffffff);
+  border-color: rgba(37, 99, 235, 0.18);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.08);
+}
+
+.app.theme-light .compact-action-icon {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.app.theme-light .compact-action b {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.app.theme-light .tournament-mini {
+  background: linear-gradient(135deg, rgba(7,139,91,0.10), #ffffff);
+  border-color: rgba(7, 139, 91, 0.18);
+  box-shadow: 0 12px 28px rgba(7, 139, 91, 0.07);
+}
+
+.app.theme-light .tournament-mini-grid button {
+  background: #ffffff;
+  color: var(--text);
+  border-color: rgba(15, 23, 42, 0.10);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.app.theme-light .tournament-mini-grid i {
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.app.theme-light .match-card {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.10);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+}
+
+.app.theme-light .match-card-top {
+  color: var(--muted);
+}
+
+.app.theme-light .score-block button,
+.app.theme-light .match-actions button,
+.app.theme-light .score-block small {
+  color: var(--muted);
+}
+
+.app.theme-light .match-actions button {
+  background: #f1f5f9;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .match-actions button:last-child {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: rgba(7, 139, 91, 0.14);
+}
+
+.app.theme-light .group-pill {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.app.theme-light .round-pill {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.app.theme-light .bar-track {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.app.theme-light .modern-filters button {
+  color: var(--muted);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.06);
+}
+
+.app.theme-light .modern-filters button::after {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.app.theme-light .modern-filters button.active::after {
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.app.theme-light .modern-filters button:first-child {
+  background: linear-gradient(135deg, rgba(7,139,91,0.72), rgba(37,99,235,0.44));
+}
+
+.app.theme-light .modern-filters button.result {
+  background: linear-gradient(135deg, rgba(183,121,31,0.72), rgba(37,99,235,0.38));
+}
+
+.app.theme-light .modern-filters .group-color {
+  background: linear-gradient(135deg, var(--group-color), rgba(255, 255, 255, 0.50));
+}
+
+.app.theme-light .modern-filters button.active {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, currentColor 28%, transparent),
+    0 10px 20px rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .group-table-card.group-color {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--group-color) 14%, transparent), #ffffff);
+  border-color: color-mix(in srgb, var(--group-color) 36%, transparent);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+}
+
+.app.theme-light .group-table-card {
+  background: linear-gradient(135deg, rgba(220,38,38,0.08), #ffffff);
+  border-color: rgba(220, 38, 38, 0.16);
+}
+
+.app.theme-light .standings-table {
+  background: rgba(15, 23, 42, 0.035);
+}
+
+.app.theme-light .standings-row {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .standings-row.headings {
+  color: #64748b;
+}
+
+.app.theme-light .standings-row.zone-playoff {
+  background: transparent;
+}
+
+.app.theme-light .rank-cell {
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--text);
+}
+
+.app.theme-light .profile-hero-card {
+  background:
+    radial-gradient(circle at 20% 30%, rgba(7,139,91,0.13), transparent 44%),
+    linear-gradient(135deg, #ffffff, #eef7f3);
+  border-color: rgba(7, 139, 91, 0.18);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .avatar-ring {
+  background: linear-gradient(135deg, var(--green), var(--blue));
+  box-shadow: 0 0 18px rgba(7, 139, 91, 0.16);
+}
+
+.app.theme-light .avatar-ring span {
+  background: #ffffff;
+  color: var(--text);
+}
+
+.app.theme-light .status-pill {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.app.theme-light .profile-points b {
+  color: var(--green);
+}
+
+.app.theme-light .profile-rank {
+  color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.app.theme-light .profile-settings-card,
+.app.theme-light .points-row,
+.app.theme-light .stats-grid div,
+.app.theme-light .profile-tournament-grid div,
+.app.theme-light .badge-card,
+.app.theme-light .fantasy-bench-grid > div,
+.app.theme-light .fantasy-save-card,
+.app.theme-light .fantasy-rules-card,
+.app.theme-light .fantasy-scoring-card,
+.app.theme-light .fantasy-deadline-card,
+.app.theme-light .compact-deadline-card,
+.app.theme-light .rating-toggle-card,
+.app.theme-light .resource-panel,
+.app.theme-light .resource-text-card,
+.app.theme-light .resources-links-card {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.10);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.055);
+}
+
+.app.theme-light .fantasy-save-card {
+  background: linear-gradient(135deg, rgba(7,139,91,0.08), #ffffff);
+  border-color: rgba(7,139,91,0.18);
+}
+
+.app.theme-light .compact-deadline-card {
+  background: linear-gradient(135deg, rgba(37,99,235,0.08), #ffffff);
+}
+
+.app.theme-light .fantasy-scoring-grid div,
+.app.theme-light .fantasy-detailed-rules p,
+.app.theme-light .category-line,
+.app.theme-light .player-list button,
+.app.theme-light .current-player-card {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+.app.theme-light .modal-card {
+  background: #ffffff;
+  color: var(--text);
+}
+
+.app.theme-light .modal-close {
+  background: #eef3f9;
+  color: var(--text);
+}
+
+.app.theme-light .bottom-nav {
+  background: rgba(255, 255, 255, 0.94);
+  border-top-color: rgba(15, 23, 42, 0.10);
+}
+
+.app.theme-light .dot {
+  background: var(--green);
+  box-shadow: 0 0 12px rgba(7, 139, 91, 0.38);
+}
+
+.app.theme-light .dot-finished {
+  background: var(--gold);
+  box-shadow: none;
+}
+
+.app.theme-light .funny-card {
+  background: linear-gradient(135deg, var(--gold-soft), #ffffff);
+  border-color: rgba(183, 121, 31, 0.18);
+}
+
+/* Keep group colors readable in light theme */
+.app.theme-light .group-A { --group-color: #dc2626; --group-soft: rgba(220,38,38,0.10); }
+.app.theme-light .group-B { --group-color: #2563eb; --group-soft: rgba(37,99,235,0.10); }
+.app.theme-light .group-C { --group-color: #078b5b; --group-soft: rgba(7,139,91,0.10); }
+.app.theme-light .group-D { --group-color: #7c3aed; --group-soft: rgba(124,58,237,0.10); }
+.app.theme-light .group-E { --group-color: #ea580c; --group-soft: rgba(234,88,12,0.10); }
+.app.theme-light .group-F { --group-color: #0891b2; --group-soft: rgba(8,145,178,0.10); }
+.app.theme-light .group-G { --group-color: #c026d3; --group-soft: rgba(192,38,211,0.10); }
+.app.theme-light .group-H { --group-color: #65a30d; --group-soft: rgba(101,163,13,0.10); }
+.app.theme-light .group-I { --group-color: #e11d48; --group-soft: rgba(225,29,72,0.10); }
+.app.theme-light .group-J { --group-color: #0284c7; --group-soft: rgba(2,132,199,0.10); }
+.app.theme-light .group-K { --group-color: #9333ea; --group-soft: rgba(147,51,234,0.10); }
+.app.theme-light .group-L { --group-color: #0f766e; --group-soft: rgba(15,118,110,0.10); }
