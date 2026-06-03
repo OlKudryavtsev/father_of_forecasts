@@ -1142,3 +1142,8 @@ scripts/data/
 ## Fantasy random squad hotfix
 
 Кнопка `случайный состав` теперь заполняет основу и скамейку. Лимиты категорий применяются к основе.
+
+
+## Match results, Fantasy bench and light theme
+
+См. `MINIAPP_MATCH_RESULTS_FANTASY_LIGHT_THEME.md`.

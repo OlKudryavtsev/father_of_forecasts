@@ -3831,3 +3831,257 @@ body {
   font-size: 10px;
   line-height: 1.1;
 }
+
+
+/* Match results + prediction quality colors */
+
+.match-score-stack {
+  min-width: 92px;
+  gap: 5px;
+}
+
+.actual-score-row,
+.prediction-score-row {
+  width: 92px;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  border-radius: 13px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.actual-score-row small,
+.prediction-score-row small {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.actual-score-row strong,
+.prediction-score-row strong {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.prediction-score-row.prediction-miss {
+  color: var(--red);
+  background: rgba(255, 104, 114, 0.13);
+  border-color: rgba(255, 104, 114, 0.38);
+}
+
+.prediction-score-row.prediction-outcome {
+  color: #8ee7bd;
+  background: rgba(142, 231, 189, 0.13);
+  border-color: rgba(142, 231, 189, 0.38);
+}
+
+.prediction-score-row.prediction-exact {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: rgba(22, 199, 132, 0.50);
+}
+
+/* Narrower fantasy bench */
+
+.fantasy-bench-grid {
+  gap: 6px;
+}
+
+.fantasy-bench-grid > div {
+  min-height: 42px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  padding: 6px 8px;
+  border-radius: 12px;
+  gap: 1px 7px;
+}
+
+.fantasy-bench-grid > div > span {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  font-size: 15px;
+}
+
+.fantasy-bench-grid > div > strong {
+  font-size: 11px;
+  line-height: 1.05;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.fantasy-bench-grid > div > small {
+  font-size: 9px;
+  line-height: 1.05;
+}
+
+.fantasy-bench-card {
+  padding: 12px;
+}
+
+.bench-title-row {
+  margin-bottom: 8px;
+}
+
+.bench-title-row h2 {
+  font-size: 18px;
+}
+
+.bench-title-row span {
+  font-size: 10px;
+}
+
+.fantasy-bench-grid .swap-up {
+  width: 22px;
+  height: 22px;
+  right: 5px;
+  top: 5px;
+}
+
+/* Theme toggle */
+
+.profile-settings-card {
+  border-color: rgba(90,141,255,0.25);
+}
+
+.theme-toggle-row {
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto 44px minmax(0, 1fr);
+  grid-template-areas:
+    "input switch title"
+    "input switch text";
+  gap: 2px 10px;
+  align-items: center;
+  padding: 11px 0 0;
+}
+
+.theme-toggle-row input {
+  grid-area: input;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.theme-toggle-row > span {
+  grid-area: switch;
+  width: 44px;
+  height: 25px;
+  border-radius: 999px;
+  background: rgba(148,163,184,0.24);
+  position: relative;
+  transition: background 140ms ease;
+}
+
+.theme-toggle-row > span::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 3px;
+  top: 2.5px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 140ms ease;
+}
+
+.theme-toggle-row input:checked + span {
+  background: var(--green);
+}
+
+.theme-toggle-row input:checked + span::after {
+  transform: translateX(18px);
+}
+
+.theme-toggle-row strong {
+  grid-area: title;
+}
+
+.theme-toggle-row small {
+  grid-area: text;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Light theme */
+
+.app.theme-light {
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --panel-2: #eef3f9;
+  --text: #0f172a;
+  --muted: #64748b;
+  --line: rgba(15, 23, 42, 0.12);
+  --green: #078b5b;
+  --green-soft: rgba(7, 139, 91, 0.12);
+  --blue: #2563eb;
+  --blue-soft: rgba(37, 99, 235, 0.12);
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.12);
+  --gold: #b7791f;
+  --gold-soft: rgba(183, 121, 31, 0.13);
+  color-scheme: light;
+}
+
+.app.theme-light {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(7, 139, 91, 0.10), transparent 34%),
+    radial-gradient(circle at 90% 18%, rgba(37, 99, 235, 0.09), transparent 26%),
+    #f4f7fb;
+  color: var(--text);
+}
+
+.app.theme-light .league-header,
+.app.theme-light .bottom-nav {
+  background: rgba(244, 247, 251, 0.92);
+}
+
+.app.theme-light .card,
+.app.theme-light .match-card,
+.app.theme-light .ranking-row,
+.app.theme-light .stat-card,
+.app.theme-light .modal-card {
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .football-pitch {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.18), transparent 30%),
+    linear-gradient(180deg, #1f9b6b, #167650);
+}
+
+.app.theme-light .pitch-slot.filled {
+  background: rgba(255,255,255,0.86);
+  color: #0f172a;
+}
+
+.app.theme-light .resource-links-list button,
+.app.theme-light .resource-quick-card,
+.app.theme-light .resource-action-card {
+  background: #ffffff;
+}
+
+.app.theme-light .actual-score-row,
+.app.theme-light .prediction-score-row,
+.app.theme-light .rating-metrics-grid div {
+  background: rgba(15, 23, 42, 0.035);
+}
+
+@media (max-width: 390px) {
+  .actual-score-row,
+  .prediction-score-row {
+    width: 78px;
+    min-height: 36px;
+  }
+
+  .actual-score-row strong,
+  .prediction-score-row strong {
+    font-size: 16px;
+  }
+
+  .match-score-stack {
+    min-width: 78px;
+  }
+}

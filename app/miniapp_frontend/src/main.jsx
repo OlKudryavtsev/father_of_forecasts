@@ -12,8 +12,8 @@ if (tg) {
 
 const TABS = [
   { id: 'matches', label: 'Матч-центр', icon: 'ball' },
-  { id: 'fantasy', label: 'Fantasy-футбол', icon: 'team' },
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
+  { id: 'fantasy', label: 'Fantasy-футбол', icon: 'team' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
@@ -249,6 +249,27 @@ function formatRoundLabel(match) {
   return round;
 }
 
+function predictionResultClass(match) {
+  if (!match?.is_finished || !match?.prediction) return '';
+
+  const points = match.prediction.score_points ?? match.prediction.points ?? 0;
+
+  if (points >= 3) return 'prediction-exact';
+  if (points >= 1) return 'prediction-outcome';
+
+  return 'prediction-miss';
+}
+
+function formatPredictionScore(prediction) {
+  if (!prediction) return '— : —';
+  return `${prediction.pred_home}:${prediction.pred_away}`;
+}
+
+function formatActualScore(match) {
+  if (!match?.is_finished || match.score_home === null || match.score_home === undefined) return '— : —';
+  return `${match.score_home}:${match.score_away}`;
+}
+
 function formatCountdown(days) {
   if (days === null || days === undefined) return 'до ЧМ';
   const lastTwo = days % 100;
@@ -463,11 +484,7 @@ function PredictionBars({ distribution }) {
 
 function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
-  const scoreText = match.is_finished && match.score_home !== null
-    ? `${match.score_home}:${match.score_away}`
-    : match.prediction
-      ? `${match.prediction.pred_home}:${match.prediction.pred_away}`
-      : '— : —';
+  const predictionScoreClass = predictionResultClass(match);
 
   return (
     <article className="match-card">
@@ -483,11 +500,26 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
           <span className="flag">{match.home_flag || '🏳️'}</span>
           <strong>{match.home_team}</strong>
         </div>
-        <div className="score-block">
-          <strong>{scoreText}</strong>
-          {match.prediction && !match.is_finished && <small>мой прогноз</small>}
-          {!match.prediction && !locked && <small>прогноза нет</small>}
-          {locked && !match.is_finished && <small>закрыт</small>}
+        <div className="score-block match-score-stack">
+          {match.is_finished ? (
+            <>
+              <div className="actual-score-row">
+                <small>матч</small>
+                <strong>{formatActualScore(match)}</strong>
+              </div>
+              <div className={`prediction-score-row ${predictionScoreClass}`}>
+                <small>прогноз</small>
+                <strong>{formatPredictionScore(match.prediction)}</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <strong>{formatPredictionScore(match.prediction)}</strong>
+              {match.prediction && <small>мой прогноз</small>}
+              {!match.prediction && !locked && <small>прогноза нет</small>}
+              {locked && !match.prediction && <small>закрыт</small>}
+            </>
+          )}
         </div>
         <div className="team-side">
           <span className="flag">{match.away_flag || '🏳️'}</span>
@@ -1482,7 +1514,7 @@ function Rating() {
 }
 
 
-function Profile({ tournamentPrediction }) {
+function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState(null);
   const photoUrl = getTelegramPhotoUrl();
@@ -1527,6 +1559,23 @@ function Profile({ tournamentPrediction }) {
           <b>{summary.points || 0}</b>
           <span>очков</span>
         </div>
+      </section>
+
+      <section className="card profile-settings-card">
+        <div className="profile-section-head">
+          <h2>Настройки</h2>
+          <span>{appTheme === 'light' ? 'светлая' : 'темная'}</span>
+        </div>
+        <label className="theme-toggle-row">
+          <input
+            type="checkbox"
+            checked={appTheme === 'light'}
+            onChange={(event) => setAppTheme(event.target.checked ? 'light' : 'dark')}
+          />
+          <span />
+          <strong>Светлая тема</strong>
+          <small>Можно включить для дневного режима Mini App</small>
+        </label>
       </section>
 
       <section className="card">
@@ -1802,6 +1851,7 @@ function RulesModal({ onClose }) {
 
 function App() {
   const [tab, setTab] = useState('matches');
+  const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'dark');
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
@@ -1810,6 +1860,10 @@ function App() {
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('ff-app-theme', appTheme);
+  }, [appTheme]);
 
   async function loadDashboard() {
     try {
@@ -1839,7 +1893,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app theme-${appTheme}`}>
       <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} />
 
       {tab === 'matches' && (
@@ -1852,7 +1906,7 @@ function App() {
       {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
       {tab === 'resources' && <Resources />}
       {tab === 'rating' && <Rating />}
-      {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} />}
+      {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
 
       <nav className="bottom-nav">
         {TABS.map((item) => (
