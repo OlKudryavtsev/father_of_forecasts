@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from datetime import datetime, timezone
+import json
 import random
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -64,10 +65,11 @@ class QuizAnswerPayload(BaseModel):
 
 
 class FantasyTeamPayload(BaseModel):
-    """Payload for saving a user's fantasy team."""
+    """Payload for saving a user's fantasy squad."""
 
     formation: str = "4-3-3"
-    player_ids: list[int] = Field(min_length=11, max_length=11)
+    player_ids: list[int] = Field(min_length=15, max_length=15)
+    starting_player_ids: list[int] = Field(min_length=11, max_length=11)
     captain_player_id: int
 
 
@@ -701,7 +703,13 @@ def _profile_badges(
 
 
 FANTASY_FORMATION = "4-3-3"
-FANTASY_POSITION_LIMITS = {
+FANTASY_SQUAD_POSITION_LIMITS = {
+    "Goalkeeper": 2,
+    "Defender": 5,
+    "Midfielder": 5,
+    "Attacker": 3,
+}
+FANTASY_STARTER_POSITION_LIMITS = {
     "Goalkeeper": 1,
     "Defender": 4,
     "Midfielder": 3,
@@ -713,8 +721,147 @@ FANTASY_POSITION_LABELS = {
     "Midfielder": "ПЗ",
     "Attacker": "НП",
 }
-FANTASY_CATEGORY_LIMITS = {1: 3, 2: 3, 3: 3, 4: 2}
-FANTASY_MAX_FROM_ONE_TEAM = 2
+FANTASY_CATEGORY_LIMITS_GROUP = {1: 3, 2: 3, 3: 3, 4: 2}
+FANTASY_CATEGORY_LIMITS_R16 = {1: 4, 2: 4, 3: 4, 4: 3}
+FANTASY_MAX_FROM_ONE_TEAM_BY_STAGE = {
+    "group_1": 3,
+    "group_2": 3,
+    "group_3": 3,
+    "r16": 4,
+    "quarter": 5,
+    "semi": 6,
+    "final": 8,
+}
+FANTASY_FREE_TRANSFERS = {
+    "group_1": None,
+    "group_2": 2,
+    "group_3": 2,
+    "r16": None,
+    "quarter": 4,
+    "semi": 5,
+    "final": 6,
+}
+FANTASY_EXTRA_TRANSFER_PENALTY = 3
+
+
+def _parse_round_number(value: str | None) -> int | None:
+    """Parse group round number from match_round/api text."""
+    if not value:
+        return None
+
+    text = str(value).lower()
+    for number in (1, 2, 3):
+        if str(number) in text:
+            return number
+    return None
+
+
+def _fantasy_stage_key(match: Match) -> str:
+    """Return fantasy transfer window key for a match."""
+    if match.stage == "group":
+        return f"group_{_parse_round_number(match.match_round) or 1}"
+
+    text = f"{match.stage or ''} {match.match_round or ''} {match.api_league_round or ''}".lower()
+
+    if "round of 16" in text or "1/8" in text or "16" in text:
+        return "r16"
+    if "quarter" in text or "1/4" in text:
+        return "quarter"
+    if "semi" in text or "1/2" in text:
+        return "semi"
+    if "third" in text or "3" in text:
+        return "final"
+    if "final" in text:
+        return "final"
+
+    return match.stage or "future"
+
+
+def _fantasy_stage_title(key: str) -> str:
+    """Return user-facing fantasy stage title."""
+    return {
+        "group_1": "1-й тур группового этапа",
+        "group_2": "2-й тур группового этапа",
+        "group_3": "3-й тур группового этапа",
+        "r16": "1/8 финала",
+        "quarter": "1/4 финала",
+        "semi": "1/2 финала",
+        "final": "финал и матч за 3 место",
+    }.get(key, key)
+
+
+def _fantasy_round_state(db: Session) -> dict:
+    """Return current fantasy transfer window and next deadline."""
+    now = datetime.now(timezone.utc)
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    windows: dict[str, datetime] = {}
+    order = ["group_1", "group_2", "group_3", "r16", "quarter", "semi", "final"]
+
+    for match in matches:
+        key = _fantasy_stage_key(match)
+        starts_at = _ensure_utc(match.starts_at)
+        if key not in windows or starts_at < windows[key]:
+            windows[key] = starts_at
+
+    upcoming_key = None
+    upcoming_deadline = None
+
+    for key in order:
+        deadline = windows.get(key)
+        if deadline and deadline > now:
+            upcoming_key = key
+            upcoming_deadline = deadline
+            break
+
+    if not upcoming_key:
+        return {
+            "key": "locked",
+            "title": "Трансферы закрыты",
+            "deadline_at": None,
+            "is_locked": True,
+            "free_transfers": 0,
+            "extra_transfer_penalty": FANTASY_EXTRA_TRANSFER_PENALTY,
+            "max_from_one_team": 8,
+            "category_limits": {},
+            "category_limits_enabled": False,
+        }
+
+    if upcoming_key == "group_1":
+        category_limits = FANTASY_CATEGORY_LIMITS_GROUP
+    elif upcoming_key == "r16":
+        category_limits = FANTASY_CATEGORY_LIMITS_R16
+    elif upcoming_key.startswith("group_"):
+        category_limits = FANTASY_CATEGORY_LIMITS_GROUP
+    else:
+        category_limits = {}
+
+    return {
+        "key": upcoming_key,
+        "title": _fantasy_stage_title(upcoming_key),
+        "deadline_at": upcoming_deadline.isoformat(),
+        "is_locked": False,
+        "free_transfers": FANTASY_FREE_TRANSFERS.get(upcoming_key),
+        "extra_transfer_penalty": FANTASY_EXTRA_TRANSFER_PENALTY,
+        "max_from_one_team": FANTASY_MAX_FROM_ONE_TEAM_BY_STAGE.get(upcoming_key, 3),
+        "category_limits": category_limits,
+        "category_limits_enabled": bool(category_limits),
+    }
+
+
+def _load_baseline_ids(value: str | None) -> set[int]:
+    """Load baseline player IDs from serialized text."""
+    if not value:
+        return set()
+    try:
+        return {int(item) for item in json.loads(value)}
+    except Exception:
+        return set()
 
 
 def _fantasy_category_title(category: int) -> str:
@@ -768,12 +915,17 @@ def _serialize_fantasy_team(team: FantasyTeam | None) -> dict | None:
         "captain_player_id": team.captain_player_id,
         "points": team.points or 0,
         "is_locked": bool(team.is_locked),
+        "transfer_window_key": getattr(team, "transfer_window_key", None),
+        "transfers_used": getattr(team, "transfers_used", 0) or 0,
+        "transfer_penalty_points": getattr(team, "transfer_penalty_points", 0) or 0,
         "players": [
             {
                 "position_slot": item.position_slot,
                 "position": item.position,
                 "position_label": FANTASY_POSITION_LABELS.get(item.position, item.position),
                 "is_captain": bool(item.is_captain),
+                "is_starter": bool(getattr(item, "is_starter", True)),
+                "bench_order": getattr(item, "bench_order", None),
                 "points": item.points or 0,
                 "player": _serialize_fantasy_player(item.player),
             }
@@ -782,44 +934,91 @@ def _serialize_fantasy_team(team: FantasyTeam | None) -> dict | None:
     }
 
 
-def _fantasy_rules_payload() -> dict:
-    """Return rules and scoring for fantasy MVP."""
+def _fantasy_rules_payload(db: Session | None = None) -> dict:
+    """Return FIFA-style fantasy rules adapted for WC2026 Mini App."""
+    round_state = _fantasy_round_state(db) if db is not None else {
+        "key": "group_1",
+        "title": "1-й тур группового этапа",
+        "deadline_at": None,
+        "is_locked": is_tournament_started(),
+        "free_transfers": None,
+        "extra_transfer_penalty": FANTASY_EXTRA_TRANSFER_PENALTY,
+        "max_from_one_team": 3,
+        "category_limits": FANTASY_CATEGORY_LIMITS_GROUP,
+        "category_limits_enabled": True,
+    }
+    category_limits = round_state.get("category_limits") or {}
+    max_from_one_team = round_state.get("max_from_one_team") or 3
+
     return {
         "formation": FANTASY_FORMATION,
-        "positions": FANTASY_POSITION_LIMITS,
+        "squad_size": 15,
+        "starters_size": 11,
+        "squad_positions": FANTASY_SQUAD_POSITION_LIMITS,
+        "starter_positions": FANTASY_STARTER_POSITION_LIMITS,
         "position_labels": FANTASY_POSITION_LABELS,
-        "max_from_one_team": FANTASY_MAX_FROM_ONE_TEAM,
-        "category_limits": FANTASY_CATEGORY_LIMITS,
+        "max_from_one_team": max_from_one_team,
+        "category_limits": category_limits,
+        "round_state": round_state,
         "categories": [
-            {"id": 1, "title": "Элита", "range": "ФИФА 1–12", "limit": 3},
-            {"id": 2, "title": "Сильные претенденты", "range": "ФИФА 13–24", "limit": 3},
-            {"id": 3, "title": "Середина", "range": "ФИФА 25–36", "limit": 3},
-            {"id": 4, "title": "Аутсайдеры и дебютанты", "range": "ФИФА 37–48", "limit": 2},
+            {"id": 1, "title": "Элита", "range": "ФИФА 1–12", "limit": category_limits.get(1), "enabled": 1 in category_limits},
+            {"id": 2, "title": "Сильные претенденты", "range": "ФИФА 13–24", "limit": category_limits.get(2), "enabled": 2 in category_limits},
+            {"id": 3, "title": "Середина", "range": "ФИФА 25–36", "limit": category_limits.get(3), "enabled": 3 in category_limits},
+            {"id": 4, "title": "Аутсайдеры и дебютанты", "range": "ФИФА 37–48", "limit": category_limits.get(4), "enabled": 4 in category_limits},
+        ],
+        "transfer_rules": [
+            {"stage": "До 1-го тура", "free": "без ограничений", "penalty": 0},
+            {"stage": "До 2-го тура", "free": 2, "penalty": -3},
+            {"stage": "До 3-го тура", "free": 2, "penalty": -3},
+            {"stage": "До 1/8", "free": "без ограничений", "penalty": 0},
+            {"stage": "До 1/4", "free": 4, "penalty": -3},
+            {"stage": "До 1/2", "free": 5, "penalty": -3},
+            {"stage": "Перед финалом", "free": 6, "penalty": -3},
         ],
         "scoring": [
-            {"title": "Победа", "description": "участие в матче, сборная выиграла", "points": 1, "type": "plus"},
-            {"title": "Гол", "description": "участие в матче и гол", "points": 2, "type": "plus"},
-            {"title": "Передача", "description": "участие в матче и голевая", "points": 1, "type": "plus"},
-            {"title": "Сухой матч", "description": "ВР или ЗЩ, участие в матче", "points": 2, "type": "plus"},
-            {"title": "Пропущенный гол", "description": "ВР или ЗЩ, участие в матче", "points": -1, "type": "minus"},
-            {"title": "Удаление", "description": "участие в матче, красная карточка", "points": -2, "type": "minus"},
+            {"title": "Выход на поле", "description": "игрок сыграл в матче", "points": 1, "type": "plus"},
+            {"title": "60+ минут", "description": "игрок провел на поле 60 минут и больше", "points": 1, "type": "plus"},
+            {"title": "Гол вратаря", "description": "ВР забил гол", "points": 9, "type": "plus"},
+            {"title": "Гол защитника", "description": "ЗЩ забил гол", "points": 7, "type": "plus"},
+            {"title": "Гол полузащитника", "description": "ПЗ забил гол", "points": 5, "type": "plus"},
+            {"title": "Гол нападающего", "description": "НП забил гол", "points": 5, "type": "plus"},
+            {"title": "Голевая передача", "description": "ассист", "points": 3, "type": "plus"},
+            {"title": "Сухой матч", "description": "ВР или ЗЩ, 60+ минут", "points": 5, "type": "plus"},
+            {"title": "Сухой матч ПЗ", "description": "ПЗ, 60+ минут", "points": 1, "type": "plus"},
+            {"title": "3 сейва", "description": "ВР: каждые 3 сейва", "points": 1, "type": "plus"},
+            {"title": "Отбитый пенальти", "description": "ВР отбил пенальти", "points": 3, "type": "plus"},
+            {"title": "Отборы", "description": "ПЗ: каждые 3 отбора", "points": 1, "type": "plus"},
+            {"title": "Удары в створ", "description": "НП: каждые 2 удара в створ", "points": 1, "type": "plus"},
+            {"title": "Желтая карточка", "description": "предупреждение", "points": -1, "type": "minus"},
+            {"title": "Красная карточка", "description": "удаление", "points": -2, "type": "minus"},
+            {"title": "Автогол", "description": "гол в свои ворота", "points": -2, "type": "minus"},
+            {"title": "Нереализованный пенальти", "description": "игрок не забил пенальти", "points": -2, "type": "minus"},
+        ],
+        "detailed_rules": [
+            "Состав: 15 игроков — 2 ВР, 5 ЗЩ, 5 ПЗ, 3 НП. В основе 11 игроков по схеме 4-3-3.",
+            "Игроки скамейки тоже набирают очки, но в общий счет идут только очки основы и ручные/автоматические замены по правилам тура.",
+            "Капитана можно менять внутри тура только на игрока, который еще не сыграл. Если капитан заменен, двойные очки предыдущего капитана теряются.",
+            "Перед 1-м туром и 1/8 финала трансферы бесплатные без ограничений. Перед 2-м и 3-м турами — 2 бесплатных трансфера, перед 1/4 — 4, перед 1/2 — 5, перед финалом — 6.",
+            "Каждый лишний трансфер дает штраф -3 очка.",
+            "Бюджета игроков в нашей версии нет.",
+            "Лимит сборных: групповой этап — до 3 игроков из одной сборной, 1/8 — до 4, 1/4 — до 5, 1/2 — до 6, финал — до 8.",
+            "Лимиты по категориям FIFA действуют на группе и 1/8; с 1/4 ограничения Г1/Г2/Г3/Г4 снимаются.",
         ],
         "captain": {
             "enabled": True,
             "multiplier": 2,
             "description": "Очки капитана удваиваются.",
         },
-        "is_locked": is_tournament_started(),
+        "is_locked": bool(round_state.get("is_locked")),
     }
-
 
 def _fantasy_team_summary(team: FantasyTeam | None) -> dict:
     """Build fantasy progress summary."""
     if not team:
         return {
             "selected": 0,
-            "total": 11,
-            "progress": "0/11",
+            "total": 15,
+            "progress": "0/15",
             "points": 0,
             "captain_selected": False,
             "complete": False,
@@ -828,53 +1027,77 @@ def _fantasy_team_summary(team: FantasyTeam | None) -> dict:
     selected = len(team.players)
     return {
         "selected": selected,
-        "total": 11,
-        "progress": f"{selected}/11",
+        "total": 15,
+        "progress": f"{selected}/15",
         "points": team.points or 0,
         "captain_selected": team.captain_player_id is not None,
-        "complete": selected == 11 and team.captain_player_id is not None,
+        "complete": selected == 15 and team.captain_player_id is not None,
     }
 
 
-def _validate_fantasy_payload(players: list[FantasyPlayer], captain_player_id: int) -> None:
-    """Validate fantasy team constraints."""
-    if len(players) != 11:
-        raise HTTPException(status_code=400, detail="В fantasy-команде должно быть ровно 11 игроков.")
+def _validate_fantasy_payload(
+    players: list[FantasyPlayer],
+    starting_player_ids: list[int],
+    captain_player_id: int,
+    rules: dict,
+) -> None:
+    """Validate fantasy squad, starting XI and active transfer-window constraints."""
+    if len(players) != 15:
+        raise HTTPException(status_code=400, detail="В fantasy-команде должно быть ровно 15 игроков.")
 
     player_ids = [player.id for player in players]
 
-    if len(set(player_ids)) != 11:
+    if len(set(player_ids)) != 15:
         raise HTTPException(status_code=400, detail="Игроки в fantasy-команде не должны повторяться.")
 
-    if captain_player_id not in player_ids:
-        raise HTTPException(status_code=400, detail="Капитан должен быть выбран из состава fantasy-команды.")
+    if len(set(starting_player_ids)) != 11:
+        raise HTTPException(status_code=400, detail="В стартовом составе должно быть ровно 11 разных игроков.")
+
+    if not set(starting_player_ids).issubset(set(player_ids)):
+        raise HTTPException(status_code=400, detail="Стартовый состав должен состоять из игроков вашей fantasy-команды.")
+
+    if captain_player_id not in starting_player_ids:
+        raise HTTPException(status_code=400, detail="Капитан должен быть выбран из стартового состава.")
 
     position_counts = Counter(player.position for player in players)
 
-    for position, limit in FANTASY_POSITION_LIMITS.items():
+    for position, limit in FANTASY_SQUAD_POSITION_LIMITS.items():
         if position_counts.get(position, 0) != limit:
             label = FANTASY_POSITION_LABELS.get(position, position)
             raise HTTPException(
                 status_code=400,
-                detail=f"Для схемы {FANTASY_FORMATION} нужно выбрать {limit} игроков позиции {label}.",
+                detail=f"В заявке нужно выбрать {limit} игроков позиции {label}.",
             )
 
+    players_by_id = {player.id: player for player in players}
+    starter_counts = Counter(players_by_id[player_id].position for player_id in starting_player_ids)
+
+    for position, limit in FANTASY_STARTER_POSITION_LIMITS.items():
+        if starter_counts.get(position, 0) != limit:
+            label = FANTASY_POSITION_LABELS.get(position, position)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Для схемы {FANTASY_FORMATION} в основе нужно выбрать {limit} игроков позиции {label}.",
+            )
+
+    max_from_one_team = rules.get("max_from_one_team") or 3
     team_counts = Counter(player.team_display_name for player in players)
-    too_many_team = [team for team, count in team_counts.items() if count > FANTASY_MAX_FROM_ONE_TEAM]
+    too_many_team = [team for team, count in team_counts.items() if count > max_from_one_team]
 
     if too_many_team:
         raise HTTPException(
             status_code=400,
-            detail=f"Из одной сборной можно взять не больше {FANTASY_MAX_FROM_ONE_TEAM} игроков: {too_many_team[0]}.",
+            detail=f"На текущей стадии из одной сборной можно взять не больше {max_from_one_team} игроков: {too_many_team[0]}.",
         )
 
+    category_limits = rules.get("category_limits") or {}
     category_counts = Counter(player.fifa_category for player in players)
 
-    for category, limit in FANTASY_CATEGORY_LIMITS.items():
-        if category_counts.get(category, 0) > limit:
+    for category, limit in category_limits.items():
+        if category_counts.get(int(category), 0) > limit:
             raise HTTPException(
                 status_code=400,
-                detail=f"В категории «{_fantasy_category_title(category)}» можно выбрать не больше {limit} игроков.",
+                detail=f"В категории «{_fantasy_category_title(int(category))}» можно выбрать не больше {limit} игроков.",
             )
 
 
@@ -884,7 +1107,7 @@ def get_fantasy_rules(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Return fantasy rules and scoring."""
-    return _fantasy_rules_payload()
+    return _fantasy_rules_payload(db)
 
 
 @router.get("/fantasy/players")
@@ -940,7 +1163,7 @@ def get_fantasy_players(
     return {
         "players": [_serialize_fantasy_player(player) for player in players],
         "teams": teams,
-        "rules": _fantasy_rules_payload(),
+        "rules": _fantasy_rules_payload(db),
     }
 
 
@@ -962,7 +1185,7 @@ def get_my_fantasy_team(
     return {
         "team": _serialize_fantasy_team(team),
         "summary": _fantasy_team_summary(team),
-        "rules": _fantasy_rules_payload(),
+        "rules": _fantasy_rules_payload(db),
     }
 
 
@@ -972,9 +1195,12 @@ def save_my_fantasy_team(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Save current user's fantasy team."""
-    if is_tournament_started():
-        raise HTTPException(status_code=400, detail="Fantasy-команду уже нельзя менять после старта турнира.")
+    """Save current user's fantasy squad and apply transfer-window rules."""
+    rules = _fantasy_rules_payload(db)
+    round_state = rules["round_state"]
+
+    if round_state.get("is_locked"):
+        raise HTTPException(status_code=400, detail="Fantasy-команду уже нельзя менять: дедлайны турнира прошли.")
 
     if payload.formation != FANTASY_FORMATION:
         raise HTTPException(status_code=400, detail=f"Пока поддерживается только схема {FANTASY_FORMATION}.")
@@ -992,7 +1218,7 @@ def save_my_fantasy_team(
     if len(players) != len(set(payload.player_ids)):
         raise HTTPException(status_code=400, detail="Не все выбранные игроки найдены в fantasy-списке.")
 
-    _validate_fantasy_payload(players, payload.captain_player_id)
+    _validate_fantasy_payload(players, payload.starting_player_ids, payload.captain_player_id, rules)
 
     team = (
         db.query(FantasyTeam)
@@ -1003,6 +1229,12 @@ def save_my_fantasy_team(
         .first()
     )
 
+    new_ids = {int(player_id) for player_id in payload.player_ids}
+    window_key = round_state["key"]
+    free_transfers = round_state.get("free_transfers")
+    transfers_used = 0
+    transfer_penalty = 0
+
     if not team:
         team = FantasyTeam(
             user_id=current_user.id,
@@ -1011,19 +1243,43 @@ def save_my_fantasy_team(
         )
         db.add(team)
         db.flush()
+        baseline_ids = set(new_ids)
+    else:
+        current_ids = {item.player_id for item in team.players}
+        if team.transfer_window_key != window_key:
+            baseline_ids = set(current_ids)
+        else:
+            baseline_ids = _load_baseline_ids(getattr(team, "transfer_baseline_player_ids", None)) or set(current_ids)
+
+        if free_transfers is not None and baseline_ids:
+            transfers_used = len(new_ids - baseline_ids)
+            transfer_penalty = max(0, transfers_used - int(free_transfers)) * FANTASY_EXTRA_TRANSFER_PENALTY
 
     team.formation = payload.formation
     team.captain_player_id = payload.captain_player_id
+    team.transfer_window_key = window_key
+    team.transfer_baseline_player_ids = json.dumps(sorted(baseline_ids))
+    team.transfers_used = transfers_used
+    team.transfer_penalty_points = transfer_penalty
     team.updated_at = datetime.now(timezone.utc)
 
     db.query(FantasyTeamPlayer).filter(FantasyTeamPlayer.fantasy_team_id == team.id).delete()
 
+    players_by_id = {player.id: player for player in players}
+    starter_id_set = {int(player_id) for player_id in payload.starting_player_ids}
     position_indexes: dict[str, int] = {}
     order = {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Attacker": 3}
 
-    for player in sorted(players, key=lambda item: (order.get(item.position, 9), item.team_display_name, item.player_name)):
+    starter_ordered_ids = list(payload.starting_player_ids)
+    bench_ordered_ids = [player_id for player_id in payload.player_ids if player_id not in starter_id_set]
+    ordered_ids = starter_ordered_ids + bench_ordered_ids
+
+    for player_id in ordered_ids:
+        player = players_by_id[int(player_id)]
+        is_starter = player.id in starter_id_set
         position_indexes[player.position] = position_indexes.get(player.position, 0) + 1
-        slot = f"{FANTASY_POSITION_LABELS.get(player.position, player.position)}{position_indexes[player.position]}"
+        slot_prefix = FANTASY_POSITION_LABELS.get(player.position, player.position)
+        slot = f"{slot_prefix}{position_indexes[player.position]}" if is_starter else f"ЗАП{len([x for x in ordered_ids[:ordered_ids.index(player_id)] if x not in starter_id_set]) + 1}"
         db.add(
             FantasyTeamPlayer(
                 fantasy_team_id=team.id,
@@ -1031,6 +1287,8 @@ def save_my_fantasy_team(
                 position_slot=slot,
                 position=player.position,
                 is_captain=player.id == payload.captain_player_id,
+                is_starter=is_starter,
+                bench_order=None if is_starter else bench_ordered_ids.index(player.id) + 1,
             )
         )
 
@@ -1040,7 +1298,7 @@ def save_my_fantasy_team(
     return {
         "team": _serialize_fantasy_team(team),
         "summary": _fantasy_team_summary(team),
-        "rules": _fantasy_rules_payload(),
+        "rules": _fantasy_rules_payload(db),
     }
 
 

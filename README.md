@@ -1128,3 +1128,7 @@ scripts/data/
 ## Fantasy Release 1
 
 См. `FANTASY_RELEASE_1.md`.
+
+## Fantasy Release 2 — transfers and scoring rules
+
+См. `FANTASY_RELEASE_2_RULES_TRANSFERS.md`.

@@ -3383,3 +3383,165 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Fantasy Release 2: 15-player squad, deadline, full names */
+
+.fantasy-deadline-card {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 14px;
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(244,191,54,0.12), rgba(18,26,44,0.96));
+  border: 1px solid rgba(244,191,54,0.26);
+}
+
+.fantasy-deadline-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fantasy-deadline-card strong {
+  color: var(--gold);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.fantasy-deadline-card small {
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.pitch-slot.filled {
+  min-width: 84px;
+  min-height: 52px;
+  padding: 4px 5px;
+}
+
+.pitch-slot.filled strong {
+  max-width: 96px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 9.5px;
+  line-height: 1.05;
+  text-align: center;
+}
+
+.fantasy-bench-card h2 {
+  margin-top: 0;
+}
+
+.fantasy-bench-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.fantasy-bench-grid button {
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 3px 8px;
+  padding: 10px;
+  border-radius: 15px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid rgba(148,163,184,0.14);
+}
+
+.fantasy-bench-grid button span {
+  grid-row: 1 / 3;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.06);
+}
+
+.fantasy-bench-grid button strong {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.12;
+  white-space: normal;
+  overflow: visible;
+}
+
+.fantasy-bench-grid button small {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.category-line.disabled {
+  opacity: 0.72;
+}
+
+.rules-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.rules-title-row h2 {
+  margin: 0;
+}
+
+.rules-title-row button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--green);
+  font-weight: 850;
+}
+
+.fantasy-detailed-rules {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.fantasy-detailed-rules p {
+  margin: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.035);
+  color: var(--muted);
+  line-height: 1.38;
+}
+
+.player-list button strong,
+.current-player-card strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.18;
+}
+
+@media (max-width: 390px) {
+  .pitch-slot.filled {
+    min-width: 76px;
+  }
+
+  .pitch-slot.filled strong {
+    max-width: 84px;
+    font-size: 8.8px;
+  }
+
+  .fantasy-bench-grid {
+    grid-template-columns: 1fr;
+  }
+}

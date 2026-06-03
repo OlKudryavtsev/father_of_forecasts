@@ -260,7 +260,7 @@ function getTelegramPhotoUrl() {
   return tg?.initDataUnsafe?.user?.photo_url || '';
 }
 
-const FANTASY_SLOTS = [
+const FANTASY_STARTER_SLOTS = [
   { slot: 'НП1', position: 'Attacker', label: 'НП', top: 9, left: 20 },
   { slot: 'НП2', position: 'Attacker', label: 'НП', top: 5, left: 50 },
   { slot: 'НП3', position: 'Attacker', label: 'НП', top: 9, left: 80 },
@@ -273,6 +273,28 @@ const FANTASY_SLOTS = [
   { slot: 'ЗЩ4', position: 'Defender', label: 'ЗЩ', top: 68, left: 88 },
   { slot: 'ВР1', position: 'Goalkeeper', label: 'ВР', top: 90, left: 50 },
 ];
+
+const FANTASY_BENCH_SLOTS = [
+  { slot: 'ЗАП1', position: 'Goalkeeper', label: 'ВР запас' },
+  { slot: 'ЗАП2', position: 'Defender', label: 'ЗЩ запас' },
+  { slot: 'ЗАП3', position: 'Midfielder', label: 'ПЗ запас' },
+  { slot: 'ЗАП4', position: 'Midfielder', label: 'ПЗ запас' },
+];
+
+const FANTASY_SLOTS = [...FANTASY_STARTER_SLOTS, ...FANTASY_BENCH_SLOTS];
+
+function formatDeadlineCountdown(targetValue, now) {
+  if (!targetValue) return 'дедлайн не определен';
+  const target = new Date(targetValue).getTime();
+  const diff = Math.max(0, target - now);
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value) => String(value).padStart(2, '0');
+  return days > 0 ? `${days}д ${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
 
 function positionOrder(position) {
   return { Goalkeeper: 0, Defender: 1, Midfielder: 2, Attacker: 3 }[position] ?? 9;
@@ -849,6 +871,8 @@ function Fantasy() {
   const [filterTeam, setFilterTeam] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [showDetailedRules, setShowDetailedRules] = useState(false);
+  const now = useNowTick();
 
   async function load() {
     setError(null);
@@ -879,6 +903,7 @@ function Fantasy() {
   const selectedIds = new Set(selectedPlayers.map((player) => player.id));
   const selectedCount = selectedPlayers.length;
   const points = team?.points || 0;
+  const roundState = rules?.round_state || {};
   const categoryCounts = selectedPlayers.reduce((acc, player) => {
     acc[player.fifa_category] = (acc[player.fifa_category] || 0) + 1;
     return acc;
@@ -887,6 +912,9 @@ function Fantasy() {
     acc[player.team_display_name] = (acc[player.team_display_name] || 0) + 1;
     return acc;
   }, {});
+  const categoryLimits = rules?.category_limits || {};
+  const maxFromOneTeam = rules?.max_from_one_team || 3;
+  const deadlineText = formatDeadlineCountdown(roundState.deadline_at, now);
 
   function selectPlayer(slot, player) {
     const previous = selectedBySlot[slot.slot];
@@ -923,9 +951,9 @@ function Fantasy() {
       const candidate = shuffled.find((player) => {
         if (player.position !== slot.position) return false;
         if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
-        if ((nextTeamCounts[player.team_display_name] || 0) >= 2) return false;
-        const categoryLimit = rules?.category_limits?.[player.fifa_category] || (player.fifa_category === 4 ? 2 : 3);
-        if ((nextCategoryCounts[player.fifa_category] || 0) >= categoryLimit) return false;
+        if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
+        const categoryLimit = categoryLimits[player.fifa_category];
+        if (categoryLimit && (nextCategoryCounts[player.fifa_category] || 0) >= categoryLimit) return false;
         return true;
       });
 
@@ -937,8 +965,8 @@ function Fantasy() {
     }
 
     setSelectedBySlot(nextSelected);
-    const first = Object.values(nextSelected)[0];
-    setCaptainId(first?.id || null);
+    const firstStarter = FANTASY_STARTER_SLOTS.map((slot) => nextSelected[slot.slot]).find(Boolean);
+    setCaptainId(firstStarter?.id || null);
   }
 
   async function save() {
@@ -946,11 +974,13 @@ function Fantasy() {
     setError(null);
     try {
       const playerIds = FANTASY_SLOTS.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
-      if (playerIds.length !== 11) throw new Error('Выберите всех 11 игроков.');
+      const startingPlayerIds = FANTASY_STARTER_SLOTS.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
+      if (playerIds.length !== 15) throw new Error('Выберите всех 15 игроков: 11 в основе и 4 запасных.');
+      if (startingPlayerIds.length !== 11) throw new Error('Выберите всех 11 игроков стартового состава.');
       if (!captainId) throw new Error('Выберите капитана — его очки будут удваиваться.');
       const result = await api('/api/webapp/fantasy/team', {
         method: 'POST',
-        body: JSON.stringify({ formation: '4-3-3', player_ids: playerIds, captain_player_id: captainId }),
+        body: JSON.stringify({ formation: '4-3-3', player_ids: playerIds, starting_player_ids: startingPlayerIds, captain_player_id: captainId }),
       });
       setTeam(result.team);
       await load();
@@ -971,14 +1001,20 @@ function Fantasy() {
       <section className="fantasy-hero">
         <div>
           <h2>Fantasy ЧМ-2026</h2>
-          <p>{selectedCount}/11 · до 2 из сборной · капитан x2</p>
+          <p>{selectedCount}/15 · до {maxFromOneTeam} из сборной · капитан x2</p>
         </div>
         <div className="fantasy-points"><b>{points}</b><span>очков</span></div>
       </section>
 
+      <section className="fantasy-deadline-card">
+        <span>Дедлайн: {roundState.title || 'следующий тур'}</span>
+        <strong>{deadlineText}</strong>
+        <small>{roundState.free_transfers === null ? 'трансферы без ограничений' : `бесплатных трансферов: ${roundState.free_transfers}, лишний: -${roundState.extra_transfer_penalty}`}</small>
+      </section>
+
       <div className="fantasy-toolbar">
         <strong>4 — 3 — 3</strong>
-        <span>Ваш состав</span>
+        <span>Основа</span>
       </div>
 
       <section className="football-pitch">
@@ -986,7 +1022,7 @@ function Fantasy() {
         <div className="pitch-line center-line" />
         <div className="pitch-circle" />
         <div className="pitch-line box-bottom" />
-        {FANTASY_SLOTS.map((slot) => {
+        {FANTASY_STARTER_SLOTS.map((slot) => {
           const player = selectedBySlot[slot.slot];
           const isCaptain = player?.id === captainId;
           return (
@@ -995,6 +1031,7 @@ function Fantasy() {
               className={`pitch-slot ${player ? 'filled' : ''} ${isCaptain ? 'captain' : ''}`}
               style={{ top: `${slot.top}%`, left: `${slot.left}%` }}
               onClick={() => setPickerSlot(slot)}
+              title={player?.name || slot.label}
             >
               {player ? (
                 <>
@@ -1014,28 +1051,47 @@ function Fantasy() {
         <button className="random-team-button" onClick={setRandomTeam}>случайный состав</button>
       </section>
 
+      <section className="card fantasy-bench-card">
+        <h2>Скамейка</h2>
+        <div className="fantasy-bench-grid">
+          {FANTASY_BENCH_SLOTS.map((slot) => {
+            const player = selectedBySlot[slot.slot];
+            return (
+              <button key={slot.slot} className={player ? 'filled' : ''} onClick={() => setPickerSlot(slot)}>
+                <span>{player?.team_flag || '+'}</span>
+                <strong>{player?.name || slot.label}</strong>
+                <small>{player ? `${player.team_display_name} · ${player.position_label}` : 'выбрать'}</small>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="card fantasy-rules-card">
         <h2>Правила набора</h2>
         <ul className="nice-list">
-          <li><b>Главное правило:</b> очки и штрафы начисляются только если игрок принял участие в матче.</li>
-          <li>Соберите 11 игроков по схеме 4-3-3.</li>
-          <li>Из одной сборной можно взять максимум 2 игроков.</li>
-          <li>Выберите капитана — его очки удваиваются.</li>
+          <li><b>Заявка:</b> 15 игроков — 2 ВР, 5 ЗЩ, 5 ПЗ, 3 НП.</li>
+          <li><b>Основа:</b> 11 игроков по схеме 4-3-3.</li>
+          <li>Капитан должен быть в основе, его очки удваиваются.</li>
+          <li>Лимит сборной на текущей стадии: до {maxFromOneTeam} игроков.</li>
         </ul>
         <div className="fantasy-categories">
           {rules.categories.map((category) => (
-            <div key={category.id} className={`category-line category-${category.id}`}>
+            <div key={category.id} className={`category-line category-${category.id} ${category.enabled ? '' : 'disabled'}`}>
               <i>Г{category.id}</i>
-              <span><strong>{category.title}</strong><small>{category.range}</small></span>
-              <b>{categoryCounts[category.id] || 0}/{category.limit}</b>
+              <span><strong>{category.title}</strong><small>{category.enabled ? category.range : 'лимит снят с 1/4'}</small></span>
+              <b>{categoryCounts[category.id] || 0}/{category.enabled ? category.limit : '∞'}</b>
             </div>
           ))}
         </div>
       </section>
 
       <section className="card fantasy-scoring-card">
-        <h2>Как начисляются очки</h2>
-        <p className="gold-text">Очки капитана удваиваются. Очки считаются только если игрок участвовал в матче.</p>
+        <div className="rules-title-row">
+          <h2>Как начисляются очки</h2>
+          <button onClick={() => setShowDetailedRules(!showDetailedRules)}>{showDetailedRules ? 'Скрыть' : 'Детально'}</button>
+        </div>
+        <p className="gold-text">Очки капитана удваиваются. Бюджета игроков нет.</p>
         <div className="fantasy-scoring-grid">
           {rules.scoring.map((item) => (
             <div key={item.title} className={item.type === 'minus' ? 'minus' : ''}>
@@ -1045,12 +1101,18 @@ function Fantasy() {
             </div>
           ))}
         </div>
+        {showDetailedRules && (
+          <div className="fantasy-detailed-rules">
+            {(rules.detailed_rules || []).map((item) => <p key={item}>{item}</p>)}
+          </div>
+        )}
       </section>
 
       <section className="card fantasy-save-card">
         <div>
-          <strong>{selectedCount}/11 игроков</strong>
+          <strong>{selectedCount}/15 игроков</strong>
           <span>Капитан: {selectedPlayers.find((player) => player.id === captainId)?.name || 'не выбран'}</span>
+          {team?.transfer_penalty_points > 0 && <span className="error-text">Штраф за лишние трансферы: -{team.transfer_penalty_points}</span>}
         </div>
         {error && <p className="error-text">{error.message}</p>}
         <button className="primary full" disabled={saving || rules.is_locked} onClick={save}>
@@ -1115,11 +1177,11 @@ function FantasyPlayerPicker({
     if (selectedIds.has(player.id)) return 'уже выбран';
 
     const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
-    if (effectiveTeamCount >= 2) return 'лимит сборной';
+    if (effectiveTeamCount >= (rules?.max_from_one_team || 3)) return 'лимит сборной';
 
-    const categoryLimit = rules?.category_limits?.[player.fifa_category] || (player.fifa_category === 4 ? 2 : 3);
+    const categoryLimit = rules?.category_limits?.[player.fifa_category];
     const effectiveCategoryCount = (categoryCounts[player.fifa_category] || 0) - (current?.fifa_category === player.fifa_category ? 1 : 0);
-    if (effectiveCategoryCount >= categoryLimit) return 'лимит категории';
+    if (categoryLimit && effectiveCategoryCount >= categoryLimit) return 'лимит категории';
 
     return '';
   }
@@ -1143,7 +1205,7 @@ function FantasyPlayerPicker({
           <div className="current-player-card">
             <span>{current.team_flag}</span>
             <strong>{current.name}</strong>
-            <button onClick={() => setCaptainId(current.id)}>{captainId === current.id ? 'Капитан выбран' : 'Сделать капитаном'}</button>
+            {FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot) && <button onClick={() => setCaptainId(current.id)}>{captainId === current.id ? 'Капитан выбран' : 'Сделать капитаном'}</button>}
             <button className="danger" onClick={() => onRemove(slot.slot)}>Убрать</button>
           </div>
         )}

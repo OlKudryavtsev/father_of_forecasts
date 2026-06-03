@@ -210,6 +210,10 @@ class FantasyTeam(Base):
     captain_player_id = Column(Integer, ForeignKey("fantasy_players.id"), nullable=True)
 
     points = Column(Integer, default=0)
+    transfer_penalty_points = Column(Integer, default=0)
+    transfers_used = Column(Integer, default=0)
+    transfer_window_key = Column(String, nullable=True)
+    transfer_baseline_player_ids = Column(Text, nullable=True)
     is_locked = Column(Boolean, default=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -243,6 +247,8 @@ class FantasyTeamPlayer(Base):
     position_slot = Column(String, nullable=False)
     position = Column(String, nullable=False, index=True)
     is_captain = Column(Boolean, default=False)
+    is_starter = Column(Boolean, default=True)
+    bench_order = Column(Integer, nullable=True)
 
     points = Column(Integer, default=0)
 
@@ -274,6 +280,11 @@ class FantasyPlayerMatchStat(Base):
     minutes = Column(Integer, default=0)
     goals = Column(Integer, default=0)
     assists = Column(Integer, default=0)
+    starts = Column(Boolean, default=False)
+    saves = Column(Integer, default=0)
+    penalties_saved = Column(Integer, default=0)
+    balls_recovered = Column(Integer, default=0)
+    shots_on_target = Column(Integer, default=0)
     yellow_cards = Column(Integer, default=0)
     red_cards = Column(Integer, default=0)
     clean_sheet = Column(Boolean, default=False)
