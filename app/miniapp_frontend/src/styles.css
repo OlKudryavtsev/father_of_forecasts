@@ -3545,3 +3545,289 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Fantasy UI polish: label, substitutions, scoring layout, rating toggle */
+
+.bottom-nav button small {
+  line-height: 1.05;
+  max-width: 62px;
+}
+
+.compact-deadline-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  align-items: center;
+  padding: 11px 13px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(22,199,132,0.08), rgba(90,141,255,0.07));
+  border-color: rgba(148,163,184,0.16);
+}
+
+.compact-deadline-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.compact-deadline-card strong {
+  grid-row: span 2;
+  color: var(--blue);
+  font-size: 17px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.compact-deadline-card small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.pitch-slot {
+  overflow: visible;
+}
+
+.pitch-slot strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: initial;
+  line-height: 1.05;
+}
+
+.pitch-slot.replace-active {
+  box-shadow: 0 0 0 2px rgba(255,104,114,0.75), 0 0 22px rgba(255,104,114,0.24);
+}
+
+.player-swap-button {
+  position: absolute;
+  z-index: 3;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.28);
+}
+
+.player-swap-button .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.swap-down {
+  right: -9px;
+  bottom: -9px;
+  color: white;
+  background: #ef4444;
+}
+
+.swap-up {
+  right: 8px;
+  top: 8px;
+  color: white;
+  background: #16a34a;
+}
+
+.swap-up.disabled {
+  opacity: 0.35;
+  background: #64748b;
+}
+
+.bench-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+
+.bench-title-row h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.bench-title-row span {
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.fantasy-bench-grid button {
+  position: relative;
+}
+
+.fantasy-bench-grid button.release-active {
+  border-color: rgba(22,199,132,0.75);
+  background: linear-gradient(135deg, rgba(22,199,132,0.18), rgba(24,34,56,0.92));
+}
+
+.fantasy-rules-title {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.fantasy-rules-title h2 {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 20px;
+}
+
+.fantasy-rules-title button {
+  width: fit-content;
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--green-soft);
+  font-weight: 850;
+}
+
+.fantasy-scoring-grid {
+  grid-template-columns: 1fr 1fr;
+  align-items: stretch;
+}
+
+.fantasy-scoring-grid div {
+  min-width: 0;
+  width: 100%;
+}
+
+.fantasy-save-card {
+  border-color: rgba(22,199,132,0.30);
+  background: linear-gradient(135deg, rgba(22,199,132,0.12), rgba(18,26,44,0.95));
+}
+
+.rating-toggle-card {
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto 42px minmax(0, 1fr);
+  grid-template-areas:
+    "input switch title"
+    "input switch text";
+  gap: 2px 10px;
+  align-items: center;
+  padding: 11px 13px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.rating-toggle-card input {
+  grid-area: input;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.rating-toggle-card > span {
+  grid-area: switch;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(148,163,184,0.24);
+  position: relative;
+  transition: background 140ms ease;
+}
+
+.rating-toggle-card > span::after {
+  content: "";
+  position: absolute;
+  width: 19px;
+  height: 19px;
+  left: 3px;
+  top: 2.5px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 140ms ease;
+}
+
+.rating-toggle-card input:checked + span {
+  background: var(--green);
+}
+
+.rating-toggle-card input:checked + span::after {
+  transform: translateX(17px);
+}
+
+.rating-toggle-card strong {
+  grid-area: title;
+  font-size: 15px;
+}
+
+.rating-toggle-card small {
+  grid-area: text;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 390px) {
+  .compact-deadline-card strong {
+    font-size: 15px;
+  }
+
+  .fantasy-rules-title h2 {
+    font-size: 18px;
+  }
+
+  .fantasy-scoring-grid {
+    gap: 7px;
+  }
+
+  .fantasy-scoring-grid div {
+    padding: 9px;
+  }
+
+  .player-swap-button {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+
+.fantasy-bench-grid > div {
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 3px 8px;
+  padding: 10px;
+  border-radius: 15px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid rgba(148,163,184,0.14);
+}
+
+.fantasy-bench-grid > div > span {
+  grid-row: 1 / 3;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.06);
+}
+
+.fantasy-bench-grid > div > strong {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.12;
+  white-space: normal;
+  overflow: visible;
+}
+
+.fantasy-bench-grid > div > small {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.1;
+}

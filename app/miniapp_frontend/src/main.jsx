@@ -12,7 +12,7 @@ if (tg) {
 
 const TABS = [
   { id: 'matches', label: 'Матч-центр', icon: 'ball' },
-  { id: 'fantasy', label: 'Команда', icon: 'team' },
+  { id: 'fantasy', label: 'Fantasy-футбол', icon: 'team' },
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
@@ -130,6 +130,22 @@ function Icon({ name, className = '' }) {
     return (
       <svg {...common}>
         <path d="M12 3 20 6v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6l8-3Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'arrowDown') {
+    return (
+      <svg {...common} fill="currentColor" stroke="none">
+        <path d="M12 20 5 9h14l-7 11Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'arrowUp') {
+    return (
+      <svg {...common} fill="currentColor" stroke="none">
+        <path d="M12 4 19 15H5L12 4Z" />
       </svg>
     );
   }
@@ -867,6 +883,7 @@ function Fantasy() {
   const [selectedBySlot, setSelectedBySlot] = useState({});
   const [captainId, setCaptainId] = useState(null);
   const [pickerSlot, setPickerSlot] = useState(null);
+  const [replacingStarterSlot, setReplacingStarterSlot] = useState(null);
   const [q, setQ] = useState('');
   const [filterTeam, setFilterTeam] = useState('');
   const [saving, setSaving] = useState(false);
@@ -927,6 +944,7 @@ function Fantasy() {
 
     setSelectedBySlot(nextSelected);
     setPickerSlot(null);
+    setReplacingStarterSlot(null);
     setQ('');
   }
 
@@ -935,11 +953,35 @@ function Fantasy() {
     const nextSelected = { ...selectedBySlot };
     delete nextSelected[slotName];
     setSelectedBySlot(nextSelected);
+    setReplacingStarterSlot(null);
 
     if (player?.id === captainId) {
       setCaptainId(null);
     }
   }
+
+  function swapWithBench(benchSlotName) {
+    if (!replacingStarterSlot) return;
+
+    const starterPlayer = selectedBySlot[replacingStarterSlot.slot];
+    const benchPlayer = selectedBySlot[benchSlotName];
+
+    if (!starterPlayer || !benchPlayer) return;
+    if (starterPlayer.position !== benchPlayer.position) return;
+
+    const nextSelected = { ...selectedBySlot };
+    nextSelected[replacingStarterSlot.slot] = benchPlayer;
+    nextSelected[benchSlotName] = starterPlayer;
+
+    setSelectedBySlot(nextSelected);
+
+    if (captainId === starterPlayer.id) {
+      setCaptainId(benchPlayer.id);
+    }
+
+    setReplacingStarterSlot(null);
+  }
+
 
   function setRandomTeam() {
     const nextSelected = {};
@@ -965,6 +1007,7 @@ function Fantasy() {
     }
 
     setSelectedBySlot(nextSelected);
+    setReplacingStarterSlot(null);
     const firstStarter = FANTASY_STARTER_SLOTS.map((slot) => nextSelected[slot.slot]).find(Boolean);
     setCaptainId(firstStarter?.id || null);
   }
@@ -1006,7 +1049,7 @@ function Fantasy() {
         <div className="fantasy-points"><b>{points}</b><span>очков</span></div>
       </section>
 
-      <section className="fantasy-deadline-card">
+      <section className="fantasy-deadline-card compact-deadline-card">
         <span>Дедлайн: {roundState.title || 'следующий тур'}</span>
         <strong>{deadlineText}</strong>
         <small>{roundState.free_transfers === null ? 'трансферы без ограничений' : `бесплатных трансферов: ${roundState.free_transfers}, лишний: -${roundState.extra_transfer_penalty}`}</small>
@@ -1025,10 +1068,13 @@ function Fantasy() {
         {FANTASY_STARTER_SLOTS.map((slot) => {
           const player = selectedBySlot[slot.slot];
           const isCaptain = player?.id === captainId;
+          const isReplacing = replacingStarterSlot?.slot === slot.slot;
           return (
-            <button
+            <div
               key={slot.slot}
-              className={`pitch-slot ${player ? 'filled' : ''} ${isCaptain ? 'captain' : ''}`}
+              role="button"
+              tabIndex={0}
+              className={`pitch-slot ${player ? 'filled' : ''} ${isCaptain ? 'captain' : ''} ${isReplacing ? 'replace-active' : ''}`}
               style={{ top: `${slot.top}%`, left: `${slot.left}%` }}
               onClick={() => setPickerSlot(slot)}
               title={player?.name || slot.label}
@@ -1038,6 +1084,17 @@ function Fantasy() {
                   <span>{player.team_flag}</span>
                   <strong>{player.name}</strong>
                   {isCaptain && <em>C</em>}
+                  <button
+                    type="button"
+                    className="player-swap-button swap-down"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setReplacingStarterSlot(isReplacing ? null : slot);
+                    }}
+                    title="Заменить игрока игроком со скамейки"
+                  >
+                    <Icon name="arrowDown" />
+                  </button>
                 </>
               ) : (
                 <>
@@ -1045,26 +1102,56 @@ function Fantasy() {
                   <small>{slot.label}</small>
                 </>
               )}
-            </button>
+            </div>
           );
         })}
         <button className="random-team-button" onClick={setRandomTeam}>случайный состав</button>
       </section>
 
       <section className="card fantasy-bench-card">
-        <h2>Скамейка</h2>
+        <div className="bench-title-row">
+          <h2>Скамейка</h2>
+          {replacingStarterSlot && <span>Выберите игрока той же позиции, чтобы выпустить его на поле</span>}
+        </div>
         <div className="fantasy-bench-grid">
           {FANTASY_BENCH_SLOTS.map((slot) => {
             const player = selectedBySlot[slot.slot];
+            const canSwap = Boolean(replacingStarterSlot && player && player.position === replacingStarterSlot.position);
             return (
-              <button key={slot.slot} className={player ? 'filled' : ''} onClick={() => setPickerSlot(slot)}>
+              <div key={slot.slot} role="button" tabIndex={0} className={`${player ? 'filled' : ''} ${canSwap ? 'release-active' : ''}`} onClick={() => setPickerSlot(slot)}>
                 <span>{player?.team_flag || '+'}</span>
                 <strong>{player?.name || slot.label}</strong>
                 <small>{player ? `${player.team_display_name} · ${player.position_label}` : 'выбрать'}</small>
-              </button>
+                {replacingStarterSlot && player && (
+                  <button
+                    type="button"
+                    className={`player-swap-button swap-up ${canSwap ? '' : 'disabled'}`}
+                    disabled={!canSwap}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      swapWithBench(slot.slot);
+                    }}
+                    title={canSwap ? 'Выпустить игрока на поле' : 'Нужен игрок той же позиции'}
+                  >
+                    <Icon name="arrowUp" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
+      </section>
+
+      <section className="card fantasy-save-card">
+        <div>
+          <strong>{selectedCount}/15 игроков</strong>
+          <span>Капитан: {selectedPlayers.find((player) => player.id === captainId)?.name || 'не выбран'}</span>
+          {team?.transfer_penalty_points > 0 && <span className="error-text">Штраф за лишние трансферы: -{team.transfer_penalty_points}</span>}
+        </div>
+        {error && <p className="error-text">{error.message}</p>}
+        <button className="primary full" disabled={saving || rules.is_locked} onClick={save}>
+          {rules.is_locked ? 'Команда закрыта' : saving ? 'Сохраняю...' : 'Сохранить команду'}
+        </button>
       </section>
 
       <section className="card fantasy-rules-card">
@@ -1087,9 +1174,9 @@ function Fantasy() {
       </section>
 
       <section className="card fantasy-scoring-card">
-        <div className="rules-title-row">
+        <div className="rules-title-row fantasy-rules-title">
           <h2>Как начисляются очки</h2>
-          <button onClick={() => setShowDetailedRules(!showDetailedRules)}>{showDetailedRules ? 'Скрыть' : 'Детально'}</button>
+          <button onClick={() => setShowDetailedRules(!showDetailedRules)}>{showDetailedRules ? 'Скрыть детали' : 'Детально'}</button>
         </div>
         <p className="gold-text">Очки капитана удваиваются. Бюджета игроков нет.</p>
         <div className="fantasy-scoring-grid">
@@ -1106,18 +1193,6 @@ function Fantasy() {
             {(rules.detailed_rules || []).map((item) => <p key={item}>{item}</p>)}
           </div>
         )}
-      </section>
-
-      <section className="card fantasy-save-card">
-        <div>
-          <strong>{selectedCount}/15 игроков</strong>
-          <span>Капитан: {selectedPlayers.find((player) => player.id === captainId)?.name || 'не выбран'}</span>
-          {team?.transfer_penalty_points > 0 && <span className="error-text">Штраф за лишние трансферы: -{team.transfer_penalty_points}</span>}
-        </div>
-        {error && <p className="error-text">{error.message}</p>}
-        <button className="primary full" disabled={saving || rules.is_locked} onClick={save}>
-          {rules.is_locked ? 'Команда закрыта' : saving ? 'Сохраняю...' : 'Сохранить команду'}
-        </button>
       </section>
 
       {pickerSlot && (
@@ -1294,6 +1369,7 @@ function Predictions({ onPredict, onForecast }) {
 
 function Rating() {
   const [data, setData] = useState(null);
+  const [includeFantasy, setIncludeFantasy] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -1303,18 +1379,33 @@ function Rating() {
   if (error) return <ErrorCard error={error} />;
   if (!data) return <LoadingCard />;
 
+  const rows = [...(data.rows || [])]
+    .map((row) => ({
+      ...row,
+      display_points: includeFantasy ? (row.points || 0) + (row.fantasy_points || 0) : (row.points || 0),
+    }))
+    .sort((a, b) => (b.display_points - a.display_points) || ((b.exact_scores || 0) - (a.exact_scores || 0)));
+
   return (
     <main className="screen-content rating-screen">
       <div className="section-label">Рейтинг участников</div>
+
+      <label className="rating-toggle-card">
+        <input type="checkbox" checked={includeFantasy} onChange={(event) => setIncludeFantasy(event.target.checked)} />
+        <span />
+        <strong>Учитывать Fantasy</strong>
+        <small>{includeFantasy ? 'очки прогноза + fantasy' : 'только прогнозы'}</small>
+      </label>
+
       <div className="ranking-list compact-ranking-list">
-        {(data.rows || []).map((row) => (
+        {rows.map((row, index) => (
           <div key={row.name} className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''}`}>
             <div className="rating-main-line">
-              <span className="rank">#{row.rank}</span>
+              <span className="rank">#{index + 1}</span>
               <div className="rating-player">
                 <strong>{row.name}</strong>
                 <small>
-                  {row.points} очков · матчи {row.match_points} · турнир {row.tournament_points}
+                  {row.display_points} очков · прогнозы {row.points} · fantasy {row.fantasy_points || 0}
                 </small>
               </div>
               <div className={`tournament-progress-pill ${row.has_tournament_prediction ? 'done' : 'empty'}`}>
@@ -1343,7 +1434,7 @@ function Rating() {
 
             <div className="rating-foot-line">
               <span>Матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
-              <span>Fantasy: {row.fantasy_team_progress || '0/11'}</span>
+              <span>Fantasy: {row.fantasy_team_progress || '0/15'}</span>
               <span>Проход: +{row.advancement_plus || 0} / {row.advancement_minus || 0}</span>
             </div>
           </div>

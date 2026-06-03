@@ -1132,3 +1132,8 @@ scripts/data/
 ## Fantasy Release 2 — transfers and scoring rules
 
 См. `FANTASY_RELEASE_2_RULES_TRANSFERS.md`.
+
+
+## Fantasy Release 3: UI substitutions and rating toggle
+
+См. `FANTASY_RELEASE_3_UI_SUBSTITUTIONS.md`.

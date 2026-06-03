@@ -460,9 +460,10 @@ def get_table(
         row["tournament_prediction_progress"] = "4/4" if tournament_prediction else "0/4"
         row["has_tournament_prediction"] = tournament_prediction is not None
         fantasy_selected_count = len(fantasy_team.players) if fantasy_team else 0
-        row["fantasy_team_progress"] = f"{fantasy_selected_count}/11"
-        row["fantasy_team_complete"] = fantasy_selected_count == 11 and bool(fantasy_team and fantasy_team.captain_player_id)
+        row["fantasy_team_progress"] = f"{fantasy_selected_count}/15"
+        row["fantasy_team_complete"] = fantasy_selected_count == 15 and bool(fantasy_team and fantasy_team.captain_player_id)
         row["fantasy_points"] = fantasy_team.points if fantasy_team else 0
+        row["points_with_fantasy"] = row["points"] + row["fantasy_points"]
         row["exact_scores"] = exact_scores
         row["outcomes"] = outcomes
         row["advancement_plus"] = advancement_plus
