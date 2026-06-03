@@ -4366,3 +4366,98 @@ body {
 .app.theme-light .group-J { --group-color: #0284c7; --group-soft: rgba(2,132,199,0.10); }
 .app.theme-light .group-K { --group-color: #9333ea; --group-soft: rgba(147,51,234,0.10); }
 .app.theme-light .group-L { --group-color: #0f766e; --group-soft: rgba(15,118,110,0.10); }
+
+
+/* Profile theme segmented switch */
+
+.theme-segmented-row {
+  display: grid;
+  grid-template-columns: 1fr 48px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 18px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.theme-segmented-row input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-option {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+  text-align: center;
+  line-height: 1.1;
+  padding: 0 8px;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.theme-switch {
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+  position: relative;
+  transition: background 140ms ease;
+}
+
+.theme-switch::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.20);
+  transition: transform 140ms ease;
+}
+
+.theme-segmented-row input:not(:checked) ~ .dark-option {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.theme-segmented-row input:checked ~ .light-option {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.theme-segmented-row input:checked ~ .theme-switch {
+  background: var(--green);
+}
+
+.theme-segmented-row input:checked ~ .theme-switch::after {
+  transform: translateX(20px);
+}
+
+.app.theme-light .theme-segmented-row {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+.app.theme-light .theme-switch {
+  background: rgba(7,139,91,0.22);
+}
+
+.app.theme-light .theme-option {
+  color: #64748b;
+}
+
+.app.theme-light .theme-segmented-row input:checked ~ .light-option {
+  color: var(--green);
+  background: var(--green-soft);
+}

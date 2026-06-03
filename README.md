@@ -1152,3 +1152,8 @@ scripts/data/
 ## Light theme polish
 
 См. `MINIAPP_LIGHT_THEME_POLISH.md`.
+
+
+## Theme switch update
+
+См. `MINIAPP_THEME_SWITCH_UPDATE.md`.

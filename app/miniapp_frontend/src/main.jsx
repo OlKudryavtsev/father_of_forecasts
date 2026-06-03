@@ -1566,15 +1566,15 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <h2>Настройки</h2>
           <span>{appTheme === 'light' ? 'светлая' : 'темная'}</span>
         </div>
-        <label className="theme-toggle-row">
+        <label className="theme-segmented-row">
           <input
             type="checkbox"
             checked={appTheme === 'light'}
             onChange={(event) => setAppTheme(event.target.checked ? 'light' : 'dark')}
           />
-          <span />
-          <strong>Светлая тема</strong>
-          <small>Можно включить для дневного режима Mini App</small>
+          <span className="theme-option dark-option">Темная тема</span>
+          <span className="theme-switch" />
+          <span className="theme-option light-option">Светлая тема</span>
         </label>
       </section>
 
@@ -1851,7 +1851,7 @@ function RulesModal({ onClose }) {
 
 function App() {
   const [tab, setTab] = useState('matches');
-  const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'dark');
+  const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'light');
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
