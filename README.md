@@ -1137,3 +1137,8 @@ scripts/data/
 ## Fantasy Release 3: UI substitutions and rating toggle
 
 См. `FANTASY_RELEASE_3_UI_SUBSTITUTIONS.md`.
+
+
+## Fantasy random squad hotfix
+
+Кнопка `случайный состав` теперь заполняет основу и скамейку. Лимиты категорий применяются к основе.

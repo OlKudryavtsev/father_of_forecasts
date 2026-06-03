@@ -1092,13 +1092,13 @@ def _validate_fantasy_payload(
         )
 
     category_limits = rules.get("category_limits") or {}
-    category_counts = Counter(player.fifa_category for player in players)
+    starter_category_counts = Counter(players_by_id[player_id].fifa_category for player_id in starting_player_ids)
 
     for category, limit in category_limits.items():
-        if category_counts.get(int(category), 0) > limit:
+        if starter_category_counts.get(int(category), 0) > limit:
             raise HTTPException(
                 status_code=400,
-                detail=f"В категории «{_fantasy_category_title(int(category))}» можно выбрать не больше {limit} игроков.",
+                detail=f"В основе из категории «{_fantasy_category_title(int(category))}» можно выбрать не больше {limit} игроков.",
             )
 
 

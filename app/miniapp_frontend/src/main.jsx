@@ -925,6 +925,13 @@ function Fantasy() {
     acc[player.fifa_category] = (acc[player.fifa_category] || 0) + 1;
     return acc;
   }, {});
+  const starterCategoryCounts = FANTASY_STARTER_SLOTS
+    .map((slot) => selectedBySlot[slot.slot])
+    .filter(Boolean)
+    .reduce((acc, player) => {
+      acc[player.fifa_category] = (acc[player.fifa_category] || 0) + 1;
+      return acc;
+    }, {});
   const teamCounts = selectedPlayers.reduce((acc, player) => {
     acc[player.team_display_name] = (acc[player.team_display_name] || 0) + 1;
     return acc;
@@ -986,23 +993,48 @@ function Fantasy() {
   function setRandomTeam() {
     const nextSelected = {};
     const nextTeamCounts = {};
-    const nextCategoryCounts = {};
+    const nextStarterCategoryCounts = {};
     const shuffled = [...players].sort(() => Math.random() - 0.5);
 
-    for (const slot of FANTASY_SLOTS) {
-      const candidate = shuffled.find((player) => {
-        if (player.position !== slot.position) return false;
-        if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
-        if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
+    function isStarterSlot(slot) {
+      return FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot);
+    }
+
+    function canPickPlayer(player, slot) {
+      if (player.position !== slot.position) return false;
+      if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
+      if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
+
+      if (isStarterSlot(slot)) {
         const categoryLimit = categoryLimits[player.fifa_category];
-        if (categoryLimit && (nextCategoryCounts[player.fifa_category] || 0) >= categoryLimit) return false;
-        return true;
-      });
+        if (categoryLimit && (nextStarterCategoryCounts[player.fifa_category] || 0) >= categoryLimit) return false;
+      }
+
+      return true;
+    }
+
+    const orderedSlots = [...FANTASY_STARTER_SLOTS, ...FANTASY_BENCH_SLOTS];
+
+    for (const slot of orderedSlots) {
+      let candidate = shuffled.find((player) => canPickPlayer(player, slot));
+
+      // Fallback for bench: keep the team limit and uniqueness, but do not let category limits block filling the bench.
+      if (!candidate && !isStarterSlot(slot)) {
+        candidate = shuffled.find((player) => {
+          if (player.position !== slot.position) return false;
+          if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
+          if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
+          return true;
+        });
+      }
 
       if (candidate) {
         nextSelected[slot.slot] = candidate;
         nextTeamCounts[candidate.team_display_name] = (nextTeamCounts[candidate.team_display_name] || 0) + 1;
-        nextCategoryCounts[candidate.fifa_category] = (nextCategoryCounts[candidate.fifa_category] || 0) + 1;
+
+        if (isStarterSlot(slot)) {
+          nextStarterCategoryCounts[candidate.fifa_category] = (nextStarterCategoryCounts[candidate.fifa_category] || 0) + 1;
+        }
       }
     }
 
@@ -1166,7 +1198,7 @@ function Fantasy() {
           {rules.categories.map((category) => (
             <div key={category.id} className={`category-line category-${category.id} ${category.enabled ? '' : 'disabled'}`}>
               <i>Г{category.id}</i>
-              <span><strong>{category.title}</strong><small>{category.enabled ? category.range : 'лимит снят с 1/4'}</small></span>
+              <span><strong>{category.title}</strong><small>{category.enabled ? `${category.range} · основа` : 'лимит снят с 1/4'}</small></span>
               <b>{categoryCounts[category.id] || 0}/{category.enabled ? category.limit : '∞'}</b>
             </div>
           ))}
@@ -1204,6 +1236,7 @@ function Fantasy() {
           selectedBySlot={selectedBySlot}
           teamCounts={teamCounts}
           categoryCounts={categoryCounts}
+          starterCategoryCounts={starterCategoryCounts}
           rules={rules}
           q={q}
           setQ={setQ}
@@ -1228,6 +1261,7 @@ function FantasyPlayerPicker({
   selectedBySlot,
   teamCounts,
   categoryCounts,
+  starterCategoryCounts,
   rules,
   q,
   setQ,
@@ -1251,12 +1285,15 @@ function FantasyPlayerPicker({
     if (current?.id === player.id) return '';
     if (selectedIds.has(player.id)) return 'уже выбран';
 
+    const isStarterSlot = FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot);
     const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
     if (effectiveTeamCount >= (rules?.max_from_one_team || 3)) return 'лимит сборной';
 
-    const categoryLimit = rules?.category_limits?.[player.fifa_category];
-    const effectiveCategoryCount = (categoryCounts[player.fifa_category] || 0) - (current?.fifa_category === player.fifa_category ? 1 : 0);
-    if (categoryLimit && effectiveCategoryCount >= categoryLimit) return 'лимит категории';
+    if (isStarterSlot) {
+      const categoryLimit = rules?.category_limits?.[player.fifa_category];
+      const effectiveCategoryCount = (starterCategoryCounts?.[player.fifa_category] || 0) - (current?.fifa_category === player.fifa_category ? 1 : 0);
+      if (categoryLimit && effectiveCategoryCount >= categoryLimit) return 'лимит категории';
+    }
 
     return '';
   }
