@@ -4461,3 +4461,126 @@ body {
   color: var(--green);
   background: var(--green-soft);
 }
+
+
+/* Match participants modal and hidden distribution before kickoff */
+
+.match-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.match-actions button {
+  white-space: normal;
+  line-height: 1.1;
+}
+
+.participants-modal {
+  max-height: 88vh;
+}
+
+.participants-modal h2 {
+  padding-right: 42px;
+}
+
+.participants-summary {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--green-soft);
+  color: var(--green);
+  margin: 12px 0;
+}
+
+.participants-summary strong {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.participants-summary span {
+  font-weight: 850;
+}
+
+.participants-note {
+  color: var(--muted);
+  background: rgba(148,163,184,0.10);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  line-height: 1.35;
+}
+
+.participants-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.participant-row {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.participant-row span {
+  min-width: 0;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.participant-row b {
+  min-width: 48px;
+  min-height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 15px;
+}
+
+.participant-row em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.compact-empty {
+  padding: 28px 10px;
+}
+
+.app.theme-light .participants-summary {
+  background: var(--green-soft);
+}
+
+.app.theme-light .participants-note {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.app.theme-light .participant-row {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+@media (max-width: 390px) {
+  .match-actions {
+    gap: 5px;
+  }
+
+  .match-actions button {
+    font-size: 10px;
+    min-height: 36px;
+    padding: 0 4px;
+  }
+}

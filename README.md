@@ -1157,3 +1157,8 @@ scripts/data/
 ## Theme switch update
 
 См. `MINIAPP_THEME_SWITCH_UPDATE.md`.
+
+
+## Match participants visibility
+
+См. `MINIAPP_MATCH_PARTICIPANTS_VISIBILITY.md`.

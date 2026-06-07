@@ -291,6 +291,62 @@ def get_match(
     return {"match": _serialize_match(match, prediction)}
 
 
+
+
+@router.get("/matches/{match_id}/predictions")
+def get_match_predictions_visibility(
+    match_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return participants who predicted a match; reveal scores only after kickoff."""
+    match = db.query(Match).filter(Match.id == match_id).first()
+
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    has_started = _ensure_utc(match.starts_at) <= datetime.now(timezone.utc)
+    predictions = (
+        db.query(Prediction, User)
+        .join(User, User.id == Prediction.user_id)
+        .filter(Prediction.match_id == match.id)
+        .order_by(User.display_name.asc())
+        .all()
+    )
+
+    participants = []
+
+    for prediction, user in predictions:
+        item = {
+            "user_id": user.id,
+            "display_name": user.display_name,
+            "username": user.username,
+            "has_prediction": True,
+        }
+
+        if has_started:
+            item.update(
+                {
+                    "pred_home": prediction.pred_home,
+                    "pred_away": prediction.pred_away,
+                    "advancement_bet_enabled": bool(prediction.advancement_bet_enabled),
+                    "predicted_advancing_side": prediction.predicted_advancing_side,
+                    "score_points": prediction.score_points or 0,
+                    "advancement_points": prediction.advancement_points or 0,
+                    "points": prediction.points or 0,
+                }
+            )
+
+        participants.append(item)
+
+    return {
+        "match": _serialize_match(match),
+        "has_started": has_started,
+        "participants_count": len(participants),
+        "participants": participants,
+    }
+
+
 @router.get("/forecast/{match_id}")
 async def get_forecast_for_match(
     match_id: int,

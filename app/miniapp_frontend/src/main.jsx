@@ -482,7 +482,7 @@ function PredictionBars({ distribution }) {
   );
 }
 
-function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
+function MatchCard({ match, onPredict, onForecast, onParticipants, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
 
@@ -529,10 +529,11 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
 
       <div className="match-actions">
         {!locked && <button onClick={() => onPredict(match)}>{match.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}</button>}
+        <button onClick={() => onParticipants(match)}>Участники</button>
         <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>
       </div>
 
-      {showDistribution && <PredictionBars distribution={match.prediction_distribution} />}
+      {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
     </article>
   );
 }
@@ -594,7 +595,7 @@ function GroupTable({ group }) {
   );
 }
 
-function MatchCenter({ onPredict, onForecast }) {
+function MatchCenter({ onPredict, onForecast, onParticipants }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [data, setData] = useState(null);
@@ -655,7 +656,7 @@ function MatchCenter({ onPredict, onForecast }) {
                   <span>{formatDayTitle(matches[0]?.starts_at)}</span>
                   <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
                 </div>
-                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} />)}
+                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onParticipants={onParticipants} />)}
               </section>
             ))}
           </>
@@ -872,6 +873,80 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
     </div>
   );
 }
+
+
+function MatchParticipantsModal({ match, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setError(null);
+
+    api(`/api/webapp/matches/${match.id}/predictions`)
+      .then((result) => {
+        if (active) setData(result);
+      })
+      .catch((err) => {
+        if (active) setError(err);
+      });
+
+    return () => { active = false; };
+  }, [match.id]);
+
+  const participants = data?.participants || [];
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card participants-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>Участники матча</h2>
+        <p className="muted">{match.home_team} — {match.away_team}</p>
+
+        {error && <p className="error-text">{error.message}</p>}
+        {!error && !data && <LoadingCard text="Загружаю участников..." />}
+
+        {data && (
+          <>
+            <div className="participants-summary">
+              <strong>{data.participants_count}</strong>
+              <span>{pluralRu(data.participants_count, 'прогноз сделан', 'прогноза сделано', 'прогнозов сделано')}</span>
+            </div>
+
+            {!data.has_started && (
+              <p className="participants-note">
+                До начала матча показываем только, кто уже сделал ставку. Счета откроются после стартового свистка.
+              </p>
+            )}
+
+            {participants.length === 0 ? (
+              <div className="empty-state compact-empty">
+                <div className="empty-icon"><Icon name="target" /></div>
+                <h2>Пока никто не поставил</h2>
+                <p>Будь первым, кто рискнет репутацией.</p>
+              </div>
+            ) : (
+              <div className="participants-list">
+                {participants.map((participant) => (
+                  <div className="participant-row" key={participant.user_id}>
+                    <span>{participant.display_name}</span>
+                    {data.has_started ? (
+                      <b>{participant.pred_home}:{participant.pred_away}</b>
+                    ) : (
+                      <em>ставка сделана</em>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 
 function ForecastModal({ match, onClose }) {
   const [text, setText] = useState('');
@@ -1372,7 +1447,7 @@ function FantasyPlayerPicker({
   );
 }
 
-function Predictions({ onPredict, onForecast }) {
+function Predictions({ onPredict, onForecast, onParticipants }) {
   const [data, setData] = useState(null);
   const [activeSection, setActiveSection] = useState('missing');
   const [error, setError] = useState(null);
@@ -1426,7 +1501,7 @@ function Predictions({ onPredict, onForecast }) {
             groupMatchesByDay(visibleMatches).map(([day, dayMatches]) => (
               <section key={day} className="match-day">
                 <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
+                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onParticipants={onParticipants} showDistribution={false} />)}
               </section>
             ))
           )}
@@ -1856,6 +1931,7 @@ function App() {
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
   const [forecastMatch, setForecastMatch] = useState(null);
+  const [participantsMatch, setParticipantsMatch] = useState(null);
   const [tournamentPickField, setTournamentPickField] = useState(null);
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -1899,11 +1975,11 @@ function App() {
       {tab === 'matches' && (
         <>
           <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} setTab={setTab} />
-          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />
+          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} onParticipants={setParticipantsMatch} />
         </>
       )}
       {tab === 'fantasy' && <Fantasy />}
-      {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
+      {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} onParticipants={setParticipantsMatch} />}
       {tab === 'resources' && <Resources />}
       {tab === 'rating' && <Rating />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
@@ -1918,6 +1994,7 @@ function App() {
       </nav>
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
+      {participantsMatch && <MatchParticipantsModal match={participantsMatch} onClose={() => setParticipantsMatch(null)} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
       {tournamentPickField && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
