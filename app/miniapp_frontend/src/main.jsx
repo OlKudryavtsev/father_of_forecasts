@@ -1045,7 +1045,7 @@ function Fantasy() {
     setError(null);
     try {
       const [playersResult, teamResult] = await Promise.all([
-        api('/api/webapp/fantasy/players?limit=1000'),
+        api('/api/webapp/fantasy/players?limit=5000'),
         api('/api/webapp/fantasy/team/me'),
       ]);
       setPlayers(playersResult.players || []);

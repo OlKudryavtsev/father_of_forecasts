@@ -1186,7 +1186,7 @@ def get_fantasy_players(
     team: str | None = Query(default=None),
     category: int | None = Query(default=None, ge=1, le=4),
     q: str | None = Query(default=None),
-    limit: int = Query(default=300, ge=1, le=1000),
+    limit: int = Query(default=5000, ge=1, le=5000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:

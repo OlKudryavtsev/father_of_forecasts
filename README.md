@@ -1172,3 +1172,8 @@ scripts/data/
 ## Fantasy formations update
 
 См. `FANTASY_FORMATIONS_UPDATE.md`.
+
+
+## Fantasy all players limit fix
+
+См. `FANTASY_ALL_PLAYERS_LIMIT_FIX.md`.
