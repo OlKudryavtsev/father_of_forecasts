@@ -760,18 +760,24 @@ def _profile_badges(
 
 
 FANTASY_FORMATION = "4-3-3"
+FANTASY_SUPPORTED_FORMATIONS = {
+    "4-3-3": {"Goalkeeper": 1, "Defender": 4, "Midfielder": 3, "Attacker": 3},
+    "4-4-2": {"Goalkeeper": 1, "Defender": 4, "Midfielder": 4, "Attacker": 2},
+    "4-2-2": {"Goalkeeper": 1, "Defender": 4, "Midfielder": 4, "Attacker": 2},
+    "5-4-1": {"Goalkeeper": 1, "Defender": 5, "Midfielder": 4, "Attacker": 1},
+    "4-5-1": {"Goalkeeper": 1, "Defender": 4, "Midfielder": 5, "Attacker": 1},
+    "3-5-2": {"Goalkeeper": 1, "Defender": 3, "Midfielder": 5, "Attacker": 2},
+    "3-4-3": {"Goalkeeper": 1, "Defender": 3, "Midfielder": 4, "Attacker": 3},
+    "5-3-2": {"Goalkeeper": 1, "Defender": 5, "Midfielder": 3, "Attacker": 2},
+    "4-1-4-1": {"Goalkeeper": 1, "Defender": 4, "Midfielder": 5, "Attacker": 1},
+}
 FANTASY_SQUAD_POSITION_LIMITS = {
     "Goalkeeper": 2,
     "Defender": 5,
     "Midfielder": 5,
     "Attacker": 3,
 }
-FANTASY_STARTER_POSITION_LIMITS = {
-    "Goalkeeper": 1,
-    "Defender": 4,
-    "Midfielder": 3,
-    "Attacker": 3,
-}
+FANTASY_STARTER_POSITION_LIMITS = FANTASY_SUPPORTED_FORMATIONS[FANTASY_FORMATION]
 FANTASY_POSITION_LABELS = {
     "Goalkeeper": "ВР",
     "Defender": "ЗЩ",
@@ -1009,6 +1015,7 @@ def _fantasy_rules_payload(db: Session | None = None) -> dict:
 
     return {
         "formation": FANTASY_FORMATION,
+        "supported_formations": FANTASY_SUPPORTED_FORMATIONS,
         "squad_size": 15,
         "starters_size": 11,
         "squad_positions": FANTASY_SQUAD_POSITION_LIMITS,
@@ -1096,6 +1103,7 @@ def _validate_fantasy_payload(
     players: list[FantasyPlayer],
     starting_player_ids: list[int],
     captain_player_id: int,
+    formation: str,
     rules: dict,
 ) -> None:
     """Validate fantasy squad, starting XI and active transfer-window constraints."""
@@ -1127,14 +1135,19 @@ def _validate_fantasy_payload(
             )
 
     players_by_id = {player.id: player for player in players}
+    starter_limits = FANTASY_SUPPORTED_FORMATIONS.get(formation)
+
+    if not starter_limits:
+        raise HTTPException(status_code=400, detail=f"Схема {formation} не поддерживается.")
+
     starter_counts = Counter(players_by_id[player_id].position for player_id in starting_player_ids)
 
-    for position, limit in FANTASY_STARTER_POSITION_LIMITS.items():
+    for position, limit in starter_limits.items():
         if starter_counts.get(position, 0) != limit:
             label = FANTASY_POSITION_LABELS.get(position, position)
             raise HTTPException(
                 status_code=400,
-                detail=f"Для схемы {FANTASY_FORMATION} в основе нужно выбрать {limit} игроков позиции {label}.",
+                detail=f"Для схемы {formation} в основе нужно выбрать {limit} игроков позиции {label}.",
             )
 
     max_from_one_team = rules.get("max_from_one_team") or 3
@@ -1259,8 +1272,8 @@ def save_my_fantasy_team(
     if round_state.get("is_locked"):
         raise HTTPException(status_code=400, detail="Fantasy-команду уже нельзя менять: дедлайны турнира прошли.")
 
-    if payload.formation != FANTASY_FORMATION:
-        raise HTTPException(status_code=400, detail=f"Пока поддерживается только схема {FANTASY_FORMATION}.")
+    if payload.formation not in FANTASY_SUPPORTED_FORMATIONS:
+        raise HTTPException(status_code=400, detail=f"Схема {payload.formation} не поддерживается.")
 
     players = (
         db.query(FantasyPlayer)
@@ -1275,7 +1288,7 @@ def save_my_fantasy_team(
     if len(players) != len(set(payload.player_ids)):
         raise HTTPException(status_code=400, detail="Не все выбранные игроки найдены в fantasy-списке.")
 
-    _validate_fantasy_payload(players, payload.starting_player_ids, payload.captain_player_id, rules)
+    _validate_fantasy_payload(players, payload.starting_player_ids, payload.captain_player_id, payload.formation, rules)
 
     team = (
         db.query(FantasyTeam)

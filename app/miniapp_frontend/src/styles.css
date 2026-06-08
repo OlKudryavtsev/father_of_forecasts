@@ -4642,3 +4642,70 @@ body {
   background: #f8fafc;
   border-color: rgba(15, 23, 42, 0.10);
 }
+
+
+/* Fantasy formations selector */
+
+.fantasy-formation-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px 12px;
+}
+
+.fantasy-formation-toolbar label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.fantasy-formation-toolbar label span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fantasy-formation-toolbar select {
+  min-height: 40px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 850;
+}
+
+.fantasy-formation-toolbar > strong {
+  min-height: 40px;
+  min-width: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.fantasy-formation-toolbar > span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.app.theme-light .fantasy-formation-toolbar select {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+@media (max-width: 390px) {
+  .fantasy-formation-toolbar {
+    grid-template-columns: 1fr 64px;
+  }
+
+  .fantasy-formation-toolbar > strong {
+    min-width: 64px;
+    font-size: 13px;
+  }
+}

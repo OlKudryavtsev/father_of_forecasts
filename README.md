@@ -1167,3 +1167,8 @@ scripts/data/
 ## Fantasy player dropdown picker
 
 См. `FANTASY_PLAYER_DROPDOWN_PICKER.md`.
+
+
+## Fantasy formations update
+
+См. `FANTASY_FORMATIONS_UPDATE.md`.

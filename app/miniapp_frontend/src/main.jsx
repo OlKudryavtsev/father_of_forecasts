@@ -297,28 +297,70 @@ function getTelegramPhotoUrl() {
   return tg?.initDataUnsafe?.user?.photo_url || '';
 }
 
-const FANTASY_STARTER_SLOTS = [
-  { slot: 'НП1', position: 'Attacker', label: 'НП', top: 9, left: 20 },
-  { slot: 'НП2', position: 'Attacker', label: 'НП', top: 5, left: 50 },
-  { slot: 'НП3', position: 'Attacker', label: 'НП', top: 9, left: 80 },
-  { slot: 'ПЗ1', position: 'Midfielder', label: 'ПЗ', top: 39, left: 23 },
-  { slot: 'ПЗ2', position: 'Midfielder', label: 'ПЗ', top: 43, left: 50 },
-  { slot: 'ПЗ3', position: 'Midfielder', label: 'ПЗ', top: 39, left: 77 },
-  { slot: 'ЗЩ1', position: 'Defender', label: 'ЗЩ', top: 68, left: 12 },
-  { slot: 'ЗЩ2', position: 'Defender', label: 'ЗЩ', top: 72, left: 35 },
-  { slot: 'ЗЩ3', position: 'Defender', label: 'ЗЩ', top: 72, left: 65 },
-  { slot: 'ЗЩ4', position: 'Defender', label: 'ЗЩ', top: 68, left: 88 },
-  { slot: 'ВР1', position: 'Goalkeeper', label: 'ВР', top: 90, left: 50 },
+const FANTASY_FORMATIONS = [
+  { value: '4-3-3', label: '4-3-3', defenders: 4, midfielders: 3, attackers: 3 },
+  { value: '4-4-2', label: '4-4-2', defenders: 4, midfielders: 4, attackers: 2 },
+  { value: '4-2-2', label: '4-2-2-2', defenders: 4, midfielders: 4, attackers: 2 },
+  { value: '5-4-1', label: '5-4-1', defenders: 5, midfielders: 4, attackers: 1 },
+  { value: '4-5-1', label: '4-5-1', defenders: 4, midfielders: 5, attackers: 1 },
+  { value: '3-5-2', label: '3-5-2', defenders: 3, midfielders: 5, attackers: 2 },
+  { value: '3-4-3', label: '3-4-3', defenders: 3, midfielders: 4, attackers: 3 },
+  { value: '5-3-2', label: '5-3-2', defenders: 5, midfielders: 3, attackers: 2 },
+  { value: '4-1-4-1', label: '4-1-4-1', defenders: 4, midfielders: 5, attackers: 1 },
 ];
 
+const FANTASY_STARTER_SLOTS = buildFormationSlots('4-3-3');
+
 const FANTASY_BENCH_SLOTS = [
-  { slot: 'ЗАП1', position: 'Goalkeeper', label: 'ВР запас' },
-  { slot: 'ЗАП2', position: 'Defender', label: 'ЗЩ запас' },
-  { slot: 'ЗАП3', position: 'Midfielder', label: 'ПЗ запас' },
-  { slot: 'ЗАП4', position: 'Midfielder', label: 'ПЗ запас' },
+  { slot: 'ЗАП1', position: 'Goalkeeper', label: 'ВР запас', isStarter: false },
+  { slot: 'ЗАП2', position: 'Defender', label: 'ЗЩ запас', isStarter: false },
+  { slot: 'ЗАП3', position: 'Midfielder', label: 'ПЗ запас', isStarter: false },
+  { slot: 'ЗАП4', position: 'Midfielder', label: 'ПЗ запас', isStarter: false },
 ];
 
 const FANTASY_SLOTS = [...FANTASY_STARTER_SLOTS, ...FANTASY_BENCH_SLOTS];
+
+function getFormationConfig(formation) {
+  return FANTASY_FORMATIONS.find((item) => item.value === formation) || FANTASY_FORMATIONS[0];
+}
+
+function spreadPositions(count, top, minLeft = 12, maxLeft = 88) {
+  if (count === 1) return [{ top, left: 50 }];
+  const step = (maxLeft - minLeft) / (count - 1);
+  return Array.from({ length: count }, (_, index) => ({ top, left: Math.round(minLeft + step * index) }));
+}
+
+function buildFormationSlots(formation) {
+  const config = getFormationConfig(formation);
+  const attackerPositions = spreadPositions(config.attackers, 8, config.attackers === 1 ? 50 : 20, config.attackers === 1 ? 50 : 80);
+  const midfieldPositions = spreadPositions(config.midfielders, 42, 10, 90);
+  const defenderPositions = spreadPositions(config.defenders, 70, 8, 92);
+
+  return [
+    ...attackerPositions.map((position, index) => ({
+      slot: `НП${index + 1}`,
+      position: 'Attacker',
+      label: 'НП',
+      isStarter: true,
+      ...position,
+    })),
+    ...midfieldPositions.map((position, index) => ({
+      slot: `ПЗ${index + 1}`,
+      position: 'Midfielder',
+      label: 'ПЗ',
+      isStarter: true,
+      ...position,
+    })),
+    ...defenderPositions.map((position, index) => ({
+      slot: `ЗЩ${index + 1}`,
+      position: 'Defender',
+      label: 'ЗЩ',
+      isStarter: true,
+      ...position,
+    })),
+    { slot: 'ВР1', position: 'Goalkeeper', label: 'ВР', isStarter: true, top: 90, left: 50 },
+  ];
+}
 
 function formatDeadlineCountdown(targetValue, now) {
   if (!targetValue) return 'дедлайн не определен';
@@ -987,6 +1029,7 @@ function Fantasy() {
   const [teams, setTeams] = useState([]);
   const [rules, setRules] = useState(null);
   const [team, setTeam] = useState(null);
+  const [formation, setFormation] = useState('4-3-3');
   const [selectedBySlot, setSelectedBySlot] = useState({});
   const [captainId, setCaptainId] = useState(null);
   const [pickerSlot, setPickerSlot] = useState(null);
@@ -1010,10 +1053,34 @@ function Fantasy() {
       setRules(playersResult.rules || teamResult.rules || null);
       setTeam(teamResult.team || null);
 
+      const loadedFormation = teamResult.team?.formation || '4-3-3';
+      const loadedStarterSlots = buildFormationSlots(loadedFormation);
+      setFormation(loadedFormation);
+
       const nextSelected = {};
+      const startersByPosition = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
+      const benchItems = [];
+
       for (const item of teamResult.team?.players || []) {
-        nextSelected[item.position_slot] = item.player;
+        if (item.is_starter) {
+          startersByPosition[item.position]?.push(item);
+        } else {
+          benchItems.push(item);
+        }
       }
+
+      for (const slot of loadedStarterSlots) {
+        const item = startersByPosition[slot.position]?.shift();
+        if (item) nextSelected[slot.slot] = item.player;
+      }
+
+      for (const item of benchItems.sort((a, b) => (a.bench_order || 0) - (b.bench_order || 0))) {
+        const slot = FANTASY_BENCH_SLOTS.find((candidate) => !nextSelected[candidate.slot] && candidate.position === item.position)
+          || FANTASY_BENCH_SLOTS.find((candidate) => !nextSelected[candidate.slot]);
+
+        if (slot) nextSelected[slot.slot] = item.player;
+      }
+
       setSelectedBySlot(nextSelected);
       setCaptainId(teamResult.team?.captain_player_id || null);
     } catch (err) {
@@ -1022,6 +1089,10 @@ function Fantasy() {
   }
 
   useEffect(() => { load(); }, []);
+
+  const starterSlots = buildFormationSlots(formation);
+  const allSlots = [...starterSlots, ...FANTASY_BENCH_SLOTS];
+  const formationConfig = getFormationConfig(formation);
 
   const selectedPlayers = Object.values(selectedBySlot).filter(Boolean);
   const selectedIds = new Set(selectedPlayers.map((player) => player.id));
@@ -1032,7 +1103,7 @@ function Fantasy() {
     acc[player.fifa_category] = (acc[player.fifa_category] || 0) + 1;
     return acc;
   }, {});
-  const starterCategoryCounts = FANTASY_STARTER_SLOTS
+  const starterCategoryCounts = starterSlots
     .map((slot) => selectedBySlot[slot.slot])
     .filter(Boolean)
     .reduce((acc, player) => {
@@ -1046,6 +1117,53 @@ function Fantasy() {
   const categoryLimits = rules?.category_limits || {};
   const maxFromOneTeam = rules?.max_from_one_team || 3;
   const deadlineText = formatDeadlineCountdown(roundState.deadline_at, now);
+
+  function changeFormation(nextFormation) {
+    const nextStarterSlots = buildFormationSlots(nextFormation);
+    const currentStarters = starterSlots
+      .map((slot) => selectedBySlot[slot.slot])
+      .filter(Boolean);
+
+    const currentBench = FANTASY_BENCH_SLOTS
+      .map((slot) => selectedBySlot[slot.slot])
+      .filter(Boolean);
+
+    const poolByPosition = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
+
+    for (const player of currentStarters) {
+      poolByPosition[player.position]?.push(player);
+    }
+
+    const nextSelected = {};
+
+    for (const slot of nextStarterSlots) {
+      const player = poolByPosition[slot.position]?.shift();
+      if (player) nextSelected[slot.slot] = player;
+    }
+
+    const leftoverStarters = Object.values(poolByPosition).flat();
+    const benchPool = [...currentBench, ...leftoverStarters];
+    const usedIds = new Set(Object.values(nextSelected).map((player) => player.id));
+
+    for (const slot of FANTASY_BENCH_SLOTS) {
+      const exactIndex = benchPool.findIndex((player) => !usedIds.has(player.id) && player.position === slot.position);
+      const fallbackIndex = exactIndex >= 0 ? exactIndex : benchPool.findIndex((player) => !usedIds.has(player.id));
+
+      if (fallbackIndex >= 0) {
+        const player = benchPool.splice(fallbackIndex, 1)[0];
+        nextSelected[slot.slot] = player;
+        usedIds.add(player.id);
+      }
+    }
+
+    setFormation(nextFormation);
+    setSelectedBySlot(nextSelected);
+    setReplacingStarterSlot(null);
+
+    if (captainId && !nextStarterSlots.some((slot) => nextSelected[slot.slot]?.id === captainId)) {
+      setCaptainId(null);
+    }
+  }
 
   function selectPlayer(slot, player) {
     const previous = selectedBySlot[slot.slot];
@@ -1104,7 +1222,7 @@ function Fantasy() {
     const shuffled = [...players].sort(() => Math.random() - 0.5);
 
     function isStarterSlot(slot) {
-      return FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot);
+      return starterSlots.some((starterSlot) => starterSlot.slot === slot.slot);
     }
 
     function canPickPlayer(player, slot) {
@@ -1120,7 +1238,7 @@ function Fantasy() {
       return true;
     }
 
-    const orderedSlots = [...FANTASY_STARTER_SLOTS, ...FANTASY_BENCH_SLOTS];
+    const orderedSlots = [...starterSlots, ...FANTASY_BENCH_SLOTS];
 
     for (const slot of orderedSlots) {
       let candidate = shuffled.find((player) => canPickPlayer(player, slot));
@@ -1147,7 +1265,7 @@ function Fantasy() {
 
     setSelectedBySlot(nextSelected);
     setReplacingStarterSlot(null);
-    const firstStarter = FANTASY_STARTER_SLOTS.map((slot) => nextSelected[slot.slot]).find(Boolean);
+    const firstStarter = starterSlots.map((slot) => nextSelected[slot.slot]).find(Boolean);
     setCaptainId(firstStarter?.id || null);
   }
 
@@ -1155,14 +1273,14 @@ function Fantasy() {
     setSaving(true);
     setError(null);
     try {
-      const playerIds = FANTASY_SLOTS.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
-      const startingPlayerIds = FANTASY_STARTER_SLOTS.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
+      const playerIds = allSlots.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
+      const startingPlayerIds = starterSlots.map((slot) => selectedBySlot[slot.slot]?.id).filter(Boolean);
       if (playerIds.length !== 15) throw new Error('Выберите всех 15 игроков: 11 в основе и 4 запасных.');
       if (startingPlayerIds.length !== 11) throw new Error('Выберите всех 11 игроков стартового состава.');
       if (!captainId) throw new Error('Выберите капитана — его очки будут удваиваться.');
       const result = await api('/api/webapp/fantasy/team', {
         method: 'POST',
-        body: JSON.stringify({ formation: '4-3-3', player_ids: playerIds, starting_player_ids: startingPlayerIds, captain_player_id: captainId }),
+        body: JSON.stringify({ formation, player_ids: playerIds, starting_player_ids: startingPlayerIds, captain_player_id: captainId }),
       });
       setTeam(result.team);
       await load();
@@ -1194,9 +1312,17 @@ function Fantasy() {
         <small>{roundState.free_transfers === null ? 'трансферы без ограничений' : `бесплатных трансферов: ${roundState.free_transfers}, лишний: -${roundState.extra_transfer_penalty}`}</small>
       </section>
 
-      <div className="fantasy-toolbar">
-        <strong>4 — 3 — 3</strong>
-        <span>Основа</span>
+      <div className="fantasy-toolbar fantasy-formation-toolbar">
+        <label>
+          <span>Схема</span>
+          <select value={formation} onChange={(event) => changeFormation(event.target.value)}>
+            {FANTASY_FORMATIONS.map((item) => (
+              <option key={item.value} value={item.value}>{item.label}</option>
+            ))}
+          </select>
+        </label>
+        <strong>{formationConfig.label}</strong>
+        <span>Основа: {formationConfig.defenders}-{formationConfig.midfielders}-{formationConfig.attackers}</span>
       </div>
 
       <section className="football-pitch">
@@ -1204,7 +1330,7 @@ function Fantasy() {
         <div className="pitch-line center-line" />
         <div className="pitch-circle" />
         <div className="pitch-line box-bottom" />
-        {FANTASY_STARTER_SLOTS.map((slot) => {
+        {starterSlots.map((slot) => {
           const player = selectedBySlot[slot.slot];
           const isCaptain = player?.id === captainId;
           const isReplacing = replacingStarterSlot?.slot === slot.slot;
@@ -1381,7 +1507,7 @@ function FantasyPlayerPicker({
   onClose,
 }) {
   const current = selectedBySlot[slot.slot];
-  const isStarterSlot = FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot);
+  const isStarterSlot = Boolean(slot.isStarter);
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
 
   const positionPlayers = players
