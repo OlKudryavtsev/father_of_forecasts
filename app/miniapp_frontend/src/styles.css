@@ -4584,3 +4584,61 @@ body {
     padding: 0 4px;
   }
 }
+
+
+/* Fantasy player picker as dropdowns */
+
+.fantasy-picker-selects {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.fantasy-picker-selects label {
+  display: grid;
+  gap: 7px;
+}
+
+.fantasy-picker-selects label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fantasy-picker-selects select {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 15px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 750;
+}
+
+.fantasy-picker-selects select:disabled {
+  opacity: 0.60;
+}
+
+.fantasy-current-player {
+  grid-template-columns: 38px minmax(0, 1fr);
+}
+
+.fantasy-current-player small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: -6px;
+}
+
+.fantasy-current-player button {
+  grid-column: span 2;
+}
+
+.app.theme-light .fantasy-picker-selects select {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}

@@ -1162,3 +1162,8 @@ scripts/data/
 ## Match participants visibility
 
 См. `MINIAPP_MATCH_PARTICIPANTS_VISIBILITY.md`.
+
+
+## Fantasy player dropdown picker
+
+См. `FANTASY_PLAYER_DROPDOWN_PICKER.md`.

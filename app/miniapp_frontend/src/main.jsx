@@ -1381,18 +1381,28 @@ function FantasyPlayerPicker({
   onClose,
 }) {
   const current = selectedBySlot[slot.slot];
-  const query = q.trim().toLowerCase();
-  const filtered = players
+  const isStarterSlot = FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot);
+  const [selectedPlayerId, setSelectedPlayerId] = useState('');
+
+  const positionPlayers = players
     .filter((player) => player.position === slot.position)
-    .filter((player) => !filterTeam || player.team_display_name === filterTeam)
-    .filter((player) => !query || player.name.toLowerCase().includes(query))
     .sort((a, b) => (a.fifa_category - b.fifa_category) || a.team_display_name.localeCompare(b.team_display_name) || a.name.localeCompare(b.name));
+
+  const availableTeams = teams
+    .filter((team) => positionPlayers.some((player) => player.team_display_name === team.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const teamPlayers = positionPlayers
+    .filter((player) => !filterTeam || player.team_display_name === filterTeam);
+
+  useEffect(() => {
+    setSelectedPlayerId('');
+  }, [slot.slot, filterTeam]);
 
   function disabledReason(player) {
     if (current?.id === player.id) return '';
     if (selectedIds.has(player.id)) return 'уже выбран';
 
-    const isStarterSlot = FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot);
     const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
     if (effectiveTeamCount >= (rules?.max_from_one_team || 3)) return 'лимит сборной';
 
@@ -1405,43 +1415,77 @@ function FantasyPlayerPicker({
     return '';
   }
 
+  function selectFromDropdown(value) {
+    setSelectedPlayerId(value);
+
+    const player = teamPlayers.find((item) => String(item.id) === String(value));
+    if (!player) return;
+
+    const reason = disabledReason(player);
+    if (reason) return;
+
+    onSelect(slot, player);
+  }
+
   return (
     <div className="modal-backdrop">
       <section className="modal-card fantasy-picker-modal">
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>Выбор игрока · {slot.label}</h2>
-        <p className="muted">Выберите сборную и игрока. Капитана можно отметить после выбора игрока.</p>
+        <p className="muted">Сначала выберите сборную, затем игрока из выпадающего списка.</p>
 
-        <div className="fantasy-picker-filters">
-          <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Поиск игрока" />
-          <select value={filterTeam} onChange={(event) => setFilterTeam(event.target.value)}>
-            <option value="">Все сборные</option>
-            {teams.map((team) => <option key={team.name} value={team.name}>{team.flag} {team.name}</option>)}
-          </select>
+        <div className="fantasy-picker-selects">
+          <label>
+            <span>Сборная</span>
+            <select
+              value={filterTeam}
+              onChange={(event) => {
+                setFilterTeam(event.target.value);
+                setQ('');
+              }}
+            >
+              <option value="">Выберите сборную</option>
+              {availableTeams.map((team) => <option key={team.name} value={team.name}>{team.flag} {team.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Игрок</span>
+            <select
+              value={selectedPlayerId}
+              disabled={!filterTeam}
+              onChange={(event) => selectFromDropdown(event.target.value)}
+            >
+              <option value="">{filterTeam ? 'Выберите игрока' : 'Сначала выберите сборную'}</option>
+              {teamPlayers.map((player) => {
+                const reason = disabledReason(player);
+                return (
+                  <option key={player.id} value={player.id} disabled={Boolean(reason)}>
+                    {player.name} · {player.position_label} · Г{player.fifa_category}{reason ? ` · ${reason}` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
         </div>
 
         {current && (
-          <div className="current-player-card">
+          <div className="current-player-card fantasy-current-player">
             <span>{current.team_flag}</span>
             <strong>{current.name}</strong>
-            {FANTASY_STARTER_SLOTS.some((starterSlot) => starterSlot.slot === slot.slot) && <button onClick={() => setCaptainId(current.id)}>{captainId === current.id ? 'Капитан выбран' : 'Сделать капитаном'}</button>}
+            <small>{current.team_display_name} · {current.position_label} · Г{current.fifa_category}</small>
+            {isStarterSlot && <button onClick={() => setCaptainId(current.id)}>{captainId === current.id ? 'Капитан выбран' : 'Сделать капитаном'}</button>}
             <button className="danger" onClick={() => onRemove(slot.slot)}>Убрать</button>
           </div>
         )}
 
-        <div className="player-list">
-          {filtered.slice(0, 160).map((player) => {
-            const reason = disabledReason(player);
-            return (
-              <button key={player.id} disabled={Boolean(reason)} onClick={() => onSelect(slot, player)}>
-                <span>{player.team_flag}</span>
-                <strong>{player.name}</strong>
-                <small>{player.team_display_name} · {player.position_label} · Г{player.fifa_category}</small>
-                {reason && <em>{reason}</em>}
-              </button>
-            );
-          })}
-        </div>
+        {filterTeam && teamPlayers.length === 0 && (
+          <div className="empty-state compact-empty">
+            <div className="empty-icon"><Icon name="team" /></div>
+            <h2>Нет игроков</h2>
+            <p>В этой сборной нет игроков нужной позиции.</p>
+          </div>
+        )}
       </section>
     </div>
   );
