@@ -307,6 +307,41 @@ class FantasyPlayerMatchStat(Base):
     )
 
 
+
+class UserNotificationSetting(Base):
+    __tablename__ = "user_notification_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    notification_key = Column(String, nullable=False, index=True)
+    is_enabled = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "notification_key",
+            name="uq_user_notification_setting",
+        ),
+    )
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    setting_key = Column(String, nullable=False, unique=True, index=True)
+    setting_value = Column(Text, nullable=True)
+
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ReminderLog(Base):
     __tablename__ = "reminder_logs"
 

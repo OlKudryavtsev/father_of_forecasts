@@ -17,6 +17,7 @@ const TABS = [
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
+  { id: 'admin', label: 'Админ', icon: 'shield' },
 ];
 
 const QUICK_SCORES = [
@@ -1230,11 +1231,6 @@ function Fantasy() {
       if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
       if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
 
-      if (isStarterSlot(slot)) {
-        const categoryLimit = categoryLimits[player.fifa_category];
-        if (categoryLimit && (nextStarterCategoryCounts[player.fifa_category] || 0) >= categoryLimit) return false;
-      }
-
       return true;
     }
 
@@ -1423,19 +1419,11 @@ function Fantasy() {
         <h2>Правила набора</h2>
         <ul className="nice-list">
           <li><b>Заявка:</b> 15 игроков — 2 ВР, 5 ЗЩ, 5 ПЗ, 3 НП.</li>
-          <li><b>Основа:</b> 11 игроков по схеме 4-3-3.</li>
+          <li><b>Основа:</b> 11 игроков по выбранной схеме.</li>
           <li>Капитан должен быть в основе, его очки удваиваются.</li>
           <li>Лимит сборной на текущей стадии: до {maxFromOneTeam} игроков.</li>
+          <li>Ограничения по рейтингу FIFA отключены.</li>
         </ul>
-        <div className="fantasy-categories">
-          {rules.categories.map((category) => (
-            <div key={category.id} className={`category-line category-${category.id} ${category.enabled ? '' : 'disabled'}`}>
-              <i>Г{category.id}</i>
-              <span><strong>{category.title}</strong><small>{category.enabled ? `${category.range} · основа` : 'лимит снят с 1/4'}</small></span>
-              <b>{categoryCounts[category.id] || 0}/{category.enabled ? category.limit : '∞'}</b>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="card fantasy-scoring-card">
@@ -1531,12 +1519,6 @@ function FantasyPlayerPicker({
 
     const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
     if (effectiveTeamCount >= (rules?.max_from_one_team || 3)) return 'лимит сборной';
-
-    if (isStarterSlot) {
-      const categoryLimit = rules?.category_limits?.[player.fifa_category];
-      const effectiveCategoryCount = (starterCategoryCounts?.[player.fifa_category] || 0) - (current?.fifa_category === player.fifa_category ? 1 : 0);
-      if (categoryLimit && effectiveCategoryCount >= categoryLimit) return 'лимит категории';
-    }
 
     return '';
   }
@@ -1759,6 +1741,236 @@ function Rating() {
 }
 
 
+
+
+function AdminPanel() {
+  const [data, setData] = useState(null);
+  const [selectedMatchId, setSelectedMatchId] = useState('');
+  const [scoreHome, setScoreHome] = useState('');
+  const [scoreAway, setScoreAway] = useState('');
+  const [winnerSide, setWinnerSide] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setError(null);
+    try {
+      const result = await api('/api/webapp/admin/overview');
+      setData(result);
+      if (!selectedMatchId && result.matches?.length) {
+        setSelectedMatchId(String(result.matches[0].id));
+      }
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const matches = data?.matches || [];
+  const selectedMatch = matches.find((match) => String(match.id) === String(selectedMatchId));
+
+  async function runAction(action) {
+    setBusy(true);
+    setError(null);
+    setMessage('');
+
+    try {
+      const result = await action();
+      setMessage(result.message || JSON.stringify(result, null, 2));
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveManualResult() {
+    if (!selectedMatchId) throw new Error('Выберите матч.');
+    if (scoreHome === '' || scoreAway === '') throw new Error('Укажите счет.');
+
+    return api(`/api/webapp/admin/matches/${selectedMatchId}/result`, {
+      method: 'POST',
+      body: JSON.stringify({
+        score_home: Number(scoreHome),
+        score_away: Number(scoreAway),
+        winner_side: winnerSide || null,
+      }),
+    });
+  }
+
+  async function syncSelectedResult() {
+    if (!selectedMatchId) throw new Error('Выберите матч.');
+    return api(`/api/webapp/admin/matches/${selectedMatchId}/sync-result`, { method: 'POST' });
+  }
+
+  async function syncAllResults() {
+    return api('/api/webapp/admin/sync-results', { method: 'POST' });
+  }
+
+  async function syncFantasyStats() {
+    return api('/api/webapp/admin/fantasy/sync-player-stats', { method: 'POST' });
+  }
+
+  async function toggleGlobalSetting(key, checked) {
+    const result = await api(`/api/webapp/admin/settings/${key}`, {
+      method: 'POST',
+      body: JSON.stringify({ value: checked ? 'true' : 'false' }),
+    });
+
+    setData((current) => ({
+      ...current,
+      notification_settings: {
+        ...(current?.notification_settings || {}),
+        [key]: result.value,
+      },
+    }));
+  }
+
+  if (error && !data) return <ErrorCard error={error} onRetry={load} />;
+  if (!data) return <LoadingCard text="Открываю админку..." />;
+
+  return (
+    <main className="screen-content admin-screen">
+      <div className="section-label">Администрирование</div>
+
+      <section className="admin-summary-grid">
+        <div><b>{data.summary?.matches_total || 0}</b><span>матчей</span></div>
+        <div><b>{data.summary?.finished || 0}</b><span>завершено</span></div>
+        <div><b>{data.summary?.ready_for_api_sync || 0}</b><span>к синхронизации</span></div>
+        <div><b>{data.summary?.fantasy_stat_rows || 0}</b><span>строк fantasy</span></div>
+      </section>
+
+      <section className="card admin-card">
+        <h2>Матч</h2>
+        <select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)}>
+          {matches.map((match) => (
+            <option key={match.id} value={match.id}>
+              #{match.id} {match.home_team} — {match.away_team} {match.is_finished ? `(${match.score_home}:${match.score_away})` : ''}
+            </option>
+          ))}
+        </select>
+        {selectedMatch && <p className="muted small">{formatDateTime(selectedMatch.starts_at)} · {selectedMatch.status_short || 'статус не задан'} · fixture {selectedMatch.external_fixture_id || '—'}</p>}
+      </section>
+
+      <section className="card admin-card">
+        <h2>1. Ручное выставление результата</h2>
+        <div className="admin-score-row">
+          <input type="number" min="0" value={scoreHome} onChange={(event) => setScoreHome(event.target.value)} placeholder="Хозяева" />
+          <input type="number" min="0" value={scoreAway} onChange={(event) => setScoreAway(event.target.value)} placeholder="Гости" />
+          <select value={winnerSide} onChange={(event) => setWinnerSide(event.target.value)}>
+            <option value="">winner не нужен</option>
+            <option value="home">прошли хозяева</option>
+            <option value="away">прошли гости</option>
+          </select>
+        </div>
+        <button className="primary full" disabled={busy} onClick={() => runAction(saveManualResult)}>Сохранить результат</button>
+      </section>
+
+      <section className="card admin-card">
+        <h2>2. Обновление результата через API-Football</h2>
+        <div className="admin-actions-row">
+          <button disabled={busy} onClick={() => runAction(syncSelectedResult)}>Обновить выбранный матч</button>
+          <button disabled={busy} onClick={() => runAction(syncAllResults)}>Обновить все сыгранные</button>
+        </div>
+      </section>
+
+      <section className="card admin-card">
+        <h2>3. Статистика игроков Fantasy</h2>
+        <p className="muted">Загружает статистику игроков по завершенным матчам и пересчитывает Fantasy-очки.</p>
+        <button className="primary full" disabled={busy} onClick={() => runAction(syncFantasyStats)}>Обновить статистику игроков</button>
+      </section>
+
+      <section className="card admin-card">
+        <h2>4. Напоминания и уведомления</h2>
+        <div className="notification-list">
+          {Object.entries(data.notification_settings || {}).map(([key, value]) => (
+            <label className="notification-row" key={key}>
+              <input
+                type="checkbox"
+                checked={String(value) === 'true'}
+                onChange={(event) => toggleGlobalSetting(key, event.target.checked)}
+              />
+              <span />
+              <b>{key}</b>
+              <small>{String(value) === 'true' ? 'включено' : 'выключено'}</small>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {error && <section className="card error-card"><p>{error.message}</p></section>}
+      {message && <section className="card admin-result-card"><pre>{message}</pre></section>}
+    </main>
+  );
+}
+
+
+function NotificationSettingsCard() {
+  const [data, setData] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setError(null);
+    try {
+      setData(await api('/api/webapp/notifications/settings'));
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function toggle(key, value) {
+    const nextSettings = { ...(data?.settings || {}), [key]: value };
+    setData((current) => ({ ...current, settings: nextSettings }));
+    setSaving(true);
+    setError(null);
+
+    try {
+      const result = await api('/api/webapp/notifications/settings', {
+        method: 'POST',
+        body: JSON.stringify({ settings: nextSettings }),
+      });
+      setData(result);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!data && !error) return <LoadingCard text="Загружаю настройки уведомлений..." />;
+
+  return (
+    <section className="card notification-settings-card">
+      <div className="profile-section-head">
+        <h2>Уведомления</h2>
+        <span>{saving ? 'сохраняю' : 'настроено'}</span>
+      </div>
+      {error && <p className="error-text">{error.message}</p>}
+      <div className="notification-list">
+        {(data?.options || []).map((option) => (
+          <label className="notification-row" key={option.key}>
+            <input
+              type="checkbox"
+              checked={Boolean(data?.settings?.[option.key])}
+              onChange={(event) => toggle(option.key, event.target.checked)}
+            />
+            <span />
+            <b>{option.title}</b>
+            <small>{option.description}</small>
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+
 function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState(null);
@@ -1822,6 +2034,8 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <span className="theme-option light-option">Светлая тема</span>
         </label>
       </section>
+
+      <NotificationSettingsCard />
 
       <section className="card">
         <h2>Откуда очки</h2>
@@ -2153,9 +2367,10 @@ function App() {
       {tab === 'resources' && <Resources />}
       {tab === 'rating' && <Rating />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
+      {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 
       <nav className="bottom-nav">
-        {TABS.map((item) => (
+        {TABS.filter((item) => item.id !== 'admin' || dashboard?.user?.is_admin).map((item) => (
           <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>
             <Icon name={item.icon} />
             <small>{item.label}</small>

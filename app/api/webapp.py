@@ -10,11 +10,15 @@ import random
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user, get_db
+from app.api_football import ApiFootballClient
 from app.models import (
+    AppSetting,
     FantasyPlayer,
+    FantasyPlayerMatchStat,
     FantasyTeam,
     FantasyTeamPlayer,
     HistoricalArchiveCard,
@@ -24,16 +28,18 @@ from app.models import (
     QuizQuestion,
     TournamentPrediction,
     User,
+    UserNotificationSetting,
     WorldCupFact,
 )
 from app.runtime import TOURNAMENT_CODE
-from app.services.matches import get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
+from app.services.matches import apply_match_result_from_admin, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins
 from app.services.forecast import build_forecast_text
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.team_names import get_team_name_ru
+from app.wc2026_sync import get_fixture_score, get_winner_side
 
 router = APIRouter(prefix="/api/webapp", tags=["Telegram Mini App"])
 
@@ -62,6 +68,21 @@ class QuizAnswerPayload(BaseModel):
 
     question_id: int
     selected_option: str
+
+
+
+class MatchResultPayload(BaseModel):
+    score_home: int = Field(ge=0, le=30)
+    score_away: int = Field(ge=0, le=30)
+    winner_side: str | None = None
+
+
+class NotificationSettingsPayload(BaseModel):
+    settings: dict[str, bool]
+
+
+class AdminSettingPayload(BaseModel):
+    value: str | None = None
 
 
 class FantasyTeamPayload(BaseModel):
@@ -139,6 +160,86 @@ def _serialize_prediction(prediction: Prediction) -> dict:
         "advancement_points": prediction.advancement_points or 0,
         "points": prediction.points or 0,
     }
+
+
+
+NOTIFICATION_OPTIONS = [
+    {
+        "key": "match_reminders",
+        "title": "Напоминания о прогнозах",
+        "description": "Напоминания о матчах, где еще не сделан прогноз.",
+        "default": True,
+    },
+    {
+        "key": "daily_facts",
+        "title": "Факт дня",
+        "description": "Ежедневные факты и архивные карточки от Отца прогнозов.",
+        "default": True,
+    },
+    {
+        "key": "release_notes",
+        "title": "Release Notes",
+        "description": "Сообщения о новых версиях бота и Mini App.",
+        "default": True,
+    },
+    {
+        "key": "quiz_notifications",
+        "title": "Квизы",
+        "description": "Анонсы групповых квизов и игровых активностей.",
+        "default": True,
+    },
+    {
+        "key": "fantasy_updates",
+        "title": "Fantasy-футбол",
+        "description": "Напоминания о дедлайнах, трансферах и обновлении статистики.",
+        "default": True,
+    },
+]
+
+ADMIN_NOTIFICATION_SETTING_KEYS = {
+    "match_reminders_enabled": "true",
+    "daily_facts_enabled": "true",
+    "release_notes_enabled": "true",
+    "quiz_notifications_enabled": "true",
+    "fantasy_updates_enabled": "true",
+}
+
+
+def _require_miniapp_admin(user: User) -> None:
+    """Raise if current Mini App user is not an admin."""
+    if not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _get_app_setting(db: Session, key: str, default: str | None = None) -> str | None:
+    setting = db.query(AppSetting).filter(AppSetting.setting_key == key).first()
+    return setting.setting_value if setting else default
+
+
+def _set_app_setting(db: Session, key: str, value: str | None) -> None:
+    setting = db.query(AppSetting).filter(AppSetting.setting_key == key).first()
+
+    if not setting:
+        setting = AppSetting(setting_key=key, setting_value=value)
+        db.add(setting)
+    else:
+        setting.setting_value = value
+        setting.updated_at = datetime.now(timezone.utc)
+
+
+def _notification_settings_for_user(db: Session, user: User) -> dict:
+    rows = (
+        db.query(UserNotificationSetting)
+        .filter(UserNotificationSetting.user_id == user.id)
+        .all()
+    )
+    by_key = {row.notification_key: bool(row.is_enabled) for row in rows}
+
+    return {
+        option["key"]: by_key.get(option["key"], bool(option["default"]))
+        for option in NOTIFICATION_OPTIONS
+    }
+
 
 
 def _prediction_by_match_id(db: Session, user: User, matches: list[Match]) -> dict[int, Prediction]:
@@ -219,6 +320,7 @@ def get_dashboard(
         "user": {
             "id": current_user.id,
             "display_name": current_user.display_name,
+            "is_admin": bool(current_user.is_admin),
         },
         "rank": current_rank,
         "points": current_points,
@@ -1010,7 +1112,8 @@ def _fantasy_rules_payload(db: Session | None = None) -> dict:
         "category_limits": FANTASY_CATEGORY_LIMITS_GROUP,
         "category_limits_enabled": True,
     }
-    category_limits = round_state.get("category_limits") or {}
+    # FIFA ranking category limits are intentionally disabled.
+    category_limits = {}
     max_from_one_team = round_state.get("max_from_one_team") or 3
 
     return {
@@ -1160,15 +1263,7 @@ def _validate_fantasy_payload(
             detail=f"На текущей стадии из одной сборной можно взять не больше {max_from_one_team} игроков: {too_many_team[0]}.",
         )
 
-    category_limits = rules.get("category_limits") or {}
-    starter_category_counts = Counter(players_by_id[player_id].fifa_category for player_id in starting_player_ids)
-
-    for category, limit in category_limits.items():
-        if starter_category_counts.get(int(category), 0) > limit:
-            raise HTTPException(
-                status_code=400,
-                detail=f"В основе из категории «{_fantasy_category_title(int(category))}» можно выбрать не больше {limit} игроков.",
-            )
+    # FIFA ranking category limits are disabled by product decision.
 
 
 @router.get("/fantasy/rules")
@@ -1370,6 +1465,509 @@ def save_my_fantasy_team(
         "summary": _fantasy_team_summary(team),
         "rules": _fantasy_rules_payload(db),
     }
+
+
+
+
+@router.get("/notifications/settings")
+def get_notification_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return current user's notification subscriptions."""
+    return {
+        "options": NOTIFICATION_OPTIONS,
+        "settings": _notification_settings_for_user(db, current_user),
+    }
+
+
+@router.post("/notifications/settings")
+def save_notification_settings(
+    payload: NotificationSettingsPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Save current user's notification subscriptions."""
+    allowed = {option["key"] for option in NOTIFICATION_OPTIONS}
+
+    for key, value in payload.settings.items():
+        if key not in allowed:
+            continue
+
+        setting = (
+            db.query(UserNotificationSetting)
+            .filter(
+                UserNotificationSetting.user_id == current_user.id,
+                UserNotificationSetting.notification_key == key,
+            )
+            .first()
+        )
+
+        if not setting:
+            setting = UserNotificationSetting(
+                user_id=current_user.id,
+                notification_key=key,
+                is_enabled=bool(value),
+            )
+            db.add(setting)
+        else:
+            setting.is_enabled = bool(value)
+            setting.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+
+    return {
+        "options": NOTIFICATION_OPTIONS,
+        "settings": _notification_settings_for_user(db, current_user),
+    }
+
+
+def _serialize_admin_match(match: Match) -> dict:
+    """Serialize match for admin panel."""
+    home_name = get_team_name_ru(match.home_team)
+    away_name = get_team_name_ru(match.away_team)
+
+    return {
+        "id": match.id,
+        "external_fixture_id": match.external_fixture_id,
+        "label": _match_label(match),
+        "home_team": home_name,
+        "away_team": away_name,
+        "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
+        "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
+        "starts_at": _ensure_utc(match.starts_at).isoformat(),
+        "stage": match.stage,
+        "match_round": match.match_round,
+        "group_code": match.group_code,
+        "score_home": match.score_home,
+        "score_away": match.score_away,
+        "winner_side": match.winner_side,
+        "is_finished": bool(match.is_finished),
+        "status_short": match.status_short,
+        "status_long": match.status_long,
+    }
+
+
+def _calculate_fantasy_points_for_stat(player: FantasyPlayer, stat: dict) -> int:
+    """Calculate fantasy points using current Mini App scoring rules."""
+    minutes = int(stat.get("minutes") or 0)
+    goals = int(stat.get("goals") or 0)
+    assists = int(stat.get("assists") or 0)
+    saves = int(stat.get("saves") or 0)
+    penalties_saved = int(stat.get("penalties_saved") or 0)
+    balls_recovered = int(stat.get("balls_recovered") or 0)
+    shots_on_target = int(stat.get("shots_on_target") or 0)
+    yellow_cards = int(stat.get("yellow_cards") or 0)
+    red_cards = int(stat.get("red_cards") or 0)
+    own_goals = int(stat.get("own_goals") or 0)
+    penalty_missed = int(stat.get("penalty_missed") or 0)
+    goals_conceded = int(stat.get("goals_conceded") or 0)
+    clean_sheet = bool(stat.get("clean_sheet"))
+
+    if minutes <= 0:
+        return 0
+
+    points = 1
+
+    if minutes >= 60:
+        points += 1
+
+    if player.position == "Goalkeeper":
+        points += goals * 9
+    elif player.position == "Defender":
+        points += goals * 7
+    else:
+        points += goals * 5
+
+    points += assists * 3
+
+    if clean_sheet and player.position in {"Goalkeeper", "Defender"}:
+        points += 5
+    elif clean_sheet and player.position == "Midfielder":
+        points += 1
+
+    if player.position == "Goalkeeper":
+        points += saves // 3
+        points += penalties_saved * 3
+
+    if player.position == "Midfielder":
+        points += balls_recovered // 3
+
+    if player.position == "Attacker":
+        points += shots_on_target // 2
+
+    if player.position in {"Goalkeeper", "Defender"}:
+        points -= goals_conceded
+
+    points -= yellow_cards
+    points -= red_cards * 2
+    points -= own_goals * 2
+    points -= penalty_missed * 2
+
+    return points
+
+
+def _extract_player_fixture_stats(api_player_item: dict) -> dict:
+    """Extract the first fixture statistics block from API-Football /fixtures/players."""
+    statistics = api_player_item.get("statistics") or []
+    first = statistics[0] if statistics else {}
+
+    games = first.get("games") or {}
+    goals = first.get("goals") or {}
+    passes = first.get("passes") or {}
+    cards = first.get("cards") or {}
+    penalty = first.get("penalty") or {}
+    tackles = first.get("tackles") or {}
+    shots = first.get("shots") or {}
+
+    return {
+        "minutes": games.get("minutes") or 0,
+        "starts": bool(games.get("captain") is not None and games.get("minutes")),
+        "goals": goals.get("total") or 0,
+        "assists": goals.get("assists") or 0,
+        "saves": goals.get("saves") or 0,
+        "penalties_saved": penalty.get("saved") or 0,
+        "balls_recovered": tackles.get("total") or 0,
+        "shots_on_target": shots.get("on") or 0,
+        "yellow_cards": cards.get("yellow") or 0,
+        "red_cards": cards.get("red") or 0,
+        "own_goals": goals.get("conceded_own") or 0,
+        "penalty_missed": penalty.get("missed") or 0,
+        "goals_conceded": goals.get("conceded") or 0,
+        "clean_sheet": bool((games.get("minutes") or 0) >= 60 and (goals.get("conceded") or 0) == 0),
+    }
+
+
+def _recalculate_fantasy_team_points(db: Session) -> int:
+    """Recalculate fantasy team points from stored player match stats."""
+    teams = db.query(FantasyTeam).filter(FantasyTeam.tournament_code == TOURNAMENT_CODE).all()
+    updated = 0
+
+    for team in teams:
+        total = 0
+
+        for item in team.players:
+            stat_points = (
+                db.query(func.coalesce(func.sum(FantasyPlayerMatchStat.points), 0))
+                .filter(FantasyPlayerMatchStat.player_id == item.player_id)
+                .scalar()
+            ) or 0
+
+            player_points = int(stat_points)
+
+            if item.is_captain:
+                player_points *= 2
+
+            item.points = player_points
+            total += player_points
+
+        team.points = total - (getattr(team, "transfer_penalty_points", 0) or 0)
+        team.updated_at = datetime.now(timezone.utc)
+        updated += 1
+
+    return updated
+
+
+@router.get("/admin/overview")
+def get_admin_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return admin panel overview."""
+    _require_miniapp_admin(current_user)
+
+    now = datetime.now(timezone.utc)
+    recent_matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+        .limit(200)
+        .all()
+    )
+    active_players = (
+        db.query(FantasyPlayer)
+        .filter(FantasyPlayer.tournament_code == TOURNAMENT_CODE, FantasyPlayer.is_active == True)
+        .count()
+    )
+    fantasy_stats_count = db.query(FantasyPlayerMatchStat).count()
+
+    return {
+        "matches": [_serialize_admin_match(match) for match in recent_matches],
+        "summary": {
+            "matches_total": len(recent_matches),
+            "finished": sum(1 for match in recent_matches if match.is_finished),
+            "ready_for_api_sync": sum(1 for match in recent_matches if not match.is_finished and _ensure_utc(match.starts_at) <= now),
+            "active_fantasy_players": active_players,
+            "fantasy_stat_rows": fantasy_stats_count,
+        },
+        "notification_settings": {
+            key: _get_app_setting(db, key, default)
+            for key, default in ADMIN_NOTIFICATION_SETTING_KEYS.items()
+        },
+    }
+
+
+@router.post("/admin/matches/{match_id}/result")
+def admin_set_match_result(
+    match_id: int,
+    payload: MatchResultPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Manually set match result from Mini App admin panel."""
+    _require_miniapp_admin(current_user)
+
+    match = db.query(Match).filter(Match.id == match_id).first()
+
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    try:
+        lines = apply_match_result_from_admin(
+            db=db,
+            match=match,
+            score_home=payload.score_home,
+            score_away=payload.score_away,
+            winner_side=payload.winner_side,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    db.refresh(match)
+
+    return {
+        "ok": True,
+        "match": _serialize_admin_match(match),
+        "message": "\n".join(lines),
+    }
+
+
+@router.post("/admin/matches/{match_id}/sync-result")
+def admin_sync_match_result(
+    match_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Sync one match result from API-Football."""
+    _require_miniapp_admin(current_user)
+
+    match = db.query(Match).filter(Match.id == match_id).first()
+
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    if not match.external_fixture_id:
+        raise HTTPException(status_code=400, detail="У матча нет external_fixture_id.")
+
+    client = ApiFootballClient()
+    api_fixture = client.get_fixture_by_id(match.external_fixture_id)
+
+    if not api_fixture:
+        raise HTTPException(status_code=404, detail="Fixture not found in API-Football.")
+
+    status_short = api_fixture["fixture"]["status"]["short"]
+    match.status_short = status_short
+    match.status_long = api_fixture["fixture"]["status"].get("long")
+    match.synced_at = datetime.now(timezone.utc)
+
+    if status_short not in {"FT", "AET", "PEN"}:
+        db.commit()
+        return {
+            "ok": False,
+            "match": _serialize_admin_match(match),
+            "message": f"Матч еще не завершен. Статус API-Football: {status_short}.",
+        }
+
+    score_home, score_away = get_fixture_score(api_fixture)
+
+    if score_home is None or score_away is None:
+        db.commit()
+        raise HTTPException(status_code=400, detail="API-Football не вернул счет.")
+
+    winner_side = get_winner_side(api_fixture) if is_playoff_match(match) else None
+
+    if is_playoff_match(match) and winner_side is None:
+        db.commit()
+        raise HTTPException(status_code=400, detail="Плей-офф: API-Football не вернул winner.")
+
+    lines = apply_match_result_from_admin(
+        db=db,
+        match=match,
+        score_home=score_home,
+        score_away=score_away,
+        winner_side=winner_side,
+    )
+
+    db.refresh(match)
+
+    return {
+        "ok": True,
+        "match": _serialize_admin_match(match),
+        "message": "\n".join(lines),
+    }
+
+
+@router.post("/admin/sync-results")
+def admin_sync_all_results(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Sync recently started unfinished matches from API-Football."""
+    _require_miniapp_admin(current_user)
+
+    now = datetime.now(timezone.utc)
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.external_provider == "api-football",
+            Match.external_fixture_id.isnot(None),
+            Match.is_finished == False,
+            Match.starts_at <= now,
+        )
+        .order_by(Match.starts_at.asc())
+        .limit(30)
+        .all()
+    )
+
+    results = []
+
+    for match in matches:
+        try:
+            result = admin_sync_match_result(match.id, db, current_user)
+            results.append({"match_id": match.id, "label": _match_label(match), "ok": result["ok"], "message": result["message"]})
+        except Exception as error:
+            results.append({"match_id": match.id, "label": _match_label(match), "ok": False, "message": str(error)})
+
+    return {
+        "checked": len(matches),
+        "updated": sum(1 for item in results if item["ok"]),
+        "results": results,
+    }
+
+
+@router.post("/admin/fantasy/sync-player-stats")
+def admin_sync_fantasy_player_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Sync player match statistics for finished API-Football fixtures."""
+    _require_miniapp_admin(current_user)
+
+    client = ApiFootballClient()
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.external_provider == "api-football",
+            Match.external_fixture_id.isnot(None),
+            Match.is_finished == True,
+        )
+        .order_by(Match.starts_at.asc())
+        .limit(120)
+        .all()
+    )
+
+    checked = 0
+    stat_rows = 0
+    skipped = 0
+    errors = []
+
+    for match in matches:
+        checked += 1
+
+        try:
+            payload = client.get("/fixtures/players", {"fixture": match.external_fixture_id})
+            teams_payload = payload.get("response", [])
+        except Exception as error:
+            skipped += 1
+            errors.append(f"{_match_label(match)}: {error}")
+            continue
+
+        if not teams_payload:
+            skipped += 1
+            continue
+
+        for team_block in teams_payload:
+            for api_player_item in team_block.get("players") or []:
+                api_player = api_player_item.get("player") or {}
+                external_player_id = api_player.get("id")
+
+                if not external_player_id:
+                    continue
+
+                fantasy_player = (
+                    db.query(FantasyPlayer)
+                    .filter(
+                        FantasyPlayer.tournament_code == TOURNAMENT_CODE,
+                        FantasyPlayer.external_player_id == int(external_player_id),
+                    )
+                    .first()
+                )
+
+                if not fantasy_player:
+                    continue
+
+                extracted = _extract_player_fixture_stats(api_player_item)
+                points = _calculate_fantasy_points_for_stat(fantasy_player, extracted)
+
+                row = (
+                    db.query(FantasyPlayerMatchStat)
+                    .filter(
+                        FantasyPlayerMatchStat.player_id == fantasy_player.id,
+                        FantasyPlayerMatchStat.match_id == match.id,
+                    )
+                    .first()
+                )
+
+                if not row:
+                    row = FantasyPlayerMatchStat(
+                        player_id=fantasy_player.id,
+                        match_id=match.id,
+                    )
+                    db.add(row)
+
+                for key, value in extracted.items():
+                    setattr(row, key, value)
+
+                row.points = points
+                row.source_updated_at = datetime.now(timezone.utc)
+                stat_rows += 1
+
+    teams_updated = _recalculate_fantasy_team_points(db)
+    db.commit()
+
+    return {
+        "checked_matches": checked,
+        "stat_rows_upserted": stat_rows,
+        "skipped_matches": skipped,
+        "fantasy_teams_updated": teams_updated,
+        "errors": errors[:20],
+    }
+
+
+@router.post("/admin/settings/{setting_key}")
+def admin_save_setting(
+    setting_key: str,
+    payload: AdminSettingPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Save admin global notification/app setting."""
+    _require_miniapp_admin(current_user)
+
+    if setting_key not in ADMIN_NOTIFICATION_SETTING_KEYS:
+        raise HTTPException(status_code=404, detail="Unknown setting.")
+
+    value = "true" if str(payload.value).lower() in {"1", "true", "yes", "on"} else "false"
+    _set_app_setting(db, setting_key, value)
+    db.commit()
+
+    return {
+        "setting_key": setting_key,
+        "value": value,
+    }
+
 
 
 @router.get("/profile")

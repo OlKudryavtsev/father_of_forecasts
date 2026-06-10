@@ -1177,3 +1177,8 @@ scripts/data/
 ## Fantasy all players limit fix
 
 См. `FANTASY_ALL_PLAYERS_LIMIT_FIX.md`.
+
+
+## Mini App Admin Panel and Fantasy rules update
+
+См. `MINIAPP_ADMIN_PANEL_AND_FANTASY_RULES_UPDATE.md`.
