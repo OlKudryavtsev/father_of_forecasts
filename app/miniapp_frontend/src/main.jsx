@@ -455,12 +455,14 @@ function Header({ dashboard, onRules, onAdmin }) {
         <button className="rules-button" onClick={onRules}>Правила</button>
       </div>
 
-      <div className="league-status">
+      <div className="league-status-row">
         {dashboard?.user?.is_admin && <button className="header-admin-button" onClick={onAdmin}><Icon name="shield" /> Админ</button>}
-        <span className="status-section live-countdown">{countdownText}</span>
-        <span className="divider" />
-        <span className="points">{dashboard?.points ?? 0} очков</span>
-        <span className="muted">#{dashboard?.rank || '—'}</span>
+        <div className="league-status">
+          <span className="status-section live-countdown">{countdownText}</span>
+          <span className="divider" />
+          <span className="points">{dashboard?.points ?? 0} очков</span>
+          <span className="muted">#{dashboard?.rank || '—'}</span>
+        </div>
       </div>
     </header>
   );
@@ -1390,7 +1392,7 @@ function Fantasy() {
             </div>
           );
         })}
-        <button className="random-team-button" onClick={setRandomTeam}>случайный состав</button>
+        {selectedCount < 15 && <button className="random-team-button" onClick={setRandomTeam}>случайный состав</button>}
       </section>
 
       <section className="card fantasy-bench-card">
@@ -1940,7 +1942,7 @@ function AdminPanel() {
 }
 
 
-function NotificationSettingsCard() {
+function NotificationSettingsCard({ embedded = false }) {
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -1975,7 +1977,29 @@ function NotificationSettingsCard() {
     }
   }
 
-  if (!data && !error) return <LoadingCard text="Загружаю настройки уведомлений..." />;
+  const content = (
+    <>
+      {error && <p className="error-text">{error.message}</p>}
+      {!data && !error ? <LoadingCard text="Загружаю настройки уведомлений..." /> : (
+        <div className="notification-list">
+          {(data?.options || []).map((option) => (
+            <label className="notification-row" key={option.key}>
+              <input
+                type="checkbox"
+                checked={Boolean(data?.settings?.[option.key])}
+                onChange={(event) => toggle(option.key, event.target.checked)}
+              />
+              <span />
+              <b>{option.title}</b>
+              <small>{option.description}</small>
+            </label>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  if (embedded) return content;
 
   return (
     <section className="card notification-settings-card">
@@ -1983,21 +2007,23 @@ function NotificationSettingsCard() {
         <h2>Уведомления</h2>
         <span>{saving ? 'сохраняю' : 'настроено'}</span>
       </div>
-      {error && <p className="error-text">{error.message}</p>}
-      <div className="notification-list">
-        {(data?.options || []).map((option) => (
-          <label className="notification-row" key={option.key}>
-            <input
-              type="checkbox"
-              checked={Boolean(data?.settings?.[option.key])}
-              onChange={(event) => toggle(option.key, event.target.checked)}
-            />
-            <span />
-            <b>{option.title}</b>
-            <small>{option.description}</small>
-          </label>
-        ))}
-      </div>
+      {content}
+    </section>
+  );
+}
+
+
+function CollapsibleProfileSection({ title, meta, defaultOpen = true, children, className = '' }) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <section className={`card profile-collapsible-card ${className} ${open ? 'open' : 'closed'}`}>
+      <button className="profile-collapse-head profile-section-head" type="button" onClick={() => setOpen(!open)}>
+        <h2>{title}</h2>
+        <span>{meta}</span>
+        <b>{open ? '−' : '+'}</b>
+      </button>
+      {open && <div className="profile-collapse-body">{children}</div>}
     </section>
   );
 }
@@ -2050,11 +2076,7 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
         </div>
       </section>
 
-      <section className="card profile-settings-card">
-        <div className="profile-section-head">
-          <h2>Настройки</h2>
-          <span>{appTheme === 'light' ? 'светлая' : 'темная'}</span>
-        </div>
+      <CollapsibleProfileSection title="Настройки" meta={appTheme === 'light' ? 'светлая' : 'темная'}>
         <label className="theme-segmented-row">
           <input
             type="checkbox"
@@ -2065,12 +2087,9 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <span className="theme-switch" />
           <span className="theme-option light-option">Светлая тема</span>
         </label>
-      </section>
+      </CollapsibleProfileSection>
 
-      <NotificationSettingsCard />
-
-      <section className="card">
-        <h2>Откуда очки</h2>
+      <CollapsibleProfileSection title="Откуда очки" meta={`${summary.points || 0} очков`}>
         <div className="points-breakdown">
           {pointsBreakdown.map((item) => (
             <div key={item.key} className="points-row">
@@ -2081,13 +2100,12 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
             </div>
           ))}
         </div>
-      </section>
+      </CollapsibleProfileSection>
 
-      <section className="card">
-        <div className="profile-section-head">
-          <h2>Статистика</h2>
-          <span>{summary.total_predictions || 0} {pluralRu(summary.total_predictions || 0, 'прогноз', 'прогноза', 'прогнозов')}</span>
-        </div>
+      <CollapsibleProfileSection
+        title="Статистика"
+        meta={`${summary.total_predictions || 0} ${pluralRu(summary.total_predictions || 0, 'прогноз', 'прогноза', 'прогнозов')}`}
+      >
         <div className="stats-grid">
           <div><b>{summary.match_points || 0}</b><span>очки за матчи</span></div>
           <div><b>{summary.tournament_points || 0}</b><span>очки за турнир</span></div>
@@ -2096,30 +2114,9 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <div><b>{summary.favorite_score || '—'}</b><span>любимый счет</span></div>
           <div><b>{summary.missing_predictions || 0}</b><span>ждут прогноза</span></div>
         </div>
-      </section>
+      </CollapsibleProfileSection>
 
-      <section className="card">
-        <div className="profile-section-head">
-          <h2>Прогнозы на турнир</h2>
-          <span>{tournament ? '4/4' : '0/4'}</span>
-        </div>
-        {tournament ? (
-          <div className="profile-tournament-grid">
-            <div><Icon name="cup" /><span>Победитель</span><b>{tournament.champion}</b></div>
-            <div><Icon name="rank" /><span>2-е место</span><b>{tournament.runner_up}</b></div>
-            <div><Icon name="rank" /><span>3-е место</span><b>{tournament.third_place}</b></div>
-            <div><Icon name="ball" /><span>Бомбардир</span><b>{tournament.top_scorer}</b></div>
-          </div>
-        ) : (
-          <p className="muted">Турнирный прогноз пока не заполнен.</p>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="profile-section-head">
-          <h2>Достижения</h2>
-          <span>{earnedBadges.length}/{badges.length}</span>
-        </div>
+      <CollapsibleProfileSection title="Достижения" meta={`${earnedBadges.length}/${badges.length}`}>
         <div className="badges-grid">
           {badges.map((badge) => (
             <div key={badge.code} className={`badge-card ${badge.earned ? 'earned' : 'locked'}`}>
@@ -2133,7 +2130,24 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
             </div>
           ))}
         </div>
-      </section>
+      </CollapsibleProfileSection>
+
+      <CollapsibleProfileSection title="Прогнозы на турнир" meta={tournament ? '4/4' : '0/4'}>
+        {tournament ? (
+          <div className="profile-tournament-grid">
+            <div><Icon name="cup" /><span>Победитель</span><b>{tournament.champion}</b></div>
+            <div><Icon name="rank" /><span>2-е место</span><b>{tournament.runner_up}</b></div>
+            <div><Icon name="rank" /><span>3-е место</span><b>{tournament.third_place}</b></div>
+            <div><Icon name="ball" /><span>Бомбардир</span><b>{tournament.top_scorer}</b></div>
+          </div>
+        ) : (
+          <p className="muted">Турнирный прогноз пока не заполнен.</p>
+        )}
+      </CollapsibleProfileSection>
+
+      <CollapsibleProfileSection title="Уведомления" meta="подписки" className="notification-settings-card">
+        <NotificationSettingsCard embedded />
+      </CollapsibleProfileSection>
 
       {lockedBadges.length > 0 && (
         <section className="card funny-card">

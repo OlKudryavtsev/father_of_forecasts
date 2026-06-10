@@ -1187,3 +1187,8 @@ scripts/data/
 ## Admin top button and Fantasy classic positions
 
 См. `ADMIN_TOP_AND_FANTASY_CLASSIC_POSITIONS.md`.
+
+
+## Admin button and Profile collapsible sections
+
+См. `ADMIN_BUTTON_PROFILE_COLLAPSE_UPDATE.md`.

@@ -4950,3 +4950,121 @@ body {
     font-size: 11px;
   }
 }
+
+
+/* Separate top admin button and collapsible profile sections */
+
+.league-status-row {
+  margin-top: 16px;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: fit-content;
+}
+
+.league-status-row .league-status {
+  margin-top: 0;
+  margin-left: 0;
+}
+
+.header-admin-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 0 11px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  border: 1px solid rgba(90, 141, 255, 0.26);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+
+.header-admin-button .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.profile-collapsible-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.profile-collapse-head {
+  width: 100%;
+  min-height: 58px;
+  padding: 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-collapse-head h2 {
+  margin: 0;
+}
+
+.profile-collapse-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.profile-collapse-head b {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--green);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.profile-collapse-body {
+  padding: 0 16px 16px;
+}
+
+.profile-collapsible-card.closed .profile-collapse-head {
+  min-height: 56px;
+}
+
+.app.theme-light .profile-collapse-head b {
+  background: #f1f5f9;
+  color: var(--green);
+}
+
+.app.theme-light .header-admin-button {
+  background: rgba(37, 99, 235, 0.10);
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+@media (max-width: 390px) {
+  .league-status-row {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .header-admin-button {
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .league-status-row .league-status {
+    padding-inline: 9px;
+    gap: 6px;
+  }
+}
