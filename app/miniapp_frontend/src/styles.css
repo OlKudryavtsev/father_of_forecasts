@@ -5068,3 +5068,336 @@ body {
     gap: 6px;
   }
 }
+
+
+/* Fantasy v2.1: player info and participants' squads */
+
+.player-info-button {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  border: 1px solid rgba(90, 141, 255, 0.24);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.pitch-slot .player-info-button.pitch-info {
+  position: absolute;
+  right: -7px;
+  top: -7px;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.fantasy-bench-grid > div {
+  position: relative;
+}
+
+.fantasy-bench-grid .player-info-button.bench-info {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+}
+
+.current-player-card .player-info-button.current-info {
+  grid-column: 1;
+  justify-self: center;
+}
+
+.picker-player-list {
+  max-height: 260px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding-right: 2px;
+}
+
+.picker-player-list > div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 24px auto;
+  grid-template-areas:
+    "flag name info pick"
+    "flag meta info pick";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 9px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.picker-player-list > div.disabled {
+  opacity: 0.58;
+}
+
+.picker-player-list > div > span {
+  grid-area: flag;
+  font-size: 20px;
+}
+
+.picker-player-list > div > strong {
+  grid-area: name;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.picker-player-list > div > small {
+  grid-area: meta;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.picker-player-list .player-info-button {
+  grid-area: info;
+}
+
+.picker-player-list > div > button:not(.player-info-button) {
+  grid-area: pick;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 10px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.picker-player-list > div > button:disabled {
+  opacity: 0.4;
+}
+
+.player-info-modal {
+  max-height: min(720px, 92vh);
+  overflow: auto;
+}
+
+.player-info-head {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.player-info-head > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--panel-2);
+  font-size: 24px;
+}
+
+.player-info-head h2 {
+  margin: 0 0 2px;
+}
+
+.player-info-head b {
+  min-width: 54px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 22px;
+}
+
+.player-info-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.player-info-summary div {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: center;
+}
+
+.player-info-summary b {
+  font-size: 18px;
+}
+
+.player-info-summary span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.player-stat-list {
+  display: grid;
+  gap: 8px;
+}
+
+.player-stat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.player-stat-row strong,
+.player-stat-row small {
+  display: block;
+}
+
+.player-stat-row small {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.player-stat-row b {
+  color: var(--green);
+  font-size: 18px;
+}
+
+.fantasy-other-teams-card {
+  display: grid;
+  gap: 12px;
+}
+
+.other-team-list {
+  display: grid;
+  gap: 8px;
+}
+
+.other-team-card {
+  border-radius: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.other-team-card > button {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  text-align: left;
+}
+
+.other-team-card > button span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.other-team-card > button b {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: var(--green);
+}
+
+.other-team-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.other-team-body h3 {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.other-player-list {
+  display: grid;
+  gap: 6px;
+}
+
+.other-player-list > div {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto 24px;
+  grid-template-areas:
+    "flag name meta info";
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+}
+
+.other-player-list > div > span {
+  grid-area: flag;
+}
+
+.other-player-list > div > strong {
+  grid-area: name;
+  font-size: 12px;
+}
+
+.other-player-list > div > small {
+  grid-area: meta;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.other-player-list .player-info-button {
+  grid-area: info;
+}
+
+.app.theme-light .picker-player-list > div,
+.app.theme-light .player-info-summary div,
+.app.theme-light .player-stat-row,
+.app.theme-light .other-team-card {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+.app.theme-light .other-player-list > div {
+  background: #ffffff;
+}
+
+@media (max-width: 390px) {
+  .player-info-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .picker-player-list > div {
+    grid-template-columns: 24px minmax(0, 1fr) 22px;
+    grid-template-areas:
+      "flag name info"
+      "flag meta info"
+      "pick pick pick";
+  }
+
+  .picker-player-list > div > button:not(.player-info-button) {
+    margin-top: 4px;
+  }
+
+  .other-player-list > div {
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
+    grid-template-areas:
+      "flag name info"
+      "flag meta info";
+  }
+}

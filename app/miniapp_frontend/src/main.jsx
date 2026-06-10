@@ -1034,6 +1034,182 @@ function ForecastModal({ match, onClose }) {
   );
 }
 
+
+function PlayerInfoButton({ player, onInfo, className = '' }) {
+  if (!player || !onInfo) return null;
+
+  return (
+    <button
+      type="button"
+      className={`player-info-button ${className}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onInfo(player);
+      }}
+      title="Статистика игрока"
+      aria-label={`Статистика игрока ${player.name}`}
+    >
+      i
+    </button>
+  );
+}
+
+function PlayerInfoModal({ playerId, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setError(null);
+    try {
+      setData(await api(`/api/webapp/fantasy/players/${playerId}/stats`));
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, [playerId]);
+
+  const player = data?.player;
+  const totals = data?.totals || {};
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card player-info-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        {error && <ErrorCard error={error} onRetry={load} />}
+        {!data && !error && <LoadingCard text="Загружаю статистику игрока..." />}
+        {data && (
+          <>
+            <div className="player-info-head">
+              <span>{player.team_flag}</span>
+              <div>
+                <h2>{player.name}</h2>
+                <p className="muted">{player.team_display_name} · {player.position_label}</p>
+              </div>
+              <b>{data.total_points || 0}</b>
+            </div>
+
+            <div className="player-info-summary">
+              <div><b>{totals.minutes || 0}</b><span>минут</span></div>
+              <div><b>{totals.goals || 0}</b><span>голы</span></div>
+              <div><b>{totals.assists || 0}</b><span>ассисты</span></div>
+              <div><b>{totals.clean_sheets || 0}</b><span>сухие</span></div>
+              <div><b>{totals.saves || 0}</b><span>сэйвы</span></div>
+              <div><b>{totals.yellow_cards || 0}/{totals.red_cards || 0}</b><span>ЖК/КК</span></div>
+            </div>
+
+            {(data.matches || []).length === 0 ? (
+              <div className="empty-state compact-empty">
+                <div className="empty-icon"><Icon name="ball" /></div>
+                <h2>Статистики пока нет</h2>
+                <p>Баллы появятся после обновления статистики игроков в админке.</p>
+              </div>
+            ) : (
+              <div className="player-stat-list">
+                {(data.matches || []).map((row) => (
+                  <article key={row.match_id} className="player-stat-row">
+                    <div>
+                      <strong>{row.match_label}</strong>
+                      <small>{row.minutes} мин · {row.goals} гол · {row.assists} пас · {row.clean_sheet ? 'сухой матч' : `${row.goals_conceded} проп.`}</small>
+                    </div>
+                    <b>{row.points > 0 ? '+' : ''}{row.points}</b>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function OtherFantasyTeams({ onInfo }) {
+  const [data, setData] = useState(null);
+  const [openUserId, setOpenUserId] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setError(null);
+    try {
+      setData(await api('/api/webapp/fantasy/teams'));
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  if (error) return <ErrorCard error={error} onRetry={load} />;
+  if (!data) return <LoadingCard text="Загружаю составы участников..." />;
+
+  if (!data.visible) {
+    return (
+      <section className="card fantasy-other-teams-card">
+        <div className="rules-title-row">
+          <h2>Составы участников</h2>
+          <span>закрыто</span>
+        </div>
+        <p className="muted">{data.visibility?.reason || 'Составы откроются после старта тура/стадии.'}</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card fantasy-other-teams-card">
+      <div className="rules-title-row">
+        <h2>Составы участников</h2>
+        <span>{data.teams?.length || 0}</span>
+      </div>
+      <div className="other-team-list">
+        {(data.teams || []).map((entry) => {
+          const team = entry.team;
+          const isOpen = openUserId === entry.user.id;
+          const starters = (team?.players || []).filter((item) => item.is_starter);
+          const bench = (team?.players || []).filter((item) => !item.is_starter);
+
+          return (
+            <article key={entry.user.id} className="other-team-card">
+              <button type="button" onClick={() => setOpenUserId(isOpen ? null : entry.user.id)}>
+                <strong>{entry.user.display_name}{entry.user.is_current_user ? ' · это вы' : ''}</strong>
+                <span>{team?.formation || '—'} · {team?.points || 0} очков</span>
+                <b>{isOpen ? '−' : '+'}</b>
+              </button>
+              {isOpen && (
+                <div className="other-team-body">
+                  <h3>Основа</h3>
+                  <div className="other-player-list">
+                    {starters.map((item) => (
+                      <div key={item.position_slot}>
+                        <span>{item.player.team_flag}</span>
+                        <strong>{item.player.name}{item.is_captain ? ' ©' : ''}</strong>
+                        <small>{item.position_label} · {item.points || 0} очк.</small>
+                        <PlayerInfoButton player={item.player} onInfo={onInfo} />
+                      </div>
+                    ))}
+                  </div>
+                  <h3>Запас</h3>
+                  <div className="other-player-list">
+                    {bench.map((item) => (
+                      <div key={item.position_slot}>
+                        <span>{item.player.team_flag}</span>
+                        <strong>{item.player.name}</strong>
+                        <small>{item.position_label} · {item.points || 0} очк.</small>
+                        <PlayerInfoButton player={item.player} onInfo={onInfo} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+
 function Fantasy() {
   const [players, setPlayers] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -1049,6 +1225,7 @@ function Fantasy() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [showDetailedRules, setShowDetailedRules] = useState(false);
+  const [infoPlayerId, setInfoPlayerId] = useState(null);
   const now = useNowTick();
 
   async function load() {
@@ -1323,7 +1500,7 @@ function Fantasy() {
       <section className="fantasy-hero">
         <div>
           <h2>Fantasy ЧМ-2026</h2>
-          <p>{selectedCount}/15 · до {maxFromOneTeam} из сборной · капитан x2</p>
+          <p>{selectedCount}/15 · до {maxFromOneTeam || 2} из сборной · капитан x2</p>
         </div>
         <div className="fantasy-points"><b>{points}</b><span>очков</span></div>
       </section>
@@ -1370,6 +1547,7 @@ function Fantasy() {
                 <>
                   <span>{player.team_flag}</span>
                   <strong>{player.name}</strong>
+                  <PlayerInfoButton player={player} onInfo={(item) => setInfoPlayerId(item.id)} className="pitch-info" />
                   {isCaptain && <em>C</em>}
                   <button
                     type="button"
@@ -1409,6 +1587,7 @@ function Fantasy() {
                 <span>{player?.team_flag || '+'}</span>
                 <strong>{player?.name || slot.label}</strong>
                 <small>{player ? `${player.team_display_name} · ${player.position_label}` : 'выбрать'}</small>
+                {player && <PlayerInfoButton player={player} onInfo={(item) => setInfoPlayerId(item.id)} className="bench-info" />}
                 {replacingStarterSlot && player && (
                   <button
                     type="button"
@@ -1441,6 +1620,8 @@ function Fantasy() {
           {rules.is_locked ? 'Команда закрыта' : saving ? 'Сохраняю...' : 'Сохранить команду'}
         </button>
       </section>
+
+      <OtherFantasyTeams onInfo={(player) => setInfoPlayerId(player.id)} />
 
       <section className="card fantasy-rules-card">
         <h2>Правила набора</h2>
@@ -1494,9 +1675,11 @@ function Fantasy() {
           setCaptainId={setCaptainId}
           onSelect={selectPlayer}
           onRemove={removePlayer}
+          onInfo={(player) => setInfoPlayerId(player.id)}
           onClose={() => setPickerSlot(null)}
         />
       )}
+      {infoPlayerId && <PlayerInfoModal playerId={infoPlayerId} onClose={() => setInfoPlayerId(null)} />}
     </main>
   );
 }
@@ -1519,6 +1702,7 @@ function FantasyPlayerPicker({
   setCaptainId,
   onSelect,
   onRemove,
+  onInfo,
   onClose,
 }) {
   const current = selectedBySlot[slot.slot];
@@ -1611,11 +1795,29 @@ function FantasyPlayerPicker({
           </label>
         </div>
 
+        {filterTeam && teamPlayers.length > 0 && (
+          <div className="picker-player-list">
+            {teamPlayers.map((player) => {
+              const reason = disabledReason(player);
+              return (
+                <div key={player.id} className={reason ? 'disabled' : ''}>
+                  <span>{player.team_flag}</span>
+                  <strong>{player.name}</strong>
+                  <small>{player.position_label} · {player.team_display_name}{reason ? ` · ${reason}` : ''}</small>
+                  <PlayerInfoButton player={player} onInfo={onInfo} />
+                  <button type="button" disabled={Boolean(reason)} onClick={() => onSelect(slot, player)}>Выбрать</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {current && (
           <div className="current-player-card fantasy-current-player">
             <span>{current.team_flag}</span>
             <strong>{current.name}</strong>
             <small>{current.team_display_name} · {current.position_label} · Г{current.fifa_category}</small>
+            <PlayerInfoButton player={current} onInfo={onInfo} className="current-info" />
             {isStarterSlot && <button onClick={() => setCaptainId(current.id)}>{captainId === current.id ? 'Капитан выбран' : 'Сделать капитаном'}</button>}
             <button className="danger" onClick={() => onRemove(slot.slot)}>Убрать</button>
           </div>

@@ -889,13 +889,13 @@ FANTASY_POSITION_LABELS = {
 FANTASY_CATEGORY_LIMITS_GROUP = {1: 3, 2: 3, 3: 3, 4: 2}
 FANTASY_CATEGORY_LIMITS_R16 = {1: 4, 2: 4, 3: 4, 4: 3}
 FANTASY_MAX_FROM_ONE_TEAM_BY_STAGE = {
-    "group_1": 3,
-    "group_2": 3,
-    "group_3": 3,
-    "r16": 4,
-    "quarter": 5,
-    "semi": 6,
-    "final": 8,
+    "group_1": 2,
+    "group_2": 2,
+    "group_3": 2,
+    "r16": 2,
+    "quarter": 2,
+    "semi": 2,
+    "final": 2,
 }
 FANTASY_FREE_TRANSFERS = {
     "group_1": None,
@@ -992,7 +992,7 @@ def _fantasy_round_state(db: Session) -> dict:
             "is_locked": True,
             "free_transfers": 0,
             "extra_transfer_penalty": FANTASY_EXTRA_TRANSFER_PENALTY,
-            "max_from_one_team": 8,
+            "max_from_one_team": 2,
             "category_limits": {},
             "category_limits_enabled": False,
         }
@@ -1013,7 +1013,7 @@ def _fantasy_round_state(db: Session) -> dict:
         "is_locked": False,
         "free_transfers": FANTASY_FREE_TRANSFERS.get(upcoming_key),
         "extra_transfer_penalty": FANTASY_EXTRA_TRANSFER_PENALTY,
-        "max_from_one_team": FANTASY_MAX_FROM_ONE_TEAM_BY_STAGE.get(upcoming_key, 3),
+        "max_from_one_team": FANTASY_MAX_FROM_ONE_TEAM_BY_STAGE.get(upcoming_key, 2),
         "category_limits": category_limits,
         "category_limits_enabled": bool(category_limits),
     }
@@ -1108,13 +1108,13 @@ def _fantasy_rules_payload(db: Session | None = None) -> dict:
         "is_locked": is_tournament_started(),
         "free_transfers": None,
         "extra_transfer_penalty": FANTASY_EXTRA_TRANSFER_PENALTY,
-        "max_from_one_team": 3,
+        "max_from_one_team": 2,
         "category_limits": FANTASY_CATEGORY_LIMITS_GROUP,
         "category_limits_enabled": True,
     }
     # FIFA ranking category limits are intentionally disabled.
     category_limits = {}
-    max_from_one_team = round_state.get("max_from_one_team") or 3
+    max_from_one_team = round_state.get("max_from_one_team") or 2
 
     return {
         "formation": FANTASY_FORMATION,
@@ -1253,7 +1253,7 @@ def _validate_fantasy_payload(
                 detail=f"Для схемы {formation} в основе нужно выбрать {limit} игроков позиции {label}.",
             )
 
-    max_from_one_team = rules.get("max_from_one_team") or 3
+    max_from_one_team = rules.get("max_from_one_team") or 2
     team_counts = Counter(player.team_display_name for player in players)
     too_many_team = [team for team, count in team_counts.items() if count > max_from_one_team]
 
@@ -1330,6 +1330,158 @@ def get_fantasy_players(
         "teams": teams,
         "rules": _fantasy_rules_payload(db),
     }
+
+
+
+def _serialize_fantasy_stat_row(row: FantasyPlayerMatchStat) -> dict:
+    """Serialize one fantasy player match stat row."""
+    match = row.match
+    return {
+        "match_id": row.match_id,
+        "match_label": _match_label(match) if match else None,
+        "starts_at": _ensure_utc(match.starts_at).isoformat() if match and match.starts_at else None,
+        "minutes": row.minutes or 0,
+        "goals": row.goals or 0,
+        "assists": row.assists or 0,
+        "starts": bool(row.starts),
+        "saves": row.saves or 0,
+        "penalties_saved": row.penalties_saved or 0,
+        "balls_recovered": row.balls_recovered or 0,
+        "shots_on_target": row.shots_on_target or 0,
+        "yellow_cards": row.yellow_cards or 0,
+        "red_cards": row.red_cards or 0,
+        "clean_sheet": bool(row.clean_sheet),
+        "goals_conceded": row.goals_conceded or 0,
+        "own_goals": row.own_goals or 0,
+        "penalty_missed": row.penalty_missed or 0,
+        "points": row.points or 0,
+        "source_updated_at": _ensure_utc(row.source_updated_at).isoformat() if row.source_updated_at else None,
+    }
+
+
+def _fantasy_teams_visibility(db: Session) -> dict:
+    """Return whether fantasy squads may be shown to other participants."""
+    now = datetime.now(timezone.utc)
+    started_match = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.starts_at <= now,
+        )
+        .order_by(Match.starts_at.desc())
+        .first()
+    )
+
+    if not started_match:
+        return {
+            "visible": False,
+            "stage_key": "pre_tournament",
+            "title": "До старта 1 тура",
+            "reason": "Составы участников откроются после старта первого тура/стадии.",
+        }
+
+    return {
+        "visible": True,
+        "stage_key": _fantasy_stage_key(started_match),
+        "title": _fantasy_stage_title(_fantasy_stage_key(started_match)),
+        "reason": None,
+    }
+
+
+@router.get("/fantasy/players/{player_id}/stats")
+def get_fantasy_player_stats(
+    player_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return fantasy player statistics and points breakdown."""
+    player = (
+        db.query(FantasyPlayer)
+        .filter(
+            FantasyPlayer.id == player_id,
+            FantasyPlayer.tournament_code == TOURNAMENT_CODE,
+        )
+        .first()
+    )
+
+    if not player:
+        raise HTTPException(status_code=404, detail="Fantasy player not found")
+
+    rows = (
+        db.query(FantasyPlayerMatchStat)
+        .filter(FantasyPlayerMatchStat.player_id == player.id)
+        .join(Match, FantasyPlayerMatchStat.match_id == Match.id)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    total_points = sum((row.points or 0) for row in rows)
+
+    totals = {
+        "minutes": sum((row.minutes or 0) for row in rows),
+        "goals": sum((row.goals or 0) for row in rows),
+        "assists": sum((row.assists or 0) for row in rows),
+        "saves": sum((row.saves or 0) for row in rows),
+        "penalties_saved": sum((row.penalties_saved or 0) for row in rows),
+        "balls_recovered": sum((row.balls_recovered or 0) for row in rows),
+        "shots_on_target": sum((row.shots_on_target or 0) for row in rows),
+        "yellow_cards": sum((row.yellow_cards or 0) for row in rows),
+        "red_cards": sum((row.red_cards or 0) for row in rows),
+        "clean_sheets": sum(1 for row in rows if row.clean_sheet),
+        "goals_conceded": sum((row.goals_conceded or 0) for row in rows),
+        "own_goals": sum((row.own_goals or 0) for row in rows),
+        "penalty_missed": sum((row.penalty_missed or 0) for row in rows),
+    }
+
+    return {
+        "player": _serialize_fantasy_player(player),
+        "total_points": total_points,
+        "totals": totals,
+        "matches": [_serialize_fantasy_stat_row(row) for row in rows],
+    }
+
+
+@router.get("/fantasy/teams")
+def get_visible_fantasy_teams(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return participants' fantasy squads after the current tour/stage has started."""
+    visibility = _fantasy_teams_visibility(db)
+
+    if not visibility["visible"]:
+        return {
+            "visible": False,
+            "visibility": visibility,
+            "teams": [],
+        }
+
+    teams = (
+        db.query(FantasyTeam)
+        .filter(FantasyTeam.tournament_code == TOURNAMENT_CODE)
+        .join(User, FantasyTeam.user_id == User.id)
+        .order_by(User.display_name.asc())
+        .all()
+    )
+
+    return {
+        "visible": True,
+        "visibility": visibility,
+        "teams": [
+            {
+                "user": {
+                    "id": team.user.id,
+                    "display_name": team.user.display_name,
+                    "username": team.user.username,
+                    "is_current_user": team.user_id == current_user.id,
+                },
+                "team": _serialize_fantasy_team(team),
+            }
+            for team in teams
+        ],
+    }
+
+
 
 
 @router.get("/fantasy/team/me")

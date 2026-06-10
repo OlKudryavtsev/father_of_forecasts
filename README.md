@@ -1192,3 +1192,8 @@ scripts/data/
 ## Admin button and Profile collapsible sections
 
 См. `ADMIN_BUTTON_PROFILE_COLLAPSE_UPDATE.md`.
+
+
+## Fantasy v2.1 player info and squads visibility
+
+См. `FANTASY_V2_1_PLAYER_INFO_AND_SQUADS.md`.
