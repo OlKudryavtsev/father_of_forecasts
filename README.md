@@ -1182,3 +1182,8 @@ scripts/data/
 ## Mini App Admin Panel and Fantasy rules update
 
 См. `MINIAPP_ADMIN_PANEL_AND_FANTASY_RULES_UPDATE.md`.
+
+
+## Admin top button and Fantasy classic positions
+
+См. `ADMIN_TOP_AND_FANTASY_CLASSIC_POSITIONS.md`.

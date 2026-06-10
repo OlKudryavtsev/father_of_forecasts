@@ -17,7 +17,6 @@ const TABS = [
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
-  { id: 'admin', label: 'Админ', icon: 'shield' },
 ];
 
 const QUICK_SCORES = [
@@ -313,11 +312,18 @@ const FANTASY_FORMATIONS = [
 const FANTASY_STARTER_SLOTS = buildFormationSlots('4-3-3');
 
 const FANTASY_BENCH_SLOTS = [
-  { slot: 'ЗАП1', position: 'Goalkeeper', label: 'ВР запас', isStarter: false },
-  { slot: 'ЗАП2', position: 'Defender', label: 'ЗЩ запас', isStarter: false },
-  { slot: 'ЗАП3', position: 'Midfielder', label: 'ПЗ запас', isStarter: false },
-  { slot: 'ЗАП4', position: 'Midfielder', label: 'ПЗ запас', isStarter: false },
+  { slot: 'ЗАП1', position: null, label: 'Запас 1', isStarter: false },
+  { slot: 'ЗАП2', position: null, label: 'Запас 2', isStarter: false },
+  { slot: 'ЗАП3', position: null, label: 'Запас 3', isStarter: false },
+  { slot: 'ЗАП4', position: null, label: 'Запас 4', isStarter: false },
 ];
+
+const FANTASY_SQUAD_POSITION_LIMITS = {
+  Goalkeeper: 2,
+  Defender: 5,
+  Midfielder: 5,
+  Attacker: 3,
+};
 
 const FANTASY_SLOTS = [...FANTASY_STARTER_SLOTS, ...FANTASY_BENCH_SLOTS];
 
@@ -434,7 +440,7 @@ function LoadingCard({ text = 'Загружаю...' }) {
   return <div className="card muted">{text}</div>;
 }
 
-function Header({ dashboard, onRules }) {
+function Header({ dashboard, onRules, onAdmin }) {
   const now = useNowTick();
   const countdownText = formatLiveCountdown(dashboard?.tournament?.starts_at, now);
 
@@ -450,6 +456,7 @@ function Header({ dashboard, onRules }) {
       </div>
 
       <div className="league-status">
+        {dashboard?.user?.is_admin && <button className="header-admin-button" onClick={onAdmin}><Icon name="shield" /> Админ</button>}
         <span className="status-section live-countdown">{countdownText}</span>
         <span className="divider" />
         <span className="points">{dashboard?.points ?? 0} очков</span>
@@ -1115,6 +1122,17 @@ function Fantasy() {
     acc[player.team_display_name] = (acc[player.team_display_name] || 0) + 1;
     return acc;
   }, {});
+  const squadPositionLimits = rules?.squad_positions || FANTASY_SQUAD_POSITION_LIMITS;
+  const positionCounts = selectedPlayers.reduce((acc, player) => {
+    acc[player.position] = (acc[player.position] || 0) + 1;
+    return acc;
+  }, {});
+  const positionIssueLabels = Object.entries(squadPositionLimits)
+    .filter(([position, limit]) => (positionCounts[position] || 0) !== limit)
+    .map(([position, limit]) => `${rules?.position_labels?.[position] || position}: ${positionCounts[position] || 0}/${limit}`);
+  const squadPositionWarning = selectedCount === 15 && positionIssueLabels.length
+    ? `Состав не соответствует классическим ограничениям по позициям: ${positionIssueLabels.join(', ')}. Нужно: 2 ВР, 5 ЗЩ, 5 ПЗ, 3 НП.`
+    : '';
   const categoryLimits = rules?.category_limits || {};
   const maxFromOneTeam = rules?.max_from_one_team || 3;
   const deadlineText = formatDeadlineCountdown(roundState.deadline_at, now);
@@ -1227,9 +1245,12 @@ function Fantasy() {
     }
 
     function canPickPlayer(player, slot) {
-      if (player.position !== slot.position) return false;
+      if (slot.position && player.position !== slot.position) return false;
       if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
       if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
+
+      const currentPositionCount = Object.values(nextSelected).filter((selected) => selected.position === player.position).length;
+      if (currentPositionCount >= (squadPositionLimits[player.position] || 0)) return false;
 
       return true;
     }
@@ -1242,9 +1263,11 @@ function Fantasy() {
       // Fallback for bench: keep the team limit and uniqueness, but do not let category limits block filling the bench.
       if (!candidate && !isStarterSlot(slot)) {
         candidate = shuffled.find((player) => {
-          if (player.position !== slot.position) return false;
+          if (slot.position && player.position !== slot.position) return false;
           if (Object.values(nextSelected).some((selected) => selected.id === player.id)) return false;
           if ((nextTeamCounts[player.team_display_name] || 0) >= maxFromOneTeam) return false;
+          const currentPositionCount = Object.values(nextSelected).filter((selected) => selected.position === player.position).length;
+          if (currentPositionCount >= (squadPositionLimits[player.position] || 0)) return false;
           return true;
         });
       }
@@ -1274,6 +1297,7 @@ function Fantasy() {
       if (playerIds.length !== 15) throw new Error('Выберите всех 15 игроков: 11 в основе и 4 запасных.');
       if (startingPlayerIds.length !== 11) throw new Error('Выберите всех 11 игроков стартового состава.');
       if (!captainId) throw new Error('Выберите капитана — его очки будут удваиваться.');
+      if (squadPositionWarning) throw new Error(squadPositionWarning);
       const result = await api('/api/webapp/fantasy/team', {
         method: 'POST',
         body: JSON.stringify({ formation, player_ids: playerIds, starting_player_ids: startingPlayerIds, captain_player_id: captainId }),
@@ -1409,8 +1433,9 @@ function Fantasy() {
           <span>Капитан: {selectedPlayers.find((player) => player.id === captainId)?.name || 'не выбран'}</span>
           {team?.transfer_penalty_points > 0 && <span className="error-text">Штраф за лишние трансферы: -{team.transfer_penalty_points}</span>}
         </div>
+        {squadPositionWarning && <p className="error-text fantasy-squad-warning">{squadPositionWarning}</p>}
         {error && <p className="error-text">{error.message}</p>}
-        <button className="primary full" disabled={saving || rules.is_locked} onClick={save}>
+        <button className="primary full" disabled={saving || rules.is_locked || Boolean(squadPositionWarning)} onClick={save}>
           {rules.is_locked ? 'Команда закрыта' : saving ? 'Сохраняю...' : 'Сохранить команду'}
         </button>
       </section>
@@ -1499,8 +1524,8 @@ function FantasyPlayerPicker({
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
 
   const positionPlayers = players
-    .filter((player) => player.position === slot.position)
-    .sort((a, b) => (a.fifa_category - b.fifa_category) || a.team_display_name.localeCompare(b.team_display_name) || a.name.localeCompare(b.name));
+    .filter((player) => !slot.position || player.position === slot.position)
+    .sort((a, b) => positionOrder(a.position) - positionOrder(b.position) || a.team_display_name.localeCompare(b.team_display_name) || a.name.localeCompare(b.name));
 
   const availableTeams = teams
     .filter((team) => positionPlayers.some((player) => player.team_display_name === team.name))
@@ -1516,6 +1541,13 @@ function FantasyPlayerPicker({
   function disabledReason(player) {
     if (current?.id === player.id) return '';
     if (selectedIds.has(player.id)) return 'уже выбран';
+
+    const squadLimits = rules?.squad_positions || FANTASY_SQUAD_POSITION_LIMITS;
+    const currentPositionCount = Object.values(selectedBySlot)
+      .filter(Boolean)
+      .filter((selected) => selected.position === player.position && selected.id !== current?.id)
+      .length;
+    if (currentPositionCount >= (squadLimits[player.position] || 0)) return 'лимит позиции';
 
     const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
     if (effectiveTeamCount >= (rules?.max_from_one_team || 3)) return 'лимит сборной';
@@ -1540,7 +1572,7 @@ function FantasyPlayerPicker({
       <section className="modal-card fantasy-picker-modal">
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>Выбор игрока · {slot.label}</h2>
-        <p className="muted">Сначала выберите сборную, затем игрока из выпадающего списка.</p>
+        <p className="muted">Сначала выберите сборную, затем игрока. Для запасных доступны любые позиции в рамках лимита заявки.</p>
 
         <div className="fantasy-picker-selects">
           <label>
@@ -2354,7 +2386,7 @@ function App() {
 
   return (
     <div className={`app theme-${appTheme}`}>
-      <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} />
+      <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} onAdmin={() => setTab('admin')} />
 
       {tab === 'matches' && (
         <>
@@ -2370,7 +2402,7 @@ function App() {
       {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 
       <nav className="bottom-nav">
-        {TABS.filter((item) => item.id !== 'admin' || dashboard?.user?.is_admin).map((item) => (
+        {TABS.map((item) => (
           <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>
             <Icon name={item.icon} />
             <small>{item.label}</small>

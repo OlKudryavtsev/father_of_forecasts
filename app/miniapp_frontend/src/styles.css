@@ -678,7 +678,7 @@ pre {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   min-height: calc(72px + env(safe-area-inset-bottom));
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   background: rgba(8, 13, 25, 0.94);
@@ -4899,5 +4899,54 @@ body {
   .admin-score-row,
   .admin-actions-row {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* Header admin button and Fantasy classic squad warning */
+
+.header-admin-button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.header-admin-button .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.fantasy-squad-warning {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--red-soft);
+  color: var(--red);
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.app.theme-light .header-admin-button {
+  background: rgba(37, 99, 235, 0.10);
+  color: #2563eb;
+}
+
+.app.theme-light .fantasy-squad-warning {
+  background: rgba(220, 38, 38, 0.10);
+  color: #b91c1c;
+}
+
+@media (max-width: 390px) {
+  .header-admin-button {
+    padding: 0 7px;
+    font-size: 11px;
   }
 }
