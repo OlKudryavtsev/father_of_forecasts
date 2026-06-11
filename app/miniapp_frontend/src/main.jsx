@@ -1313,8 +1313,46 @@ function Fantasy() {
     ? `Состав не соответствует классическим ограничениям по позициям: ${positionIssueLabels.join(', ')}. Нужно: 2 ВР, 5 ЗЩ, 5 ПЗ, 3 НП.`
     : '';
   const categoryLimits = rules?.category_limits || {};
-  const maxFromOneTeam = rules?.max_from_one_team || 3;
+  const maxFromOneTeam = rules?.max_from_one_team || 2;
   const deadlineText = formatDeadlineCountdown(roundState.deadline_at, now);
+  const missingPlayersCount = Math.max(0, 15 - selectedCount);
+  const validationItems = [
+    ['Goalkeeper', 'ВР'],
+    ['Defender', 'ЗЩ'],
+    ['Midfielder', 'ПЗ'],
+    ['Attacker', 'НП'],
+  ].map(([position, shortLabel]) => {
+    const count = positionCounts[position] || 0;
+    const limit = squadPositionLimits[position] || 0;
+    return {
+      position,
+      shortLabel,
+      count,
+      limit,
+      ok: count === limit,
+      empty: count === 0,
+    };
+  });
+  const positionsReady = validationItems.every((item) => item.ok);
+  const captainReady = Boolean(captainId);
+  const squadReady = selectedCount === 15 && positionsReady && captainReady;
+  const readinessTitle = squadReady
+    ? 'Состав готов'
+    : missingPlayersCount > 0
+      ? `Нужно добрать ${missingPlayersCount}`
+      : !captainReady
+        ? 'Нужен капитан'
+        : 'Проверьте лимиты';
+  const readinessHint = squadReady
+    ? 'Можно спокойно менять до дедлайна'
+    : missingPlayersCount > 0
+      ? 'Заполните основу и скамейку'
+      : !captainReady
+        ? 'Назначьте капитана в стартовом составе'
+        : 'В заявке должны соблюдаться ограничения 2/5/5/3';
+  const transferInfoText = roundState.free_transfers === null
+    ? 'трансферы без ограничений'
+    : `бесплатных трансферов: ${roundState.free_transfers}, лишний: -${roundState.extra_transfer_penalty}`;
 
   function changeFormation(nextFormation) {
     const nextStarterSlots = buildFormationSlots(nextFormation);
@@ -1505,10 +1543,42 @@ function Fantasy() {
         <div className="fantasy-points"><b>{points}</b><span>очков</span></div>
       </section>
 
-      <section className="fantasy-deadline-card compact-deadline-card">
-        <span>Дедлайн: {roundState.title || 'следующий тур'}</span>
+      <section className="fantasy-deadline-card compact-deadline-card elevated-deadline-card">
+        <div className="deadline-copy">
+          <span>Дедлайн · {roundState.title || 'следующий тур'}</span>
+          <small>{transferInfoText}</small>
+        </div>
         <strong>{deadlineText}</strong>
-        <small>{roundState.free_transfers === null ? 'трансферы без ограничений' : `бесплатных трансферов: ${roundState.free_transfers}, лишний: -${roundState.extra_transfer_penalty}`}</small>
+      </section>
+
+      <section className="fantasy-quick-status-grid">
+        <article className={`fantasy-status-card ${squadReady ? 'ok' : 'warn'}`}>
+          <div>
+            <span>Статус состава</span>
+            <strong>{readinessTitle}</strong>
+            <small>{readinessHint}</small>
+          </div>
+          <b>{selectedCount}/15</b>
+        </article>
+
+        <article className={`fantasy-limits-card ${positionsReady ? 'ok' : ''}`}>
+          <div className="fantasy-limits-head">
+            <span>Лимиты заявки</span>
+            <small>до {maxFromOneTeam} из сборной</small>
+          </div>
+          <div className="fantasy-limit-pills">
+            {validationItems.map((item) => (
+              <div key={item.position} className={`fantasy-limit-pill ${item.ok ? 'ok' : item.empty ? 'empty' : 'partial'}`}>
+                <b>{item.shortLabel}</b>
+                <span>{item.count}/{item.limit}</span>
+              </div>
+            ))}
+            <div className="fantasy-limit-pill team-cap ok team-cap-pill">
+              <b>СБ</b>
+              <span>макс {maxFromOneTeam}</span>
+            </div>
+          </div>
+        </article>
       </section>
 
       <div className="fantasy-toolbar fantasy-formation-toolbar">
@@ -1736,7 +1806,7 @@ function FantasyPlayerPicker({
     if (currentPositionCount >= (squadLimits[player.position] || 0)) return 'лимит позиции';
 
     const effectiveTeamCount = (teamCounts[player.team_display_name] || 0) - (current?.team_display_name === player.team_display_name ? 1 : 0);
-    if (effectiveTeamCount >= (rules?.max_from_one_team || 3)) return 'лимит сборной';
+    if (effectiveTeamCount >= (rules?.max_from_one_team || 2)) return 'лимит сборной';
 
     return '';
   }
