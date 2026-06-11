@@ -2,7 +2,10 @@ import json
 import os
 from typing import Any
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 
 OPENAI_FORECAST_MODEL = os.getenv("OPENAI_FORECAST_MODEL", "gpt-5.4-mini")
@@ -132,6 +135,9 @@ def generate_openai_forecast(context: dict[str, Any]) -> dict[str, Any]:
 
     if not api_key:
         raise ValueError("OPENAI_API_KEY is not set")
+
+    if OpenAI is None:
+        raise RuntimeError("OpenAI SDK is too old. Install openai>=1.0.0.")
 
     client = OpenAI(api_key=api_key)
 

@@ -1197,3 +1197,8 @@ scripts/data/
 ## Fantasy v2.1 player info and squads visibility
 
 См. `FANTASY_V2_1_PLAYER_INFO_AND_SQUADS.md`.
+
+
+## OpenAI import hotfix v2.3.2
+
+См. `OPENAI_IMPORT_HOTFIX_V2_3_2.md`.

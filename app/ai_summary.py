@@ -1,6 +1,9 @@
 import os
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 
 AI_MODEL = os.getenv("AI_MODEL", "gpt-5.5-mini")
@@ -30,6 +33,12 @@ def generate_ai_summary(context: dict) -> str:
         return (
             "ИИ-сводка пока не настроена: не задан OPENAI_API_KEY. "
             "Обычная статистика доступна через /summary."
+        )
+
+    if OpenAI is None:
+        return (
+            "ИИ-сводка пока не настроена: установлена старая версия библиотеки openai. "
+            "Обнови зависимость до openai>=1.0.0."
         )
 
     client = OpenAI(api_key=api_key)

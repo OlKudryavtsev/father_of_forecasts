@@ -22,7 +22,14 @@ import base64
 
 import uuid
 
-from openai import OpenAI, APITimeoutError
+try:
+    from openai import OpenAI, APITimeoutError
+except ImportError:
+    OpenAI = None
+
+    class APITimeoutError(Exception):
+        """Fallback timeout error for old/missing OpenAI SDK."""
+        pass
 
 from aiogram import F
 
@@ -139,7 +146,7 @@ openai_client = (
         timeout=OPENAI_TIMEOUT_SECONDS,
         max_retries=1,
     )
-    if OPENAI_API_KEY
+    if OPENAI_API_KEY and OpenAI is not None
     else None
 )
 
