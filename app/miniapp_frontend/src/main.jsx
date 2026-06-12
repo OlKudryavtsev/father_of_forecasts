@@ -2556,18 +2556,22 @@ function AdminPanel() {
       <section className="card admin-card">
         <h2>5. Напоминания и уведомления</h2>
         <div className="notification-list">
-          {Object.entries(data.notification_settings || {}).map(([key, value]) => (
-            <label className="notification-row" key={key}>
-              <input
-                type="checkbox"
-                checked={String(value) === 'true'}
-                onChange={(event) => toggleGlobalSetting(key, event.target.checked)}
-              />
-              <span />
-              <b>{key}</b>
-              <small>{String(value) === 'true' ? 'включено' : 'выключено'}</small>
-            </label>
-          ))}
+          {(data.notification_options || []).map((option) => {
+            const settingKey = `${option.key}_enabled`;
+            const value = data.notification_settings?.[settingKey];
+            return (
+              <label className="notification-row" key={settingKey}>
+                <input
+                  type="checkbox"
+                  checked={String(value) === 'true'}
+                  onChange={(event) => toggleGlobalSetting(settingKey, event.target.checked)}
+                />
+                <span />
+                <b>{option.title}</b>
+                <small>{String(value) === 'true' ? 'включено для всех' : 'выключено глобально'} · {option.description}</small>
+              </label>
+            );
+          })}
         </div>
       </section>
 

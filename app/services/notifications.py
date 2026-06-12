@@ -88,12 +88,13 @@ async def notify_group_chat(text: str):
 
     try:
         from app.db import SessionLocal
-        from app.services.web_push import notify_active_web_push_subscribers
+        from app.services.web_push import notify_active_web_push_subscribers_for_notification
 
         db = SessionLocal()
         try:
-            notify_active_web_push_subscribers(
+            notify_active_web_push_subscribers_for_notification(
                 db,
+                notification_key="group_activity",
                 title="Отец прогнозов",
                 body=text[:220],
                 url="/app",

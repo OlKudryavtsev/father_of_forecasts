@@ -30,8 +30,8 @@ CREATE INDEX IF NOT EXISTS ix_app_settings_setting_key
 INSERT INTO app_settings (setting_key, setting_value)
 VALUES
     ('match_reminders_enabled', 'true'),
-    ('daily_facts_enabled', 'true'),
-    ('release_notes_enabled', 'true'),
-    ('quiz_notifications_enabled', 'true'),
-    ('fantasy_updates_enabled', 'true')
+    ('group_activity_enabled', 'true'),
+    ('match_started_enabled', 'true'),
+    ('match_finished_enabled', 'true'),
+    ('daily_facts_enabled', 'true')
 ON CONFLICT (setting_key) DO NOTHING;

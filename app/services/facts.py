@@ -63,6 +63,18 @@ async def send_daily_match_summary_to_group(db):
             chat_id=group_chat_id,
             text=text,
         )
+        try:
+            from app.services.web_push import notify_active_web_push_subscribers_for_notification
+
+            notify_active_web_push_subscribers_for_notification(
+                db,
+                notification_key="daily_facts",
+                title="☕ Утренняя сводка",
+                body=text[:220],
+                url="/app",
+            )
+        except Exception as push_error:
+            print(f"Failed to send daily summary web push notifications: {push_error}")
         print(f"Daily match summary sent to group chat {group_chat_id}")
     except Exception as error:
         print(f"Failed to send daily match summary to group {group_chat_id}: {error}")
@@ -81,6 +93,22 @@ async def send_daily_match_summary_to_private_users(db):
                 chat_id=user.telegram_id,
                 text=text,
             )
+            try:
+                from app.services.web_push import notify_web_push_subscribers_for_user_if_enabled
+
+                notify_web_push_subscribers_for_user_if_enabled(
+                    db,
+                    user_id=user.id,
+                    notification_key="daily_facts",
+                    title="☕ Утренняя сводка",
+                    body=text[:220],
+                    url="/app",
+                )
+            except Exception as push_error:
+                print(
+                    f"Failed to send daily summary web push "
+                    f"to {user.telegram_id}: {push_error}"
+                )
         except Exception as error:
             print(
                 f"Failed to send daily match summary "
@@ -104,6 +132,19 @@ async def send_daily_fact_to_group(db, fact: WorldCupFact):
             chat_id=group_chat_id,
             text=text,
         )
+
+        try:
+            from app.services.web_push import notify_active_web_push_subscribers_for_notification
+
+            notify_active_web_push_subscribers_for_notification(
+                db,
+                notification_key="daily_facts",
+                title="🏆 Факт дня",
+                body=text[:220],
+                url="/app",
+            )
+        except Exception as push_error:
+            print(f"Failed to send daily fact web push notifications: {push_error}")
 
         db.add(
             FactDeliveryLog(
@@ -256,6 +297,23 @@ async def send_daily_fact_to_private_users(db, fact: WorldCupFact):
                 chat_id=user.telegram_id,
                 text=text,
             )
+
+            try:
+                from app.services.web_push import notify_web_push_subscribers_for_user_if_enabled
+
+                notify_web_push_subscribers_for_user_if_enabled(
+                    db,
+                    user_id=user.id,
+                    notification_key="daily_facts",
+                    title="🏆 Факт дня",
+                    body=text[:220],
+                    url="/app",
+                )
+            except Exception as push_error:
+                print(
+                    f"Failed to send daily fact web push "
+                    f"to {user.telegram_id}: {push_error}"
+                )
 
             db.add(
                 FactDeliveryLog(

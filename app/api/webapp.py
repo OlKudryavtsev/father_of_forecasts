@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import create_web_session_for_user, get_current_user, get_db, hash_web_session_token
 from app.api_football import ApiFootballClient
+from app.constants.notifications import ADMIN_NOTIFICATION_SETTING_KEYS, NOTIFICATION_OPTIONS
 from app.models import (
     AppSetting,
     FatherMatchPrediction,
@@ -221,48 +222,6 @@ def _serialize_prediction(prediction: Prediction) -> dict:
         "points": prediction.points or 0,
     }
 
-
-
-NOTIFICATION_OPTIONS = [
-    {
-        "key": "match_reminders",
-        "title": "Напоминания о прогнозах",
-        "description": "Напоминания о матчах, где еще не сделан прогноз.",
-        "default": True,
-    },
-    {
-        "key": "daily_facts",
-        "title": "Факт дня",
-        "description": "Ежедневные факты и архивные карточки от Отца прогнозов.",
-        "default": True,
-    },
-    {
-        "key": "release_notes",
-        "title": "Release Notes",
-        "description": "Сообщения о новых версиях бота и Mini App.",
-        "default": True,
-    },
-    {
-        "key": "quiz_notifications",
-        "title": "Квизы",
-        "description": "Анонсы групповых квизов и игровых активностей.",
-        "default": True,
-    },
-    {
-        "key": "fantasy_updates",
-        "title": "Fantasy-футбол",
-        "description": "Напоминания о дедлайнах, трансферах и обновлении статистики.",
-        "default": True,
-    },
-]
-
-ADMIN_NOTIFICATION_SETTING_KEYS = {
-    "match_reminders_enabled": "true",
-    "daily_facts_enabled": "true",
-    "release_notes_enabled": "true",
-    "quiz_notifications_enabled": "true",
-    "fantasy_updates_enabled": "true",
-}
 
 
 def _require_miniapp_admin(user: User) -> None:
@@ -2305,6 +2264,7 @@ def get_admin_overview(
             "active_push_subscriptions": active_push_subscriptions,
             "push_users_count": push_users_count,
         },
+        "notification_options": NOTIFICATION_OPTIONS,
         "notification_settings": {
             key: _get_app_setting(db, key, default)
             for key, default in ADMIN_NOTIFICATION_SETTING_KEYS.items()

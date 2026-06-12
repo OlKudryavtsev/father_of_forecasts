@@ -849,6 +849,18 @@ async def _send_group_match_started_notifications(db, now, window_seconds: int):
 
         try:
             await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
+            try:
+                from app.services.web_push import notify_active_web_push_subscribers_for_notification
+
+                notify_active_web_push_subscribers_for_notification(
+                    db,
+                    notification_key="match_started",
+                    title="⚽ Матч начался",
+                    body=text[:220],
+                    url="/app",
+                )
+            except Exception as push_error:
+                print(f"Failed to send match-start web push notifications: {push_error}")
             _mark_app_event_sent(db, key)
         except Exception as error:
             print(f"Failed to send group match-start notification: {error}")
@@ -902,6 +914,18 @@ async def _send_group_match_finished_notifications(db):
 
         try:
             await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
+            try:
+                from app.services.web_push import notify_active_web_push_subscribers_for_notification
+
+                notify_active_web_push_subscribers_for_notification(
+                    db,
+                    notification_key="match_finished",
+                    title="🏁 Матч окончен",
+                    body=text[:220],
+                    url="/app",
+                )
+            except Exception as push_error:
+                print(f"Failed to send match-finish web push notifications: {push_error}")
             _mark_app_event_sent(db, key)
         except Exception as error:
             print(f"Failed to send group match-finish notification: {error}")
@@ -992,6 +1016,23 @@ async def send_match_reminders_once():
                             text=text,
                             reply_markup=build_matches_keyboard([match]),
                         )
+
+                        try:
+                            from app.services.web_push import notify_web_push_subscribers_for_user_if_enabled
+
+                            notify_web_push_subscribers_for_user_if_enabled(
+                                db,
+                                user_id=user.id,
+                                notification_key="match_reminders",
+                                title="⏰ Напоминание о прогнозе",
+                                body=text[:220],
+                                url="/app",
+                            )
+                        except Exception as push_error:
+                            print(
+                                f"Failed to send reminder web push to user "
+                                f"{user.telegram_id}: {push_error}"
+                            )
 
                         mark_reminder_sent(
                             db=db,
