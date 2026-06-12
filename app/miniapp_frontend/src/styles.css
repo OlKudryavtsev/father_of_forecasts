@@ -5870,3 +5870,50 @@ body {
   color: #15803d;
   background: rgba(22, 163, 74, 0.12);
 }
+
+
+/* v2.7 rating: Father in common leaderboard and finished-match accuracy */
+
+.father-ranking-row {
+  border-color: rgba(244, 191, 54, 0.48) !important;
+  background: linear-gradient(135deg, rgba(244,191,54,0.14), rgba(59,130,246,0.10), rgba(18,26,44,0.92)) !important;
+  box-shadow: 0 12px 28px rgba(244,191,54,0.08);
+}
+
+.father-ranking-row .rank {
+  color: var(--gold);
+}
+
+.father-ranking-row .rating-points-pill {
+  color: var(--gold);
+  background: rgba(244,191,54,0.16);
+  border: 1px solid rgba(244,191,54,0.32);
+}
+
+.father-ranking-row .rating-metrics-grid div {
+  background: rgba(244,191,54,0.055);
+  border-color: rgba(244,191,54,0.16);
+}
+
+.father-ranking-row .rating-player strong {
+  color: var(--gold);
+}
+
+.father-ranking-row .rating-player small {
+  color: rgba(255,255,255,0.68);
+}
+
+.app.theme-light .father-ranking-row {
+  background: linear-gradient(135deg, #fff7ed, #eff6ff) !important;
+  border-color: rgba(217,119,6,0.28) !important;
+}
+
+.app.theme-light .father-ranking-row .rating-player small {
+  color: #64748b;
+}
+
+.app.theme-light .father-ranking-row .rating-points-pill {
+  color: #b45309;
+  background: rgba(251,191,36,0.18);
+  border-color: rgba(217,119,6,0.22);
+}

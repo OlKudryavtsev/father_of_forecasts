@@ -2036,10 +2036,11 @@ function Rating() {
   if (!data) return <LoadingCard />;
 
   const fatherRow = data.father_row;
-  const rows = [...(data.rows || [])]
+  const sourceRows = fatherRow ? [...(data.rows || []), fatherRow] : [...(data.rows || [])];
+  const rows = sourceRows
     .map((row) => ({
       ...row,
-      display_points: includeFantasy ? (row.points || 0) + (row.fantasy_points || 0) : (row.points || 0),
+      display_points: includeFantasy && !row.is_father ? (row.points || 0) + (row.fantasy_points || 0) : (row.points || 0),
     }))
     .sort((a, b) => (b.display_points - a.display_points) || ((b.exact_scores || 0) - (a.exact_scores || 0)));
 
@@ -2054,26 +2055,15 @@ function Rating() {
         <small>{includeFantasy ? 'очки прогноза + fantasy' : 'только прогнозы'}</small>
       </label>
 
-      {fatherRow && (
-        <section className="father-rating-card">
-          <div>
-            <strong>🤖 Отец прогнозов</strong>
-            <span>Вне общего зачета</span>
-          </div>
-          <b>{fatherRow.points || 0} очков</b>
-          <small>{fatherRow.match_predictions_count || 0} прогнозов · {fatherRow.exact_scores || 0} точных · {fatherRow.outcomes || 0} исходов · {fatherRow.accuracy_percent || 0}%</small>
-        </section>
-      )}
-
       <div className="ranking-list compact-ranking-list">
         {rows.map((row, index) => (
-          <div key={row.name} className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''}`}>
+          <div key={row.name} className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''} ${row.is_father ? 'father-ranking-row' : ''}`}>
             <div className="rating-main-line">
               <span className="rank">#{index + 1}</span>
               <div className="rating-player">
                 <strong>{row.name}</strong>
                 <small>
-                  Турнир: {row.tournament_prediction_progress || '0/4'} · прогнозы {row.points} · fantasy {row.fantasy_points || 0}
+                  {row.is_father ? 'ИИ-прогнозы вне конкурса, но в общей гонке видны' : `Очки: ${row.points || 0} · Турнир: ${row.tournament_prediction_progress || '0/4'} · Fantasy: ${row.fantasy_points || 0}`}
                 </small>
               </div>
               <div className="rating-points-pill">
@@ -2096,14 +2086,14 @@ function Rating() {
               </div>
               <div>
                 <b>{row.accuracy_percent ?? 0}%</b>
-                <span>попаданий</span>
+                <span>попаданий из {row.match_predictions_finished_count ?? row.accuracy_base ?? 0}</span>
               </div>
             </div>
 
             <div className="rating-foot-line">
               <span>Матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
-              <span>Fantasy: {row.fantasy_team_progress || '0/15'}</span>
-              <span>Проход: +{row.advancement_plus || 0} / {row.advancement_minus || 0}</span>
+              <span>{row.is_father ? `Завершено: ${row.match_predictions_finished_count || 0}` : `Fantasy: ${row.fantasy_team_progress || '0/15'}`}</span>
+              <span>{row.is_father ? 'ИИ-вне конкурса' : `Проход: +${row.advancement_plus || 0} / ${row.advancement_minus || 0}`}</span>
             </div>
           </div>
         ))}

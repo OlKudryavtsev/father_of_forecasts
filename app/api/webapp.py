@@ -750,18 +750,30 @@ def get_table(
         for user in db.query(User).all()
     }
 
-    available_matches_count = len(get_all_available_matches(db, limit=1000))
+    total_matches_count = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .count()
+    )
 
-    father_predictions = db.query(FatherMatchPrediction).join(Match, FatherMatchPrediction.match_id == Match.id).filter(Match.tournament_code == TOURNAMENT_CODE).all()
+    father_predictions = (
+        db.query(FatherMatchPrediction)
+        .join(Match, FatherMatchPrediction.match_id == Match.id)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .all()
+    )
     father_points = 0
     father_exact = 0
     father_outcomes = 0
-    father_total = 0
+    father_finished_total = 0
+
     for fp in father_predictions:
         match = fp.match
         if not match or not match.is_finished or match.score_home is None or match.score_away is None:
             continue
-        father_total += 1
+
+        father_finished_total += 1
+
         if fp.pred_home == match.score_home and fp.pred_away == match.score_away:
             father_points += 3
             father_exact += 1
@@ -769,23 +781,34 @@ def get_table(
             father_points += 1
             father_outcomes += 1
 
+    father_successful = father_exact + father_outcomes
     father_row = {
         "name": "🤖 Отец прогнозов",
         "points": father_points,
         "match_points": father_points,
         "tournament_points": 0,
         "fantasy_points": 0,
-        "total_predictions": father_total,
-        "match_predictions_count": father_total,
-        "match_predictions_available": available_matches_count,
-        "match_predictions_progress": f"{father_total}/{available_matches_count}" if available_matches_count else str(father_total),
+        "total_predictions": len(father_predictions),
+        "match_predictions_count": len(father_predictions),
+        "match_predictions_finished_count": father_finished_total,
+        "match_predictions_available": total_matches_count,
+        "match_predictions_progress": f"{len(father_predictions)}/{total_matches_count}" if total_matches_count else str(len(father_predictions)),
         "exact_scores": father_exact,
         "outcomes": father_outcomes,
         "advancement_plus": 0,
         "advancement_minus": 0,
-        "successful_predictions": father_exact + father_outcomes,
-        "accuracy_percent": round((father_exact + father_outcomes) * 100 / max(1, father_total)),
+        "successful_predictions": father_successful,
+        "accuracy_base": father_finished_total,
+        "accuracy_percent": round(father_successful * 100 / father_finished_total) if father_finished_total else 0,
         "is_father": True,
+        "is_current_user": False,
+        "tournament_prediction_count": 0,
+        "tournament_prediction_total": 0,
+        "tournament_prediction_progress": "—",
+        "has_tournament_prediction": False,
+        "fantasy_team_progress": "—",
+        "fantasy_team_complete": False,
+        "points_with_fantasy": father_points,
     }
 
     for index, row in enumerate(rows, start=1):
@@ -793,6 +816,7 @@ def get_table(
         tournament_prediction = None
         fantasy_team = None
         user_predictions_count = row.get("total_predictions", 0)
+        finished_predictions_count = 0
 
         if user:
             tournament_prediction = (
@@ -806,6 +830,18 @@ def get_table(
             user_predictions_count = (
                 db.query(Prediction)
                 .filter(Prediction.user_id == user.id)
+                .count()
+            )
+            finished_predictions_count = (
+                db.query(Prediction)
+                .join(Match, Prediction.match_id == Match.id)
+                .filter(
+                    Prediction.user_id == user.id,
+                    Match.tournament_code == TOURNAMENT_CODE,
+                    Match.is_finished == True,
+                    Match.score_home.isnot(None),
+                    Match.score_away.isnot(None),
+                )
                 .count()
             )
             fantasy_team = (
@@ -824,16 +860,17 @@ def get_table(
         match_points = row.get("match_points", 0)
         tournament_points = row.get("tournament_points", 0)
         total_points = row.get("points", 0)
-        accuracy_base = max(1, user_predictions_count)
         successful_predictions = exact_scores + outcomes
 
         row["rank"] = index
         row["is_current_user"] = row["name"] == current_user.display_name
+        row["is_father"] = False
         row["match_predictions_count"] = user_predictions_count
-        row["match_predictions_available"] = available_matches_count
+        row["match_predictions_finished_count"] = finished_predictions_count
+        row["match_predictions_available"] = total_matches_count
         row["match_predictions_progress"] = (
-            f"{user_predictions_count}/{available_matches_count}"
-            if available_matches_count
+            f"{user_predictions_count}/{total_matches_count}"
+            if total_matches_count
             else str(user_predictions_count)
         )
         row["tournament_prediction_count"] = 4 if tournament_prediction else 0
@@ -853,7 +890,8 @@ def get_table(
         row["tournament_points"] = tournament_points
         row["points"] = total_points
         row["successful_predictions"] = successful_predictions
-        row["accuracy_percent"] = round(successful_predictions * 100 / accuracy_base)
+        row["accuracy_base"] = finished_predictions_count
+        row["accuracy_percent"] = round(successful_predictions * 100 / finished_predictions_count) if finished_predictions_count else 0
 
     return {"rows": rows, "father_row": father_row}
 

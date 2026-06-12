@@ -1212,3 +1212,8 @@ scripts/data/
 ## Release v2.6
 
 См. `RELEASE_V2_6_MATCH_START_AND_DAILY_SUMMARY.md`.
+
+
+## Release v2.7 Rating Father and accuracy fixes
+
+См. `RELEASE_V2_7_RATING_FATHER_ACCURACY.md`.
