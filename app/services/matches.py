@@ -1,11 +1,13 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
 
+import re
+
 from app.constants.categories import PLAYOFF_STAGES
 from app.formatters.matches import format_datetime, format_match_label, format_match_result, format_user_match_prediction
 from app.formatters.misc import format_reminder_offset
 from app.keyboards.matches import build_matches_keyboard
-from app.models import AppSetting
+from app.models import AppSetting, FatherMatchPrediction
 from app.runtime import (
     APP_TIMEZONE,
     MATCHDAY_TIMEZONE,
@@ -569,6 +571,249 @@ def build_match_card_text(db, user: User, match: Match) -> str:
 
 
 
+
+def _prediction_score_outcome(home: int, away: int) -> str:
+    if home > away:
+        return "home"
+    if away > home:
+        return "away"
+    return "draw"
+
+
+def _father_builtin_score(db, match: Match) -> tuple[int, int] | None:
+    """Return fixed Father scores for the first two matches."""
+    if getattr(match, "fifa_match_no", None) == 1:
+        return (1, 0)
+    if getattr(match, "fifa_match_no", None) == 2:
+        return (1, 1)
+
+    first_matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc(), Match.id.asc())
+        .limit(2)
+        .all()
+    )
+
+    if len(first_matches) > 0 and first_matches[0].id == match.id:
+        return (1, 0)
+    if len(first_matches) > 1 and first_matches[1].id == match.id:
+        return (1, 1)
+
+    return None
+
+
+def _parse_father_score_from_text(text: str) -> tuple[int, int] | None:
+    match = re.search(r"Прогноз счета:\s*(\d+)\s*[:—-]\s*(\d+)", text or "", flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.search(r"(?:счет|прогноз)[^0-9]{0,20}(\d+)\s*[:—-]\s*(\d+)", text or "", flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def _ensure_father_match_prediction_for_notifications(db, match: Match) -> FatherMatchPrediction:
+    """Get or create Father's match prediction for notifications without importing webapp router."""
+    existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
+    if existing:
+        return existing
+
+    score = _father_builtin_score(db, match)
+    source = "seed"
+    text = None
+
+    if score is None:
+        try:
+            from app.services.forecast import build_forecast_text
+            text = build_forecast_text(db, match)
+            score = _parse_father_score_from_text(text)
+            source = "ai"
+        except Exception as error:
+            text = f"Прогноз Отца временно недоступен, использован осторожный fallback 1:1. Ошибка: {error}"
+            score = (1, 1)
+            source = "fallback"
+
+    if score is None:
+        score = (1, 1)
+        source = "fallback"
+        text = "Прогноз Отца: 1:1. Осторожная ничья, потому что Отец сегодня без хрустального мяча."
+
+    pred_home, pred_away = score
+    if text is None:
+        text = (
+            "🤖 Прогноз Отца прогнозов\n\n"
+            f"{match.home_team} — {match.away_team}\n"
+            f"Прогноз счета: {pred_home}:{pred_away}\n\n"
+            "Зафиксировано автоматически и больше не меняется после старта матча."
+        )
+
+    prediction = FatherMatchPrediction(
+        match_id=match.id,
+        pred_home=pred_home,
+        pred_away=pred_away,
+        outcome=_prediction_score_outcome(pred_home, pred_away),
+        confidence=None,
+        source=source,
+        forecast_text=text,
+    )
+    db.add(prediction)
+    db.commit()
+    db.refresh(prediction)
+    return prediction
+
+
+def _format_father_prediction_line(db, match: Match) -> str:
+    father = _ensure_father_match_prediction_for_notifications(db, match)
+    return f"🤖 Отец прогнозов: {father.pred_home}:{father.pred_away}"
+
+
+def _get_match_predictions_with_users(db, match: Match):
+    return (
+        db.query(Prediction, User)
+        .join(User, User.id == Prediction.user_id)
+        .filter(Prediction.match_id == match.id)
+        .order_by(User.display_name.asc())
+        .all()
+    )
+
+
+def _format_participant_prediction_lines(db, match: Match, with_points: bool = False) -> list[str]:
+    rows = _get_match_predictions_with_users(db, match)
+
+    if not rows:
+        return ["— прогнозов участников нет. Видимо, все оставили аналитику в черновиках."]
+
+    lines = []
+    for prediction, user in rows:
+        text = f"— {user.display_name}: {prediction.pred_home}:{prediction.pred_away}"
+
+        if is_playoff_match(match) and prediction.advancement_bet_enabled:
+            if prediction.predicted_advancing_side == "home":
+                text += f" · проход {match.home_team}"
+            elif prediction.predicted_advancing_side == "away":
+                text += f" · проход {match.away_team}"
+
+        if with_points and match.is_finished:
+            points = prediction.points
+            if points is None and match.score_home is not None and match.score_away is not None:
+                result = score_match_prediction(
+                    pred_home=prediction.pred_home,
+                    pred_away=prediction.pred_away,
+                    actual_home=match.score_home,
+                    actual_away=match.score_away,
+                    advancement_bet_enabled=prediction.advancement_bet_enabled,
+                    predicted_advancing_side=prediction.predicted_advancing_side,
+                    actual_winner_side=match.winner_side,
+                )
+                points = result["total_points"]
+            text += f" → {points or 0} очк."
+
+        lines.append(text)
+
+    return lines
+
+
+def build_match_start_group_notification_text(db, match: Match) -> str:
+    participant_lines = _format_participant_prediction_lines(db, match, with_points=False)
+    father_line = _format_father_prediction_line(db, match)
+
+    return (
+        "⚽ Матч начался!\n\n"
+        f"{format_match_label(match, include_id=False)}\n"
+        "Прогнозы раскрыты. Начинается коллективная проверка уверенности.\n\n"
+        f"{father_line}\n\n"
+        "👥 Прогнозы участников:\n"
+        + "\n".join(participant_lines)
+        + "\n\nОтец прогнозов уже приготовил таблицу. И красную ручку тоже."
+    )
+
+
+def build_daily_match_summary_text(db, now_local=None) -> str:
+    """Build daily morning summary for matches finished/started during previous 24h."""
+    now_utc = datetime.now(timezone.utc)
+    since_utc = now_utc - timedelta(hours=24)
+
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.starts_at >= since_utc,
+            Match.starts_at <= now_utc,
+        )
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    finished = [m for m in matches if m.is_finished and m.score_home is not None and m.score_away is not None]
+    unfinished = [m for m in matches if not (m.is_finished and m.score_home is not None and m.score_away is not None)]
+
+    lines = [
+        "☕ Утренний разбор Отца прогнозов",
+        "",
+        "За последние сутки футбол снова попытался объяснить людям, что Excel не гарантирует понимание игры.",
+    ]
+
+    if not matches:
+        lines.extend([
+            "",
+            "Матчей за последние 24 часа не было.",
+            "Отец прогнозов уважительно молчит, но таблицу все равно держит открытой.",
+        ])
+        return "\n".join(lines)
+
+    if finished:
+        lines.extend(["", "🏁 Завершенные матчи:"])
+
+        for match in finished:
+            predictions = _get_match_predictions_with_users(db, match)
+            exact = []
+            outcome = []
+            miss = []
+
+            for prediction, user in predictions:
+                label = f"{user.display_name} ({prediction.pred_home}:{prediction.pred_away})"
+                score_points = prediction.score_points
+                if score_points is None:
+                    result = score_match_prediction(
+                        pred_home=prediction.pred_home,
+                        pred_away=prediction.pred_away,
+                        actual_home=match.score_home,
+                        actual_away=match.score_away,
+                        advancement_bet_enabled=prediction.advancement_bet_enabled,
+                        predicted_advancing_side=prediction.predicted_advancing_side,
+                        actual_winner_side=match.winner_side,
+                    )
+                    score_points = result["score_points"]
+
+                if score_points == 3:
+                    exact.append(label)
+                elif score_points == 1:
+                    outcome.append(label)
+                else:
+                    miss.append(label)
+
+            lines.extend([
+                "",
+                f"{format_match_label(match, include_id=False)}",
+                f"Итог: {match.score_home}:{match.score_away}",
+                f"🎯 Точный счет: {', '.join(exact) if exact else 'никто. Красная ручка скучала, но недолго.'}",
+                f"🔵 Исход: {', '.join(outcome) if outcome else 'никто.'}",
+                f"🔴 Мимо: {', '.join(miss) if miss else 'никто. Подозрительно качественный тур.'}",
+            ])
+
+    if unfinished:
+        lines.extend(["", "⏳ Матчи без финального результата:"])
+        for match in unfinished:
+            lines.append(f"— {format_match_label(match, include_id=False)}: результат еще не внесен")
+
+    lines.extend([
+        "",
+        "Итог дня: точный счет — это не интуиция, а редкий вид бытовой магии.",
+    ])
+
+    return "\n".join(lines)
+
 def _app_event_sent(db, key: str) -> bool:
     return db.query(AppSetting).filter(AppSetting.setting_key == key).first() is not None
 
@@ -600,11 +845,7 @@ async def _send_group_match_started_notifications(db, now, window_seconds: int):
         if _app_event_sent(db, key):
             continue
 
-        text = (
-            "⚽ Матч начался!\n\n"
-            f"{format_match_label(match, include_id=False)}\n"
-            "Прогнозы раскрыты. Сейчас самое время проверить, кто снова поставил 1:1 и делает вид, что так и планировал."
-        )
+        text = build_match_start_group_notification_text(db, match)
 
         try:
             await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)

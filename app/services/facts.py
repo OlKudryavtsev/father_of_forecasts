@@ -45,6 +45,49 @@ def get_random_archive_card_for_daily_rubric(db) -> HistoricalArchiveCard | None
     return random.choice(cards)
 
 
+
+async def send_daily_match_summary_to_group(db):
+    """Send daily match/prognosis summary to the group instead of daily fact rubric."""
+    from app.services.matches import build_daily_match_summary_text
+
+    group_chat_id = get_group_chat_id()
+
+    if not group_chat_id:
+        print("GROUP_CHAT_ID is not set or invalid")
+        return
+
+    text = build_daily_match_summary_text(db)
+
+    try:
+        await bot.send_message(
+            chat_id=group_chat_id,
+            text=text,
+        )
+        print(f"Daily match summary sent to group chat {group_chat_id}")
+    except Exception as error:
+        print(f"Failed to send daily match summary to group {group_chat_id}: {error}")
+
+
+async def send_daily_match_summary_to_private_users(db):
+    """Send daily match/prognosis summary to private users instead of daily fact rubric."""
+    from app.services.matches import build_daily_match_summary_text
+
+    users = db.query(User).all()
+    text = build_daily_match_summary_text(db)
+
+    for user in users:
+        try:
+            await bot.send_message(
+                chat_id=user.telegram_id,
+                text=text,
+            )
+        except Exception as error:
+            print(
+                f"Failed to send daily match summary "
+                f"to {user.telegram_id}: {error}"
+            )
+
+
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
     """Handle asynchronous bot workflow for send_daily_fact_to_group."""
     group_chat_id = get_group_chat_id()
@@ -260,18 +303,17 @@ async def daily_facts_loop():
             db = SessionLocal()
 
             try:
-                fact = get_random_fact_not_sent_today(db)
+                # Since the tournament has started, the morning rubric is now a daily
+                # match/prognosis summary instead of Fact of the Day + archive.
+                if DAILY_FACT_TARGET == "group":
+                    await send_daily_match_summary_to_group(db)
 
-                if fact:
-                    if DAILY_FACT_TARGET == "group":
-                        await send_daily_fact_to_group(db, fact)
+                elif DAILY_FACT_TARGET == "both":
+                    await send_daily_match_summary_to_group(db)
+                    await send_daily_match_summary_to_private_users(db)
 
-                    elif DAILY_FACT_TARGET == "both":
-                        await send_daily_fact_to_group(db, fact)
-                        await send_daily_fact_to_private_users(db, fact)
-
-                    else:
-                        await send_daily_fact_to_private_users(db, fact)
+                else:
+                    await send_daily_match_summary_to_private_users(db)
 
                 last_sent_date = now_local.date()
 

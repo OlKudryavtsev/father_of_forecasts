@@ -39,7 +39,7 @@ from app.runtime import (
 from app.services.api_coverage import build_api_coverage_report
 from app.services.admin import build_command_stats_for_period, ensure_admin_or_reply, get_admin_telegram_ids, get_today_moscow_range_utc, is_user_admin
 from app.services.archive import import_historical_archive_from_seed
-from app.services.facts import get_random_archive_card_for_daily_rubric, get_random_fact_not_sent_today, import_world_cup_facts_from_seed, send_daily_fact_to_group
+from app.services.facts import get_random_archive_card_for_daily_rubric, get_random_fact_not_sent_today, import_world_cup_facts_from_seed, send_daily_fact_to_group, send_daily_match_summary_to_group
 from app.services.matches import (
     apply_match_result_from_admin,
     get_default_match_round,
@@ -1832,17 +1832,9 @@ async def admin_daily_fact_preview_handler(message: Message):
             await message.answer("У тебя нет админских прав.")
             return
 
-        fact = get_random_fact_not_sent_today(db)
+        from app.services.matches import build_daily_match_summary_text
 
-        if not fact:
-            await message.answer("Нет доступных фактов для предпросмотра.")
-            return
-
-        archive_card = get_random_archive_card_for_daily_rubric(db)
-
-        await message.answer(
-            format_daily_world_cup_rubric(fact, archive_card=archive_card)
-        )
+        await message.answer(build_daily_match_summary_text(db))
 
     finally:
         db.close()
@@ -2025,16 +2017,10 @@ async def admin_send_daily_fact_group_handler(message: Message):
             await message.answer("У тебя нет админских прав.")
             return
 
-        fact = get_random_fact_not_sent_today(db)
-
-        if not fact:
-            await message.answer("Нет доступных фактов для отправки.")
-            return
-
-        await send_daily_fact_to_group(db, fact)
+        await send_daily_match_summary_to_group(db)
 
         await message.answer(
-            "Ежедневная рубрика отправлена в групповой чат ✅"
+            "Утренний свод по матчам отправлен в групповой чат ✅"
         )
 
     finally:

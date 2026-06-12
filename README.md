@@ -1207,3 +1207,8 @@ scripts/data/
 ## v2.5 No prediction noise, rating points, current stage header
 
 См. `RELEASE_V2_5_NO_PREDICTION_NOISE_RATING_STAGE.md`.
+
+
+## Release v2.6
+
+См. `RELEASE_V2_6_MATCH_START_AND_DAILY_SUMMARY.md`.
