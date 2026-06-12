@@ -1227,3 +1227,8 @@ scripts/data/
 ## Release v2.8.1 PWA cookie session fix
 
 См. `RELEASE_V2_8_1_PWA_COOKIE_SESSION_FIX.md`.
+
+
+## Release v2.8.2 PWA custom icon
+
+См. `RELEASE_V2_8_2_PWA_CUSTOM_ICON.md`.

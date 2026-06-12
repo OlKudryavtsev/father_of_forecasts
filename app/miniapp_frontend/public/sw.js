@@ -22,8 +22,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'Отец прогнозов', {
       body: data.body || '',
-      icon: '/miniapp-static/icons/icon-192.svg',
-      badge: '/miniapp-static/icons/icon-192.svg',
+      icon: '/miniapp-static/icons/icon-192.png',
+      badge: '/miniapp-static/icons/icon-192.png',
       data: { url: data.url || '/app' },
     })
   );
