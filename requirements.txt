@@ -6,3 +6,4 @@ aiogram
 openai>=1.40.0
 requests
 pillow
+pywebpush

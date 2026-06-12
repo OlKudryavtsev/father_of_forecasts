@@ -178,18 +178,56 @@ function Icon({ name, className = '' }) {
   return null;
 }
 
+const WEB_SESSION_KEY = 'ff-web-session-token';
+
 function initData() {
   return tg?.initData || '';
 }
 
+function isTelegramMode() {
+  return Boolean(initData());
+}
+
+function getWebSessionToken() {
+  return localStorage.getItem(WEB_SESSION_KEY) || '';
+}
+
+function installWebTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('web_token');
+
+  if (!token) return false;
+
+  localStorage.setItem(WEB_SESSION_KEY, token);
+  params.delete('web_token');
+
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
+  window.history.replaceState({}, document.title, nextUrl);
+
+  return true;
+}
+
+installWebTokenFromUrl();
+
 async function api(path, options = {}) {
+  const webToken = getWebSessionToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+
+  if (initData()) {
+    headers['X-Telegram-Init-Data'] = initData();
+  }
+
+  if (!initData() && webToken) {
+    headers['X-Web-Session-Token'] = webToken;
+  }
+
   const response = await fetch(path, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Telegram-Init-Data': initData(),
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -439,6 +477,169 @@ function ErrorCard({ error, onRetry }) {
 function LoadingCard({ text = 'Загружаю...' }) {
   return <div className="card muted">{text}</div>;
 }
+
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; i += 1) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
+async function ensurePushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error('Этот браузер не поддерживает Web Push.');
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('Уведомления не разрешены.');
+  }
+
+  const keyResult = await api('/api/webapp/push/public-key');
+
+  if (!keyResult.enabled || !keyResult.public_key) {
+    throw new Error('Web Push не настроен на сервере: нужны VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY.');
+  }
+
+  const registration = await navigator.serviceWorker.register('/miniapp-static/sw.js');
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(keyResult.public_key),
+  });
+
+  await api('/api/webapp/push/subscribe', {
+    method: 'POST',
+    body: JSON.stringify(subscription.toJSON()),
+  });
+
+  return subscription;
+}
+
+function BrowserAuthGate() {
+  return (
+    <main className="screen-content browser-auth-screen">
+      <section className="card browser-auth-card">
+        <div className="empty-icon"><Icon name="cup" /></div>
+        <h1>Отец прогнозов</h1>
+        <p>
+          Эта web-версия привязывается к Telegram-аккаунту. Сначала открой приложение из Telegram,
+          затем в профиле нажми «Открыть web/PWA-версию».
+        </p>
+        <div className="browser-auth-steps">
+          <span>1. Открой бота в Telegram</span>
+          <span>2. Зайди в Mini App</span>
+          <span>3. Профиль → Web/PWA → получить ссылку</span>
+          <span>4. Открой ссылку в Safari и добавь на экран «Домой»</span>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function PwaAccessCard() {
+  const [webUrl, setWebUrl] = useState('');
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const webMode = !isTelegramMode();
+
+  async function createLink() {
+    setBusy(true);
+    setStatus('');
+
+    try {
+      const result = await api('/api/webapp/web-session/create', { method: 'POST' });
+      setWebUrl(result.url);
+      setStatus('Ссылка создана. Открой ее в Safari, затем добавь страницу на экран «Домой».');
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyLink() {
+    if (!webUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(webUrl);
+      setStatus('Ссылка скопирована.');
+    } catch {
+      setStatus('Не удалось скопировать автоматически. Открой ссылку кнопкой ниже.');
+    }
+  }
+
+  async function enablePush() {
+    setBusy(true);
+    setStatus('');
+
+    try {
+      await ensurePushSubscription();
+      setStatus('Уведомления включены для этой web/PWA-версии.');
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logoutWeb() {
+    setBusy(true);
+
+    try {
+      await api('/api/webapp/web-session/logout', { method: 'POST' });
+    } catch {
+      // logout is best-effort
+    }
+
+    localStorage.removeItem(WEB_SESSION_KEY);
+    window.location.reload();
+  }
+
+  return (
+    <div className="pwa-access-card">
+      <div>
+        <strong>{webMode ? 'Web/PWA-версия активна' : 'Web/PWA на iPhone'}</strong>
+        <span>
+          {webMode
+            ? 'Можно добавить страницу на экран «Домой» и включить push-уведомления.'
+            : 'Создай личную ссылку, открой ее в Safari и сохрани как ярлык.'}
+        </span>
+      </div>
+
+      {!webMode && (
+        <button type="button" disabled={busy} onClick={createLink}>
+          {busy ? 'Создаю...' : 'Создать ссылку'}
+        </button>
+      )}
+
+      {webUrl && (
+        <>
+          <a className="pwa-open-link" href={webUrl} target="_blank" rel="noreferrer">Открыть web-версию</a>
+          <button type="button" onClick={copyLink}>Скопировать ссылку</button>
+        </>
+      )}
+
+      {webMode && (
+        <>
+          <button type="button" disabled={busy} onClick={enablePush}>
+            {busy ? 'Подключаю...' : 'Включить уведомления'}
+          </button>
+          <button type="button" className="danger" disabled={busy} onClick={logoutWeb}>Выйти из web-версии</button>
+        </>
+      )}
+
+      {status && <small>{status}</small>}
+    </div>
+  );
+}
+
 
 function Header({ dashboard, onRules, onAdmin }) {
   const stageText = dashboard?.tournament?.current_stage_label || (dashboard?.tournament?.is_started ? 'Турнир идет' : 'До старта');
@@ -2415,6 +2616,7 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <span className="theme-switch" />
           <span className="theme-option light-option">Светлая тема</span>
         </label>
+        <PwaAccessCard />
       </CollapsibleProfileSection>
 
       <CollapsibleProfileSection title="Откуда очки" meta={`${summary.points || 0} очков`}>
@@ -2695,6 +2897,7 @@ function App() {
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const hasBrowserSession = Boolean(getWebSessionToken());
 
   useEffect(() => {
     localStorage.setItem('ff-app-theme', appTheme);
@@ -2713,7 +2916,10 @@ function App() {
     }
   }
 
-  useEffect(() => { loadDashboard(); }, [refreshKey]);
+  useEffect(() => {
+    if (!isTelegramMode() && !hasBrowserSession) return;
+    loadDashboard();
+  }, [refreshKey, hasBrowserSession]);
 
   function handleSaved() {
     setRefreshKey((value) => value + 1);
@@ -2721,6 +2927,10 @@ function App() {
 
   function handleTournamentSaved() {
     setRefreshKey((value) => value + 1);
+  }
+
+  if (!isTelegramMode() && !hasBrowserSession) {
+    return <div className={`app theme-${appTheme}`}><BrowserAuthGate /></div>;
   }
 
   if (dashboardError) {

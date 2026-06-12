@@ -86,3 +86,20 @@ async def notify_group_chat(text: str):
     except Exception as error:
         print(f"Failed to send message to group chat {group_chat_id}: {error}")
 
+    try:
+        from app.db import SessionLocal
+        from app.services.web_push import notify_active_web_push_subscribers
+
+        db = SessionLocal()
+        try:
+            notify_active_web_push_subscribers(
+                db,
+                title="Отец прогнозов",
+                body=text[:220],
+                url="/app",
+            )
+        finally:
+            db.close()
+    except Exception as error:
+        print(f"Failed to send web push notifications: {error}")
+

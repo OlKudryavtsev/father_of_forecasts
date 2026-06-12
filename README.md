@@ -1217,3 +1217,8 @@ scripts/data/
 ## Release v2.7 Rating Father and accuracy fixes
 
 См. `RELEASE_V2_7_RATING_FATHER_ACCURACY.md`.
+
+
+## Release v2.8 Web/PWA mode
+
+См. `RELEASE_V2_8_WEB_PWA_MODE.md`.

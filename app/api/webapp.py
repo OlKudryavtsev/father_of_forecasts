@@ -9,16 +9,18 @@ import json
 import random
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.auth import get_current_user, get_db
+from app.api.auth import create_web_session_for_user, get_current_user, get_db, hash_web_session_token
 from app.api_football import ApiFootballClient
 from app.models import (
     AppSetting,
     FatherMatchPrediction,
+    PushSubscription,
+    WebSession,
     FantasyPlayer,
     FantasyPlayerMatchStat,
     FantasyTeam,
@@ -85,6 +87,11 @@ class NotificationSettingsPayload(BaseModel):
 
 class AdminSettingPayload(BaseModel):
     value: str | None = None
+
+
+class PushSubscriptionPayload(BaseModel):
+    endpoint: str
+    keys: dict[str, str]
 
 
 class FantasyTeamPayload(BaseModel):
@@ -441,6 +448,147 @@ def get_me(current_user: User = Depends(get_current_user)) -> dict:
         "display_name": current_user.display_name,
         "is_admin": bool(current_user.is_admin),
     }
+
+
+
+def _absolute_app_url(request: Request, token: str | None = None) -> str:
+    """Build absolute /app URL for browser/PWA mode."""
+    url = str(request.url_for("telegram_mini_app"))
+    if token:
+        separator = "&" if "?" in url else "?"
+        url = f"{url}{separator}web_token={token}"
+    return url
+
+
+@router.post("/web-session/create")
+def create_web_session(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create a browser/PWA session linked to current Telegram account."""
+    user_agent = request.headers.get("user-agent")
+    token, session = create_web_session_for_user(db, current_user, user_agent=user_agent)
+
+    return {
+        "ok": True,
+        "token": token,
+        "url": _absolute_app_url(request, token=token),
+        "expires_at": _ensure_utc(session.expires_at).isoformat() if session.expires_at else None,
+    }
+
+
+@router.get("/web-session/status")
+def get_web_session_status(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return current authenticated web session/user status."""
+    return {
+        "ok": True,
+        "user": {
+            "id": current_user.id,
+            "telegram_id": current_user.telegram_id,
+            "display_name": current_user.display_name,
+            "username": current_user.username,
+            "is_admin": bool(current_user.is_admin),
+        },
+        "app_url": _absolute_app_url(request),
+    }
+
+
+@router.post("/web-session/logout")
+def logout_web_session(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Revoke current browser session token when present."""
+    raw_token = (request.headers.get("x-web-session-token") or "").strip()
+    if not raw_token:
+        auth_header = request.headers.get("authorization") or ""
+        if auth_header.lower().startswith("bearer "):
+            raw_token = auth_header.split(" ", 1)[1].strip()
+
+    if raw_token:
+        token_hash = hash_web_session_token(raw_token)
+        session = db.query(WebSession).filter(WebSession.token_hash == token_hash).first()
+        if session and session.user_id == current_user.id:
+            session.is_active = False
+            db.commit()
+
+    return {"ok": True}
+
+
+@router.get("/push/public-key")
+def get_push_public_key(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return VAPID public key for browser push notifications."""
+    from app.services.web_push import get_vapid_public_key, web_push_enabled
+
+    return {
+        "enabled": web_push_enabled(),
+        "public_key": get_vapid_public_key(),
+    }
+
+
+@router.post("/push/subscribe")
+def subscribe_push(
+    payload: PushSubscriptionPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Store browser Push API subscription for current user."""
+    p256dh = payload.keys.get("p256dh")
+    auth_value = payload.keys.get("auth")
+
+    if not payload.endpoint or not p256dh or not auth_value:
+        raise HTTPException(status_code=400, detail="Invalid push subscription")
+
+    subscription = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.endpoint == payload.endpoint)
+        .first()
+    )
+
+    if not subscription:
+        subscription = PushSubscription(endpoint=payload.endpoint)
+
+    subscription.user_id = current_user.id
+    subscription.p256dh = p256dh
+    subscription.auth = auth_value
+    subscription.user_agent = request.headers.get("user-agent")
+    subscription.is_active = True
+    subscription.updated_at = datetime.now(timezone.utc)
+
+    db.add(subscription)
+    db.commit()
+
+    return {"ok": True}
+
+
+@router.post("/push/unsubscribe")
+def unsubscribe_push(
+    payload: PushSubscriptionPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Disable browser Push API subscription for current user."""
+    subscription = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.endpoint == payload.endpoint)
+        .first()
+    )
+
+    if subscription and subscription.user_id == current_user.id:
+        subscription.is_active = False
+        db.commit()
+
+    return {"ok": True}
+
+
 
 
 @router.get("/dashboard")

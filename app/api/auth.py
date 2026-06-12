@@ -12,7 +12,9 @@ import hmac
 import json
 import os
 import time
+import secrets
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qsl
 
@@ -20,7 +22,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import User
+from app.models import User, WebSession
 from app.admin import is_admin_telegram_id
 
 
@@ -197,12 +199,105 @@ def get_or_create_user_from_telegram(db: Session, telegram_user: TelegramMiniApp
     return user
 
 
+
+def _web_session_secret() -> str:
+    """Return stable secret for hashing browser session tokens."""
+    return (
+        os.getenv("WEB_SESSION_SECRET", "").strip()
+        or os.getenv("BOT_TOKEN", "").strip()
+        or "dev-web-session-secret"
+    )
+
+
+def hash_web_session_token(token: str) -> str:
+    """Hash raw web session token before storing it in DB."""
+    return hmac.new(
+        key=_web_session_secret().encode("utf-8"),
+        msg=token.encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+
+def create_web_session_for_user(
+    db: Session,
+    user: User,
+    user_agent: str | None = None,
+    title: str | None = None,
+) -> tuple[str, WebSession]:
+    """Create a browser/PWA session token linked to current Telegram user."""
+    raw_token = secrets.token_urlsafe(32)
+    days = int(os.getenv("WEB_SESSION_TTL_DAYS", "180"))
+    expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+
+    session = WebSession(
+        user_id=user.id,
+        token_hash=hash_web_session_token(raw_token),
+        title=title or "iPhone / browser",
+        user_agent=user_agent,
+        is_active=True,
+        expires_at=expires_at,
+    )
+
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    return raw_token, session
+
+
+def get_user_from_web_session(db: Session, raw_token: str) -> User:
+    """Resolve browser/PWA session token to local user."""
+    token_hash = hash_web_session_token(raw_token)
+    now = datetime.now(timezone.utc)
+
+    session = (
+        db.query(WebSession)
+        .filter(
+            WebSession.token_hash == token_hash,
+            WebSession.is_active == True,
+        )
+        .first()
+    )
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Web session is invalid",
+        )
+
+    if session.expires_at and session.expires_at < now:
+        session.is_active = False
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Web session is expired",
+        )
+
+    session.last_used_at = now
+    db.commit()
+
+    return session.user
+
+
 def get_current_user(
     db: Session = Depends(get_db),
     init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    web_session_token: str | None = Header(default=None, alias="X-Web-Session-Token"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> User:
     """FastAPI dependency returning the authenticated local user."""
     debug_telegram_id = os.getenv("MINIAPP_DEBUG_TELEGRAM_ID", "").strip()
+
+    bearer_token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer_token = authorization.split(" ", 1)[1].strip()
+
+    raw_web_token = (web_session_token or bearer_token or "").strip()
+
+    # Prefer fresh Telegram initData when Mini App runs inside Telegram.
+    # This prevents a stale browser token in localStorage from breaking Telegram mode.
+    if not init_data and raw_web_token:
+        return get_user_from_web_session(db, raw_web_token)
 
     if not init_data and debug_telegram_id:
         debug_user = TelegramMiniAppUser(
