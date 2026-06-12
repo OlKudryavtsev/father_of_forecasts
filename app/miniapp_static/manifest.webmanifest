@@ -1,0 +1,31 @@
+{
+  "name": "Отец прогнозов",
+  "short_name": "Отец прогнозов",
+  "description": "Прогнозы, рейтинг и Fantasy ЧМ-2026",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#16a34a",
+  "icons": [
+    {
+      "src": "/miniapp-static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/miniapp-static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/miniapp-static/icons/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

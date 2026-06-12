@@ -535,6 +535,35 @@ def get_push_public_key(
     }
 
 
+@router.get("/push/status")
+def get_push_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return current user's browser/PWA push subscription status on the server."""
+    from app.services.web_push import web_push_enabled
+
+    active_count = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == current_user.id, PushSubscription.is_active == True)
+        .count()
+    )
+    last_subscription = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == current_user.id)
+        .order_by(PushSubscription.id.desc())
+        .first()
+    )
+
+    return {
+        "enabled": web_push_enabled(),
+        "active_subscriptions": active_count,
+        "has_active_subscription": active_count > 0,
+        "last_success_at": last_subscription.last_success_at.isoformat() if last_subscription and last_subscription.last_success_at else None,
+        "last_error": last_subscription.last_error if last_subscription else None,
+    }
+
+
 @router.post("/push/subscribe")
 def subscribe_push(
     payload: PushSubscriptionPayload,
@@ -2253,6 +2282,17 @@ def get_admin_overview(
         .count()
     )
     fantasy_stats_count = db.query(FantasyPlayerMatchStat).count()
+    active_push_subscriptions = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.is_active == True)
+        .count()
+    )
+    push_users_count = (
+        db.query(PushSubscription.user_id)
+        .filter(PushSubscription.is_active == True)
+        .distinct()
+        .count()
+    )
 
     return {
         "matches": [_serialize_admin_match(match) for match in recent_matches],
@@ -2262,6 +2302,8 @@ def get_admin_overview(
             "ready_for_api_sync": sum(1 for match in recent_matches if not match.is_finished and _ensure_utc(match.starts_at) <= now),
             "active_fantasy_players": active_players,
             "fantasy_stat_rows": fantasy_stats_count,
+            "active_push_subscriptions": active_push_subscriptions,
+            "push_users_count": push_users_count,
         },
         "notification_settings": {
             key: _get_app_setting(db, key, default)
@@ -2506,6 +2548,54 @@ def admin_sync_fantasy_player_stats(
         "skipped_matches": skipped,
         "fantasy_teams_updated": teams_updated,
         "errors": errors[:20],
+    }
+
+
+@router.post("/admin/push/test")
+def admin_send_test_push(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Send a test Web Push notification to the current admin's active PWA subscriptions."""
+    _require_miniapp_admin(current_user)
+
+    from app.services.web_push import notify_web_push_subscribers_for_user, web_push_enabled
+
+    active_count = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == current_user.id, PushSubscription.is_active == True)
+        .count()
+    )
+
+    if not web_push_enabled():
+        return {
+            "ok": False,
+            "sent": 0,
+            "active_subscriptions": active_count,
+            "message": "Web Push не настроен на сервере: проверь VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY и pywebpush.",
+        }
+
+    if active_count == 0:
+        return {
+            "ok": False,
+            "sent": 0,
+            "active_subscriptions": 0,
+            "message": "У текущего администратора нет активной PWA push-подписки. Открой web/PWA-версию с экрана Домой и нажми «Включить уведомления».",
+        }
+
+    sent = notify_web_push_subscribers_for_user(
+        db,
+        user_id=current_user.id,
+        title="Отец прогнозов",
+        body="Тестовое push-уведомление работает ✅",
+        url="/app",
+    )
+
+    return {
+        "ok": sent > 0,
+        "sent": sent,
+        "active_subscriptions": active_count,
+        "message": f"Тестовое push-уведомление отправлено: {sent} из {active_count} активных подписок.",
     }
 
 

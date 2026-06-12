@@ -79,6 +79,26 @@ def send_web_push_to_subscription(subscription: PushSubscription, title: str, bo
         return False
 
 
+def notify_web_push_subscribers_for_user(db: Session, user_id: int, title: str, body: str, url: str = "/app") -> int:
+    """Send Web Push notification to one user's active browser/PWA subscriptions."""
+    if not web_push_enabled():
+        return 0
+
+    subscriptions = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == user_id, PushSubscription.is_active == True)
+        .all()
+    )
+    sent = 0
+
+    for subscription in subscriptions:
+        if send_web_push_to_subscription(subscription, title=title, body=body, url=url):
+            sent += 1
+
+    db.commit()
+    return sent
+
+
 def notify_active_web_push_subscribers(db: Session, title: str, body: str, url: str = "/app") -> int:
     """Send Web Push notification to all active subscriptions."""
     if not web_push_enabled():

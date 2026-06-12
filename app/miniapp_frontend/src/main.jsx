@@ -501,14 +501,24 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
-async function ensurePushSubscription() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    throw new Error('Этот браузер не поддерживает Web Push.');
+function assertPushSupported() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error('Этот браузер не поддерживает Web Push. На iPhone открой приложение через ярлык на экране «Домой».');
   }
+}
+
+async function getCurrentPushSubscription() {
+  assertPushSupported();
+  const registration = await navigator.serviceWorker.register('/miniapp-static/sw.js');
+  return registration.pushManager.getSubscription();
+}
+
+async function ensurePushSubscription() {
+  assertPushSupported();
 
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
-    throw new Error('Уведомления не разрешены.');
+    throw new Error('Уведомления не разрешены. Проверь разрешение в настройках iPhone для этого web-приложения.');
   }
 
   const keyResult = await api('/api/webapp/push/public-key');
@@ -518,10 +528,14 @@ async function ensurePushSubscription() {
   }
 
   const registration = await navigator.serviceWorker.register('/miniapp-static/sw.js');
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(keyResult.public_key),
-  });
+  let subscription = await registration.pushManager.getSubscription();
+
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(keyResult.public_key),
+    });
+  }
 
   await api('/api/webapp/push/subscribe', {
     method: 'POST',
@@ -529,6 +543,22 @@ async function ensurePushSubscription() {
   });
 
   return subscription;
+}
+
+async function disablePushSubscription() {
+  const subscription = await getCurrentPushSubscription();
+
+  if (!subscription) {
+    return false;
+  }
+
+  await api('/api/webapp/push/unsubscribe', {
+    method: 'POST',
+    body: JSON.stringify(subscription.toJSON()),
+  });
+
+  await subscription.unsubscribe();
+  return true;
 }
 
 function BrowserAuthGate() {
@@ -556,7 +586,31 @@ function PwaAccessCard() {
   const [webUrl, setWebUrl] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushChecking, setPushChecking] = useState(false);
   const webMode = !isTelegramMode();
+
+  async function refreshPushState() {
+    if (!webMode) return;
+
+    setPushChecking(true);
+    try {
+      const subscription = await getCurrentPushSubscription();
+      const permissionGranted = Notification.permission === 'granted';
+      setPushEnabled(Boolean(subscription && permissionGranted));
+
+      const serverStatus = await api('/api/webapp/push/status').catch(() => null);
+      if (serverStatus?.last_error) {
+        setStatus(`Последняя ошибка push: ${serverStatus.last_error}`);
+      }
+    } catch {
+      setPushEnabled(false);
+    } finally {
+      setPushChecking(false);
+    }
+  }
+
+  useEffect(() => { refreshPushState(); }, [webMode]);
 
   async function createLink() {
     setBusy(true);
@@ -590,11 +644,37 @@ function PwaAccessCard() {
 
     try {
       await ensurePushSubscription();
+      setPushEnabled(true);
       setStatus('Уведомления включены для этой web/PWA-версии.');
     } catch (err) {
       setStatus(err.message);
+      await refreshPushState();
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function disablePush() {
+    setBusy(true);
+    setStatus('');
+
+    try {
+      const unsubscribed = await disablePushSubscription();
+      setPushEnabled(false);
+      setStatus(unsubscribed ? 'Уведомления выключены для этой web/PWA-версии.' : 'Активной push-подписки на этом устройстве не найдено.');
+    } catch (err) {
+      setStatus(err.message);
+      await refreshPushState();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function togglePush() {
+    if (pushEnabled) {
+      await disablePush();
+    } else {
+      await enablePush();
     }
   }
 
@@ -611,13 +691,17 @@ function PwaAccessCard() {
     window.location.reload();
   }
 
+  const pushButtonText = busy
+    ? (pushEnabled ? 'Выключаю...' : 'Подключаю...')
+    : (pushEnabled ? 'Выключить уведомления' : 'Включить уведомления');
+
   return (
     <div className="pwa-access-card">
       <div>
         <strong>{webMode ? 'Web/PWA-версия активна' : 'Web/PWA на iPhone'}</strong>
         <span>
           {webMode
-            ? 'Можно добавить страницу на экран «Домой» и включить push-уведомления.'
+            ? `Push-уведомления: ${pushChecking ? 'проверяю...' : (pushEnabled ? 'включены' : 'выключены')}`
             : 'Создай личную ссылку, открой ее в Safari и сохрани как ярлык.'}
         </span>
       </div>
@@ -637,8 +721,8 @@ function PwaAccessCard() {
 
       {webMode && (
         <>
-          <button type="button" disabled={busy} onClick={enablePush}>
-            {busy ? 'Подключаю...' : 'Включить уведомления'}
+          <button type="button" disabled={busy || pushChecking} onClick={togglePush}>
+            {pushButtonText}
           </button>
           <button type="button" className="danger" disabled={busy} onClick={logoutWeb}>Выйти из web-версии</button>
         </>
@@ -648,7 +732,6 @@ function PwaAccessCard() {
     </div>
   );
 }
-
 
 function Header({ dashboard, onRules, onAdmin }) {
   const stageText = dashboard?.tournament?.current_stage_label || (dashboard?.tournament?.is_started ? 'Турнир идет' : 'До старта');
@@ -2386,6 +2469,10 @@ function AdminPanel() {
     return api('/api/webapp/admin/fantasy/sync-player-stats', { method: 'POST' });
   }
 
+  async function sendTestPush() {
+    return api('/api/webapp/admin/push/test', { method: 'POST' });
+  }
+
   async function toggleGlobalSetting(key, checked) {
     const result = await api(`/api/webapp/admin/settings/${key}`, {
       method: 'POST',
@@ -2413,6 +2500,8 @@ function AdminPanel() {
         <div><b>{data.summary?.finished || 0}</b><span>завершено</span></div>
         <div><b>{data.summary?.ready_for_api_sync || 0}</b><span>к синхронизации</span></div>
         <div><b>{data.summary?.fantasy_stat_rows || 0}</b><span>строк fantasy</span></div>
+        <div><b>{data.summary?.active_push_subscriptions || 0}</b><span>push-подписок</span></div>
+        <div><b>{data.summary?.push_users_count || 0}</b><span>push-пользователей</span></div>
       </section>
 
       <section className="card admin-card">
@@ -2456,7 +2545,16 @@ function AdminPanel() {
       </section>
 
       <section className="card admin-card">
-        <h2>4. Напоминания и уведомления</h2>
+        <h2>4. Push-уведомления</h2>
+        <p className="muted">Отправляет тестовое push-уведомление на текущую web/PWA-подписку администратора.</p>
+        <div className="admin-actions-row">
+          <button className="primary" disabled={busy} onClick={() => runAction(sendTestPush)}>Отправить тестовое push-уведомление</button>
+        </div>
+        <p className="muted small">Активных подписок: {data.summary?.active_push_subscriptions || 0}; пользователей с push: {data.summary?.push_users_count || 0}.</p>
+      </section>
+
+      <section className="card admin-card">
+        <h2>5. Напоминания и уведомления</h2>
         <div className="notification-list">
           {Object.entries(data.notification_settings || {}).map(([key, value]) => (
             <label className="notification-row" key={key}>
