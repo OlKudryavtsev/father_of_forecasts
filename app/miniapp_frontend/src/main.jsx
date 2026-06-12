@@ -188,8 +188,17 @@ function isTelegramMode() {
   return Boolean(initData());
 }
 
+function getCookieValue(name) {
+  return document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(`${name}=`))
+    ?.split('=')
+    .slice(1)
+    .join('=') || '';
+}
+
 function getWebSessionToken() {
-  return localStorage.getItem(WEB_SESSION_KEY) || '';
+  return localStorage.getItem(WEB_SESSION_KEY) || decodeURIComponent(getCookieValue('ff_web_session') || '');
 }
 
 function installWebTokenFromUrl() {

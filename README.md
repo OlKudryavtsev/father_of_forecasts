@@ -1222,3 +1222,8 @@ scripts/data/
 ## Release v2.8 Web/PWA mode
 
 См. `RELEASE_V2_8_WEB_PWA_MODE.md`.
+
+
+## Release v2.8.1 PWA cookie session fix
+
+См. `RELEASE_V2_8_1_PWA_COOKIE_SESSION_FIX.md`.

@@ -9,7 +9,7 @@ import json
 import random
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -500,11 +500,12 @@ def get_web_session_status(
 @router.post("/web-session/logout")
 def logout_web_session(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Revoke current browser session token when present."""
-    raw_token = (request.headers.get("x-web-session-token") or "").strip()
+    raw_token = (request.headers.get("x-web-session-token") or request.cookies.get("ff_web_session") or "").strip()
     if not raw_token:
         auth_header = request.headers.get("authorization") or ""
         if auth_header.lower().startswith("bearer "):
@@ -517,6 +518,7 @@ def logout_web_session(
             session.is_active = False
             db.commit()
 
+    response.delete_cookie(key="ff_web_session", path="/")
     return {"ok": True}
 
 

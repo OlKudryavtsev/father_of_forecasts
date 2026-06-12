@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qsl
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -284,6 +284,7 @@ def get_current_user(
     init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
     web_session_token: str | None = Header(default=None, alias="X-Web-Session-Token"),
     authorization: str | None = Header(default=None, alias="Authorization"),
+    web_session_cookie: str | None = Cookie(default=None, alias="ff_web_session"),
 ) -> User:
     """FastAPI dependency returning the authenticated local user."""
     debug_telegram_id = os.getenv("MINIAPP_DEBUG_TELEGRAM_ID", "").strip()
@@ -292,7 +293,7 @@ def get_current_user(
     if authorization and authorization.lower().startswith("bearer "):
         bearer_token = authorization.split(" ", 1)[1].strip()
 
-    raw_web_token = (web_session_token or bearer_token or "").strip()
+    raw_web_token = (web_session_token or bearer_token or web_session_cookie or "").strip()
 
     # Prefer fresh Telegram initData when Mini App runs inside Telegram.
     # This prevents a stale browser token in localStorage from breaking Telegram mode.

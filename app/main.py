@@ -2,8 +2,8 @@ from datetime import datetime
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -31,14 +31,36 @@ if MINIAPP_STATIC_DIR.exists():
 
 
 @app.get("/app")
-def telegram_mini_app():
-    """Serve Telegram Mini App frontend."""
+def telegram_mini_app(
+    web_token: str | None = Query(default=None),
+    ff_web_session: str | None = Cookie(default=None),
+):
+    """Serve Telegram Mini App/PWA frontend.
+
+    When /app is opened with ?web_token=..., persist it into a cookie.
+    This is important for iOS Home Screen/PWA mode: iOS starts the saved
+    icon from the manifest start_url (/app), so query params/localStorage
+    from Safari are not reliable enough.
+    """
     index_path = MINIAPP_STATIC_DIR / "index.html"
 
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="Mini App frontend is not built")
 
-    return FileResponse(index_path)
+    response = FileResponse(index_path)
+
+    if web_token:
+        response.set_cookie(
+            key="ff_web_session",
+            value=web_token,
+            max_age=60 * 60 * 24 * 180,
+            httponly=False,
+            secure=True,
+            samesite="lax",
+            path="/",
+        )
+
+    return response
 
 
 
