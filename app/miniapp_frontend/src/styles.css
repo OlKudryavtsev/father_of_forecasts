@@ -5845,3 +5845,28 @@ body {
 .father-rating-card small {
   grid-column: 1 / -1;
 }
+
+
+/* v2.5 rating/header polish */
+.rating-points-pill {
+  min-width: 74px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--green-soft);
+  font-size: 13px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.status-section.live-countdown {
+  white-space: nowrap;
+}
+
+.app.theme-light .rating-points-pill {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.12);
+}

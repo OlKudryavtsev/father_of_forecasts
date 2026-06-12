@@ -131,6 +131,57 @@ def _serialize_match(match: Match, user_prediction: Prediction | None = None) ->
     }
 
 
+
+def _stage_label_for_match(match: Match | None) -> str:
+    """Return compact current tournament stage label for header."""
+    if not match:
+        return "До старта"
+
+    stage = (match.stage or "").lower()
+    round_text = (match.match_round or match.api_league_round or "").strip()
+    joined = f"{stage} {round_text}".lower()
+
+    if stage == "group":
+        number = _parse_round_number(match.match_round) or _parse_round_number(match.api_league_round) or 1
+        return f"{number} тур"
+
+    if "round of 16" in joined or "1/8" in joined or "16" in joined or stage in {"r16", "round_16", "last_16"}:
+        return "1/8 финала"
+    if "quarter" in joined or "1/4" in joined or stage in {"quarter", "quarterfinal", "quarter-final"}:
+        return "1/4 финала"
+    if "semi" in joined or "1/2" in joined or stage in {"semi", "semifinal", "semi-final"}:
+        return "1/2 финала"
+    if "third" in joined or "3rd" in joined or "брон" in joined:
+        return "Матч за 3-е место"
+    if "final" in joined or stage == "final":
+        return "Финал"
+
+    return round_text or match.stage or "Турнир"
+
+
+def _current_stage_label(db: Session) -> str:
+    """Return current/nearest tournament stage label for top Mini App header."""
+    now = datetime.now(timezone.utc)
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    if not matches:
+        return "Турнир"
+
+    started = [match for match in matches if _ensure_utc(match.starts_at) <= now]
+    if started:
+        unfinished = [match for match in started if not match.is_finished]
+        if unfinished:
+            return _stage_label_for_match(unfinished[-1])
+        return _stage_label_for_match(started[-1])
+
+    return "До старта"
+
+
 def _match_label(match: Match) -> str:
     """Build a compact human-readable match label."""
     home_name = get_team_name_ru(match.home_team)
@@ -465,6 +516,7 @@ def get_dashboard(
             "has_prediction": tournament_prediction is not None,
             "is_started": is_tournament_started(),
             "starts_at": tournament_starts_at.isoformat(),
+            "current_stage_label": _current_stage_label(db),
         },
     }
 

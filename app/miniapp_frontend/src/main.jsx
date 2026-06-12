@@ -441,8 +441,7 @@ function LoadingCard({ text = 'Загружаю...' }) {
 }
 
 function Header({ dashboard, onRules, onAdmin }) {
-  const now = useNowTick();
-  const countdownText = formatLiveCountdown(dashboard?.tournament?.starts_at, now);
+  const stageText = dashboard?.tournament?.current_stage_label || (dashboard?.tournament?.is_started ? 'Турнир идет' : 'До старта');
 
   return (
     <header className="league-header">
@@ -458,7 +457,7 @@ function Header({ dashboard, onRules, onAdmin }) {
       <div className="league-status-row">
         {dashboard?.user?.is_admin && <button className="header-admin-button" onClick={onAdmin}><Icon name="shield" /> Админ</button>}
         <div className="league-status">
-          <span className="status-section live-countdown">{countdownText}</span>
+          <span className="status-section live-countdown">{stageText}</span>
           <span className="divider" />
           <span className="points">{dashboard?.points ?? 0} очков</span>
           <span className="muted">#{dashboard?.rank || '—'}</span>
@@ -2074,11 +2073,11 @@ function Rating() {
               <div className="rating-player">
                 <strong>{row.name}</strong>
                 <small>
-                  {row.display_points} очков · прогнозы {row.points} · fantasy {row.fantasy_points || 0}
+                  Турнир: {row.tournament_prediction_progress || '0/4'} · прогнозы {row.points} · fantasy {row.fantasy_points || 0}
                 </small>
               </div>
-              <div className={`tournament-progress-pill ${row.has_tournament_prediction ? 'done' : 'empty'}`}>
-                {row.tournament_prediction_progress || '0/4'}
+              <div className="rating-points-pill">
+                {row.display_points} очков
               </div>
             </div>
 

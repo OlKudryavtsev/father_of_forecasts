@@ -1202,3 +1202,8 @@ scripts/data/
 ## OpenAI import hotfix v2.3.2
 
 См. `OPENAI_IMPORT_HOTFIX_V2_3_2.md`.
+
+
+## v2.5 No prediction noise, rating points, current stage header
+
+См. `RELEASE_V2_5_NO_PREDICTION_NOISE_RATING_STAGE.md`.

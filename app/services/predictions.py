@@ -117,18 +117,12 @@ async def save_prediction_and_notify_admins(
         advancement_bet_enabled: bool = False,
         predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
-    """Handle asynchronous bot workflow for save_prediction_and_notify_admins."""
-    from app.services.matches import is_playoff_match
-    from app.services.notifications import notify_admins, notify_group_prediction_saved
-
-    existing_prediction = db.query(Prediction).filter(
-        Prediction.user_id == user.id,
-        Prediction.match_id == match.id,
-    ).first()
-
-    was_update = existing_prediction is not None
-
-    success, text = save_prediction(
+    """Save match prediction without noisy admin/group notifications."""
+    # По просьбе админа отключены уведомления о факте прогноза на матч:
+    # - в групповой чат;
+    # - администраторам в личку.
+    # Само сохранение прогноза и текст ответа пользователю не меняются.
+    return save_prediction(
         db=db,
         user=user,
         match=match,
@@ -137,37 +131,6 @@ async def save_prediction_and_notify_admins(
         advancement_bet_enabled=advancement_bet_enabled,
         predicted_advancing_side=predicted_advancing_side,
     )
-
-    if success:
-        action_text = "обновил прогноз" if was_update else "сделал прогноз"
-
-        advancement_text = ""
-
-        if is_playoff_match(match):
-            if advancement_bet_enabled:
-                if predicted_advancing_side == "home":
-                    advancement_text = f"\nПроход: {match.home_team}"
-                elif predicted_advancing_side == "away":
-                    advancement_text = f"\nПроход: {match.away_team}"
-            else:
-                advancement_text = "\nПроход: не ставил"
-
-        await notify_admins(
-            "🔮 Участник сделал прогноз на матч\n\n"
-            f"{user.display_name} {action_text}\n"
-            f"{format_match_label(match, include_id=True)}\n"
-            f"Прогноз: {pred_home}:{pred_away}"
-            f"{advancement_text}",
-            exclude_telegram_id=user.telegram_id,
-        )
-
-        await notify_group_prediction_saved(
-            user=user,
-            match=match,
-            is_update=was_update,
-        )
-
-    return success, text
 
 
 def user_has_prediction(db, user: User, match: Match) -> bool:
