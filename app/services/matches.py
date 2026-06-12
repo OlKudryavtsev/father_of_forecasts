@@ -5,6 +5,7 @@ from app.constants.categories import PLAYOFF_STAGES
 from app.formatters.matches import format_datetime, format_match_label, format_match_result, format_user_match_prediction
 from app.formatters.misc import format_reminder_offset
 from app.keyboards.matches import build_matches_keyboard
+from app.models import AppSetting
 from app.runtime import (
     APP_TIMEZONE,
     MATCHDAY_TIMEZONE,
@@ -14,6 +15,7 @@ from app.runtime import (
     TOURNAMENT_CODE,
     User,
     bot,
+    GROUP_CHAT_ID_RAW,
     csv,
     datetime,
     io,
@@ -566,6 +568,103 @@ def build_match_card_text(db, user: User, match: Match) -> str:
     return "\n".join(lines)
 
 
+
+def _app_event_sent(db, key: str) -> bool:
+    return db.query(AppSetting).filter(AppSetting.setting_key == key).first() is not None
+
+
+def _mark_app_event_sent(db, key: str):
+    setting = AppSetting(setting_key=key, setting_value="sent")
+    db.add(setting)
+    db.commit()
+
+
+async def _send_group_match_started_notifications(db, now, window_seconds: int):
+    if not GROUP_CHAT_ID_RAW:
+        return
+
+    window_start = now - timedelta(seconds=window_seconds + 60)
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.starts_at <= now,
+            Match.starts_at >= window_start,
+        )
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    for match in matches:
+        key = f"group_match_started:{match.id}"
+        if _app_event_sent(db, key):
+            continue
+
+        text = (
+            "⚽ Матч начался!\n\n"
+            f"{format_match_label(match, include_id=False)}\n"
+            "Прогнозы раскрыты. Сейчас самое время проверить, кто снова поставил 1:1 и делает вид, что так и планировал."
+        )
+
+        try:
+            await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
+            _mark_app_event_sent(db, key)
+        except Exception as error:
+            print(f"Failed to send group match-start notification: {error}")
+
+
+async def _send_group_match_finished_notifications(db):
+    if not GROUP_CHAT_ID_RAW:
+        return
+
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished == True,
+            Match.score_home.isnot(None),
+            Match.score_away.isnot(None),
+        )
+        .order_by(Match.starts_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    for match in matches:
+        key = f"group_match_finished:{match.id}"
+        if _app_event_sent(db, key):
+            continue
+
+        predictions = db.query(Prediction, User).join(User, User.id == Prediction.user_id).filter(Prediction.match_id == match.id).all()
+        exact = []
+        outcome = []
+        miss = []
+
+        for prediction, user in predictions:
+            label = f"{user.display_name} ({prediction.pred_home}:{prediction.pred_away})"
+            if prediction.score_points == 3:
+                exact.append(label)
+            elif prediction.score_points == 1:
+                outcome.append(label)
+            else:
+                miss.append(label)
+
+        text = (
+            "🏁 Матч окончен. Отец достает красную ручку.\n\n"
+            f"{format_match_label(match, include_id=False)}\n"
+            f"Итог: {match.score_home}:{match.score_away}\n\n"
+            f"🎯 Точный счет: {', '.join(exact) if exact else 'никто. Коллективное мимо, но с достоинством.'}\n"
+            f"🔵 Исход: {', '.join(outcome) if outcome else 'никто.'}\n"
+            f"🔴 Мимо: {', '.join(miss) if miss else 'никто не пострадал.'}\n\n"
+            "Если ваш прогноз не зашел — это не ошибка, это авторская трактовка футбола."
+        )
+
+        try:
+            await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
+            _mark_app_event_sent(db, key)
+        except Exception as error:
+            print(f"Failed to send group match-finish notification: {error}")
+
 async def send_match_reminders_once():
     """Handle asynchronous bot workflow for send_match_reminders_once."""
     from app.jobs.reminders import (
@@ -586,6 +685,9 @@ async def send_match_reminders_once():
 
         offsets = get_reminder_offsets_minutes()
         check_interval_seconds = get_reminder_check_interval_seconds()
+
+        await _send_group_match_started_notifications(db, now, check_interval_seconds)
+        await _send_group_match_finished_notifications(db)
 
         if not offsets:
             return

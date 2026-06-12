@@ -5729,3 +5729,119 @@ body {
   gap: 0;
   text-align: center;
 }
+
+/* v2.4 tournament lock, Father predictions and participant result highlights */
+.tournament-mini-head .tournament-mini-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tournament-mini-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.tournament-mini-grid button:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.tournament-predictions-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.tournament-prediction-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.tournament-prediction-row div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.tournament-prediction-row span,
+.tournament-prediction-row em {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.participant-row.result-exact {
+  border-color: rgba(34,197,94,0.42);
+  background: rgba(34,197,94,0.12);
+}
+
+.participant-row.result-exact b {
+  color: #22c55e;
+}
+
+.participant-row.result-outcome {
+  border-color: rgba(59,130,246,0.42);
+  background: rgba(59,130,246,0.12);
+}
+
+.participant-row.result-outcome b {
+  color: #60a5fa;
+}
+
+.participant-row.result-miss {
+  border-color: rgba(239,68,68,0.38);
+  background: rgba(239,68,68,0.11);
+}
+
+.participant-row.result-miss b {
+  color: #f87171;
+}
+
+.participant-row.father-row {
+  border-style: dashed;
+  box-shadow: inset 0 0 0 1px rgba(244,191,54,0.24);
+}
+
+.father-rating-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(244,191,54,0.14), rgba(59,130,246,0.10));
+  border: 1px dashed rgba(244,191,54,0.38);
+}
+
+.father-rating-card strong,
+.father-rating-card span,
+.father-rating-card small {
+  display: block;
+}
+
+.father-rating-card span,
+.father-rating-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.father-rating-card b {
+  color: var(--gold);
+  font-size: 20px;
+}
+
+.father-rating-card small {
+  grid-column: 1 / -1;
+}

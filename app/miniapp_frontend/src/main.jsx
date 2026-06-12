@@ -468,9 +468,10 @@ function Header({ dashboard, onRules, onAdmin }) {
   );
 }
 
-function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, setTab }) {
+function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournamentParticipants, setTab }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
   const p = tournamentPrediction?.prediction;
+  const tournamentClosed = Boolean(tournamentPrediction?.is_closed || dashboard?.tournament?.is_started);
   const items = [
     { key: 'champion', label: 'Победитель', value: p?.champion, points: '+15', icon: 'cup' },
     { key: 'runner_up', label: '2-е место', value: p?.runner_up, points: '+10', icon: 'rank' },
@@ -492,15 +493,18 @@ function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, setTab })
       <section className="tournament-mini">
         <div className="tournament-mini-head">
           <h2>Прогнозы на турнир</h2>
-          <span>{p ? '4/4' : '0/4'}</span>
+          <div className="tournament-mini-actions">
+            <button type="button" onClick={onTournamentParticipants}>Участники</button>
+            <span>{tournamentClosed ? 'закрыто' : (p ? '4/4' : '0/4')}</span>
+          </div>
         </div>
         <div className="tournament-mini-grid">
           {items.map((item) => (
-            <button key={item.key} onClick={() => onTournamentPick(item.key)}>
+            <button key={item.key} disabled={tournamentClosed} onClick={() => !tournamentClosed && onTournamentPick(item.key)}>
               <i><Icon name={item.icon} /></i>
               <span>{item.label}</span>
-              <strong>{item.value || 'Выбрать'}</strong>
-              <small>{item.points}</small>
+              <strong>{item.value || (tournamentClosed ? 'Нет прогноза' : 'Выбрать')}</strong>
+              <small>{tournamentClosed ? 'закрыто' : item.points}</small>
             </button>
           ))}
         </div>
@@ -582,7 +586,7 @@ function MatchCard({ match, onPredict, onForecast, onParticipants, showDistribut
       <div className="match-actions">
         {!locked && <button onClick={() => onPredict(match)}>{match.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}</button>}
         <button onClick={() => onParticipants(match)}>Участники</button>
-        <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>
+        {!locked && <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>}
       </div>
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
@@ -927,6 +931,51 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
 }
 
 
+function TournamentPredictionsModal({ onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    api('/api/webapp/tournament-predictions')
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, []);
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card tournament-predictions-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>Прогнозы участников на турнир</h2>
+        <p className="muted">Турнир уже начался — прогнозы открыты для просмотра и закрыты для редактирования.</p>
+        {error && <p className="error-text">{error.message}</p>}
+        {!error && !data && <LoadingCard text="Загружаю турнирные прогнозы..." />}
+        {data && (
+          <div className="tournament-predictions-list">
+            {(data.rows || []).map((row) => (
+              <article key={row.user_name} className={`tournament-prediction-row ${row.has_prediction ? '' : 'empty'}`}>
+                <strong>{row.user_name}</strong>
+                {row.prediction ? (
+                  <div>
+                    <span>🏆 {row.prediction.champion}</span>
+                    <span>🥈 {row.prediction.runner_up}</span>
+                    <span>🥉 {row.prediction.third_place}</span>
+                    <span>⚽ {row.prediction.top_scorer}</span>
+                  </div>
+                ) : (
+                  <em>{data.revealed ? 'нет прогноза' : 'скрыто до старта'}</em>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+
 function MatchParticipantsModal({ match, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -980,8 +1029,14 @@ function MatchParticipantsModal({ match, onClose }) {
               </div>
             ) : (
               <div className="participants-list">
+                {data.father_prediction && (
+                  <div className={`participant-row father-row ${data.father_prediction.result_class ? `result-${data.father_prediction.result_class}` : ''}`}>
+                    <span>🤖 Отец прогнозов</span>
+                    <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
+                  </div>
+                )}
                 {participants.map((participant) => (
-                  <div className="participant-row" key={participant.user_id}>
+                  <div className={`participant-row ${participant.result_class ? `result-${participant.result_class}` : ''}`} key={participant.user_id}>
                     <span>{participant.display_name}</span>
                     {data.has_started ? (
                       <b>{participant.pred_home}:{participant.pred_away}</b>
@@ -1981,6 +2036,7 @@ function Rating() {
   if (error) return <ErrorCard error={error} />;
   if (!data) return <LoadingCard />;
 
+  const fatherRow = data.father_row;
   const rows = [...(data.rows || [])]
     .map((row) => ({
       ...row,
@@ -1998,6 +2054,17 @@ function Rating() {
         <strong>Учитывать Fantasy</strong>
         <small>{includeFantasy ? 'очки прогноза + fantasy' : 'только прогнозы'}</small>
       </label>
+
+      {fatherRow && (
+        <section className="father-rating-card">
+          <div>
+            <strong>🤖 Отец прогнозов</strong>
+            <span>Вне общего зачета</span>
+          </div>
+          <b>{fatherRow.points || 0} очков</b>
+          <small>{fatherRow.match_predictions_count || 0} прогнозов · {fatherRow.exact_scores || 0} точных · {fatherRow.outcomes || 0} исходов · {fatherRow.accuracy_percent || 0}%</small>
+        </section>
+      )}
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row, index) => (
@@ -2635,6 +2702,7 @@ function App() {
   const [forecastMatch, setForecastMatch] = useState(null);
   const [participantsMatch, setParticipantsMatch] = useState(null);
   const [tournamentPickField, setTournamentPickField] = useState(null);
+  const [tournamentPredictionsOpen, setTournamentPredictionsOpen] = useState(false);
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -2676,7 +2744,7 @@ function App() {
 
       {tab === 'matches' && (
         <>
-          <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} setTab={setTab} />
+          <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} onTournamentParticipants={() => setTournamentPredictionsOpen(true)} setTab={setTab} />
           <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} onParticipants={setParticipantsMatch} />
         </>
       )}
@@ -2699,7 +2767,8 @@ function App() {
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {participantsMatch && <MatchParticipantsModal match={participantsMatch} onClose={() => setParticipantsMatch(null)} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
-      {tournamentPickField && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
+      {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} />}
+      {tournamentPickField && !tournamentPrediction?.is_closed && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   );

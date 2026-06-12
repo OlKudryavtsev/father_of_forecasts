@@ -161,6 +161,25 @@ class TournamentResult(Base):
 
 
 
+
+class FatherMatchPrediction(Base):
+    __tablename__ = "father_match_predictions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, unique=True, index=True)
+
+    pred_home = Column(Integer, nullable=False)
+    pred_away = Column(Integer, nullable=False)
+    outcome = Column(String, nullable=False)
+    confidence = Column(Integer, nullable=True)
+    source = Column(String, nullable=False, default="ai")
+    forecast_text = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    match = relationship("Match")
+
 class FantasyPlayer(Base):
     __tablename__ = "fantasy_players"
 

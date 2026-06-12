@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime, timezone
 import json
 import random
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -17,6 +18,7 @@ from app.api.auth import get_current_user, get_db
 from app.api_football import ApiFootballClient
 from app.models import (
     AppSetting,
+    FatherMatchPrediction,
     FantasyPlayer,
     FantasyPlayerMatchStat,
     FantasyTeam,
@@ -242,6 +244,126 @@ def _notification_settings_for_user(db: Session, user: User) -> dict:
 
 
 
+
+def _score_outcome(home: int, away: int) -> str:
+    if home > away:
+        return "home"
+    if away > home:
+        return "away"
+    return "draw"
+
+
+def _father_builtin_score(db: Session, match: Match) -> tuple[int, int] | None:
+    """Return hardcoded Father forecast for already known first two matches."""
+    if getattr(match, "fifa_match_no", None) == 1:
+        return (1, 0)
+    if getattr(match, "fifa_match_no", None) == 2:
+        return (1, 1)
+
+    first_matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc(), Match.id.asc())
+        .limit(2)
+        .all()
+    )
+
+    if len(first_matches) > 0 and first_matches[0].id == match.id:
+        return (1, 0)
+    if len(first_matches) > 1 and first_matches[1].id == match.id:
+        return (1, 1)
+
+    return None
+
+
+def _parse_father_score_from_text(text: str) -> tuple[int, int] | None:
+    match = re.search(r"Прогноз счета:\s*(\d+)\s*[:—-]\s*(\d+)", text or "", flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.search(r"(?:счет|прогноз)[^0-9]{0,20}(\d+)\s*[:—-]\s*(\d+)", text or "", flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def _serialize_father_prediction(prediction: FatherMatchPrediction | None, match: Match | None = None) -> dict | None:
+    if not prediction:
+        return None
+
+    points = None
+    result_class = None
+    if match and match.is_finished and match.score_home is not None and match.score_away is not None:
+        if prediction.pred_home == match.score_home and prediction.pred_away == match.score_away:
+            points = 3
+            result_class = "exact"
+        elif _score_outcome(prediction.pred_home, prediction.pred_away) == _score_outcome(match.score_home, match.score_away):
+            points = 1
+            result_class = "outcome"
+        else:
+            points = 0
+            result_class = "miss"
+
+    return {
+        "id": prediction.id,
+        "match_id": prediction.match_id,
+        "pred_home": prediction.pred_home,
+        "pred_away": prediction.pred_away,
+        "outcome": prediction.outcome,
+        "confidence": prediction.confidence,
+        "source": prediction.source,
+        "forecast_text": prediction.forecast_text,
+        "points": points,
+        "result_class": result_class,
+    }
+
+
+def _ensure_father_match_prediction(db: Session, match: Match, allow_ai: bool = True) -> FatherMatchPrediction:
+    existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
+    if existing:
+        return existing
+
+    score = _father_builtin_score(db, match)
+    source = "seed"
+    text = None
+
+    if score is None and allow_ai:
+        try:
+            text = build_forecast_text(db, match)
+            score = _parse_father_score_from_text(text)
+            source = "ai"
+        except Exception as error:
+            text = f"Прогноз Отца временно недоступен, использован осторожный fallback 1:1. Ошибка: {error}"
+            score = (1, 1)
+            source = "fallback"
+
+    if score is None:
+        score = (1, 1)
+        source = "fallback"
+        text = "Прогноз Отца: 1:1. Осторожная ничья, потому что Отец сегодня без хрустального мяча."
+
+    pred_home, pred_away = score
+    if text is None:
+        text = (
+            "🤖 Прогноз Отца прогнозов\n\n"
+            f"{match.home_team} — {match.away_team}\n"
+            f"Прогноз счета: {pred_home}:{pred_away}\n\n"
+            "Зафиксировано автоматически и больше не меняется после старта матча."
+        )
+
+    prediction = FatherMatchPrediction(
+        match_id=match.id,
+        pred_home=pred_home,
+        pred_away=pred_away,
+        outcome=_score_outcome(pred_home, pred_away),
+        confidence=None,
+        source=source,
+        forecast_text=text,
+    )
+    db.add(prediction)
+    db.commit()
+    db.refresh(prediction)
+    return prediction
+
 def _prediction_by_match_id(db: Session, user: User, matches: list[Match]) -> dict[int, Prediction]:
     """Return user's predictions mapped by match id."""
     match_ids = [match.id for match in matches]
@@ -427,6 +549,15 @@ def get_match_predictions_visibility(
         }
 
         if has_started:
+            result_class = None
+            if match.is_finished and match.score_home is not None and match.score_away is not None:
+                if prediction.score_points == 3:
+                    result_class = "exact"
+                elif prediction.score_points == 1:
+                    result_class = "outcome"
+                else:
+                    result_class = "miss"
+
             item.update(
                 {
                     "pred_home": prediction.pred_home,
@@ -436,16 +567,20 @@ def get_match_predictions_visibility(
                     "score_points": prediction.score_points or 0,
                     "advancement_points": prediction.advancement_points or 0,
                     "points": prediction.points or 0,
+                    "result_class": result_class,
                 }
             )
 
         participants.append(item)
+
+    father_prediction = _ensure_father_match_prediction(db, match, allow_ai=True) if has_started else None
 
     return {
         "match": _serialize_match(match),
         "has_started": has_started,
         "participants_count": len(participants),
         "participants": participants,
+        "father_prediction": _serialize_father_prediction(father_prediction, match) if father_prediction else None,
     }
 
 
@@ -461,12 +596,12 @@ async def get_forecast_for_match(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    try:
-        text = await asyncio.to_thread(build_forecast_text, db, match)
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Forecast generation failed: {error}") from error
-
-    return {"match_id": match.id, "text": text}
+    prediction = _ensure_father_match_prediction(db, match, allow_ai=True)
+    return {
+        "match_id": match.id,
+        "text": prediction.forecast_text or f"Прогноз счета: {prediction.pred_home}:{prediction.pred_away}",
+        "father_prediction": _serialize_father_prediction(prediction, match),
+    }
 
 
 @router.get("/tournament-teams")
@@ -565,6 +700,42 @@ def get_table(
 
     available_matches_count = len(get_all_available_matches(db, limit=1000))
 
+    father_predictions = db.query(FatherMatchPrediction).join(Match, FatherMatchPrediction.match_id == Match.id).filter(Match.tournament_code == TOURNAMENT_CODE).all()
+    father_points = 0
+    father_exact = 0
+    father_outcomes = 0
+    father_total = 0
+    for fp in father_predictions:
+        match = fp.match
+        if not match or not match.is_finished or match.score_home is None or match.score_away is None:
+            continue
+        father_total += 1
+        if fp.pred_home == match.score_home and fp.pred_away == match.score_away:
+            father_points += 3
+            father_exact += 1
+        elif _score_outcome(fp.pred_home, fp.pred_away) == _score_outcome(match.score_home, match.score_away):
+            father_points += 1
+            father_outcomes += 1
+
+    father_row = {
+        "name": "🤖 Отец прогнозов",
+        "points": father_points,
+        "match_points": father_points,
+        "tournament_points": 0,
+        "fantasy_points": 0,
+        "total_predictions": father_total,
+        "match_predictions_count": father_total,
+        "match_predictions_available": available_matches_count,
+        "match_predictions_progress": f"{father_total}/{available_matches_count}" if available_matches_count else str(father_total),
+        "exact_scores": father_exact,
+        "outcomes": father_outcomes,
+        "advancement_plus": 0,
+        "advancement_minus": 0,
+        "successful_predictions": father_exact + father_outcomes,
+        "accuracy_percent": round((father_exact + father_outcomes) * 100 / max(1, father_total)),
+        "is_father": True,
+    }
+
     for index, row in enumerate(rows, start=1):
         user = users_by_name.get(row["name"])
         tournament_prediction = None
@@ -632,7 +803,7 @@ def get_table(
         row["successful_predictions"] = successful_predictions
         row["accuracy_percent"] = round(successful_predictions * 100 / accuracy_base)
 
-    return {"rows": rows}
+    return {"rows": rows, "father_row": father_row}
 
 
 @router.get("/tournament-forecast")
