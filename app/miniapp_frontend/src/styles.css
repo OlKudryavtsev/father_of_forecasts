@@ -6473,26 +6473,5 @@ body {
   flex: 0 0 auto;
 }
 
-.video-available-badge {
-  min-height: 25px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0 9px;
-  color: var(--blue);
-  background: var(--blue-soft);
-  border: 1px solid rgba(90, 141, 255, 0.18);
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.035em;
-  white-space: nowrap;
-}
 
-@media (max-width: 430px) {
-  .video-available-badge {
-    max-width: 112px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
+

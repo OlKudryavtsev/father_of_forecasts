@@ -375,15 +375,11 @@ def _load_candidate_matches(db: Session, start_at: datetime, end_at: datetime) -
 
 
 
-NOTIFIABLE_VIDEO_TYPES = {"highlights", "review", "full_replay"}
+NOTIFIABLE_VIDEO_TYPES = {"highlights"}
 
 
 def _video_push_title(video_type: str) -> str:
-    if video_type == "review":
-        return "Появился обзор матча"
-    if video_type == "full_replay":
-        return "Появилась запись матча"
-    return "Появились хайлайты матча"
+    return "Появился обзор матча"
 
 
 def _match_push_label(match: Match) -> str:
@@ -393,7 +389,7 @@ def _match_push_label(match: Match) -> str:
 
 
 def _notify_new_match_videos(db: Session, videos: list[MatchVideo]) -> int:
-    """Send one PWA push per newly active review/highlights/full replay."""
+    """Send one PWA push per newly active highlights video."""
     sent_total = 0
     now = datetime.now(timezone.utc)
     for video in videos:

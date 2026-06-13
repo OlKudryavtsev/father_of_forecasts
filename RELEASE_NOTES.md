@@ -1,4 +1,11 @@
 
+## v2.8.9 — Match video UX tuning
+
+- Removed the text badge "Видео доступно" from match cards to keep group/stage labels compact.
+- Kept the compact 🎥 indicator for matches with active videos.
+- Limited PWA push notifications for match videos to newly added highlights only ("Голы и лучшие моменты").
+
+
 ## v2.8.8 — Match video UX and push notifications
 
 - Добавлен push при появлении нового активного видео матча Match TV: обзор, хайлайты или полная запись.

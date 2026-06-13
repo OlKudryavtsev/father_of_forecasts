@@ -1108,7 +1108,6 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
         <span className="group-pill">{match.group_code ? `Группа ${match.group_code}` : match.stage}</span>
         <span className="round-pill">{formatRoundLabel(match)}</span>
         {hasVideos && <span className="video-mini-icon" aria-label="Видео доступно" title="Видео доступно">🎥</span>}
-        {hasVideos && <span className="video-available-badge">Видео доступно</span>}
         <span className={match.is_finished ? 'dot dot-finished' : 'dot'} />
         <span className="muted small match-date">{formatDateTime(match.starts_at)}</span>
       </div>
