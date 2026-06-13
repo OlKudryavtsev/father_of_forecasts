@@ -98,6 +98,7 @@ class Match(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     predictions = relationship("Prediction", back_populates="match")
+    videos = relationship("MatchVideo", back_populates="match", cascade="all, delete-orphan")
 
     fifa_match_no = Column(Integer, nullable=True)
 
@@ -121,6 +122,27 @@ class Match(Base):
     status_long = Column(String, nullable=True)
 
     synced_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class MatchVideo(Base):
+    __tablename__ = "match_videos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+
+    source = Column(String, nullable=False, default="matchtv")
+    video_type = Column(String, nullable=False, default="highlights")
+    title = Column(String, nullable=False)
+    url = Column(Text, nullable=False)
+
+    is_active = Column(Boolean, default=True, index=True)
+    priority = Column(Integer, default=100)
+
+    available_from = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    match = relationship("Match", back_populates="videos")
 
 
 class Prediction(Base):

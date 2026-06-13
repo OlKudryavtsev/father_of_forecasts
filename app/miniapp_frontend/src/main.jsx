@@ -28,6 +28,31 @@ const QUICK_SCORES = [
   [0, 1],
 ];
 
+const VIDEO_TYPES = [
+  { id: 'live', label: 'Трансляция', short: 'Live' },
+  { id: 'highlights', label: 'Голы и лучшие моменты', short: 'Хайлайты' },
+  { id: 'review', label: 'Обзор матча', short: 'Обзор' },
+  { id: 'full_replay', label: 'Полная запись', short: 'Запись' },
+  { id: 'goal', label: 'Гол', short: 'Гол' },
+  { id: 'moment', label: 'Момент', short: 'Момент' },
+  { id: 'other', label: 'Другое видео', short: 'Видео' },
+];
+
+function videoTypeLabel(type, short = false) {
+  const item = VIDEO_TYPES.find((entry) => entry.id === type);
+  return item ? (short ? item.short : item.label) : 'Видео';
+}
+
+function openExternalUrl(url) {
+  if (!url) return;
+  if (tg?.openLink) {
+    tg.openLink(url, { try_instant_view: false });
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+
 function Icon({ name, className = '' }) {
   const common = {
     className: `svg-icon ${className}`,
@@ -171,6 +196,15 @@ function Icon({ name, className = '' }) {
       <svg {...common}>
         <rect x="5" y="8" width="14" height="10" rx="3" />
         <path d="M12 8V4M9 13h.01M15 13h.01M8 21h8" />
+      </svg>
+    );
+  }
+
+  if (name === 'video') {
+    return (
+      <svg {...common}>
+        <rect x="3" y="6" width="13" height="12" rx="3" />
+        <path d="m16 10 5-3v10l-5-3v-4Z" />
       </svg>
     );
   }
@@ -830,6 +864,32 @@ function PredictionBars({ distribution }) {
   );
 }
 
+
+function MatchVideoBlock({ videos }) {
+  const activeVideos = (videos || []).filter((video) => video?.is_active !== false && video?.url);
+  if (!activeVideos.length) return null;
+
+  const live = activeVideos.some((video) => video.video_type === 'live');
+
+  return (
+    <div className={`match-video-block ${live ? 'has-live' : ''}`}>
+      <div className="match-video-head">
+        <span><Icon name="video" /> Видео</span>
+        {live && <b>live</b>}
+      </div>
+      <div className="match-video-list">
+        {activeVideos.map((video) => (
+          <button key={video.id || video.url} type="button" onClick={() => openExternalUrl(video.url)}>
+            <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
+            <strong>{video.title || videoTypeLabel(video.video_type)}</strong>
+            <small>{video.source || 'video'} · {videoTypeLabel(video.video_type, true)}</small>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MatchCard({ match, onPredict, onForecast, onParticipants, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
@@ -880,6 +940,8 @@ function MatchCard({ match, onPredict, onForecast, onParticipants, showDistribut
         <button onClick={() => onParticipants(match)}>Участники</button>
         {!locked && <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>}
       </div>
+
+      <MatchVideoBlock videos={match.videos} />
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
     </article>
@@ -949,7 +1011,6 @@ function MatchCenter({ onPredict, onForecast, onParticipants }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
   async function load() {
     setLoading(true);
     setError(null);
@@ -2407,6 +2468,12 @@ function AdminPanel() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [videos, setVideos] = useState([]);
+  const [videoType, setVideoType] = useState('live');
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoPriority, setVideoPriority] = useState('100');
+  const [videoActive, setVideoActive] = useState(true);
 
   async function load() {
     setError(null);
@@ -2422,6 +2489,24 @@ function AdminPanel() {
   }
 
   useEffect(() => { load(); }, []);
+
+  async function loadVideos(matchId = selectedMatchId) {
+    if (!matchId) {
+      setVideos([]);
+      return;
+    }
+
+    try {
+      const result = await api(`/api/webapp/admin/matches/${matchId}/videos`);
+      setVideos(result.videos || []);
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  useEffect(() => {
+    if (selectedMatchId) loadVideos(selectedMatchId);
+  }, [selectedMatchId]);
 
   const matches = data?.matches || [];
   const selectedMatch = matches.find((match) => String(match.id) === String(selectedMatchId));
@@ -2473,6 +2558,59 @@ function AdminPanel() {
     return api('/api/webapp/admin/push/test', { method: 'POST' });
   }
 
+  function resetVideoForm() {
+    setVideoTitle('');
+    setVideoUrl('');
+    setVideoType('live');
+    setVideoPriority('100');
+    setVideoActive(true);
+  }
+
+  async function addMatchVideo() {
+    if (!selectedMatchId) throw new Error('Выберите матч.');
+    if (!videoTitle.trim()) throw new Error('Укажите название видео.');
+    if (!videoUrl.trim()) throw new Error('Укажите ссылку на видео.');
+
+    const result = await api(`/api/webapp/admin/matches/${selectedMatchId}/videos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        video_type: videoType,
+        title: videoTitle.trim(),
+        url: videoUrl.trim(),
+        source: 'matchtv',
+        is_active: videoActive,
+        priority: Number(videoPriority || 100),
+      }),
+    });
+
+    resetVideoForm();
+    await loadVideos(selectedMatchId);
+    return result;
+  }
+
+  async function toggleMatchVideo(video) {
+    const result = await api(`/api/webapp/admin/match-videos/${video.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        video_type: video.video_type || 'other',
+        title: video.title || 'Видео',
+        url: video.url,
+        source: video.source || 'matchtv',
+        is_active: !video.is_active,
+        priority: Number(video.priority || 100),
+      }),
+    });
+
+    await loadVideos(selectedMatchId);
+    return result;
+  }
+
+  async function deleteMatchVideo(video) {
+    const result = await api(`/api/webapp/admin/match-videos/${video.id}`, { method: 'DELETE' });
+    await loadVideos(selectedMatchId);
+    return result;
+  }
+
   async function toggleGlobalSetting(key, checked) {
     const result = await api(`/api/webapp/admin/settings/${key}`, {
       method: 'POST',
@@ -2514,6 +2652,47 @@ function AdminPanel() {
           ))}
         </select>
         {selectedMatch && <p className="muted small">{formatDateTime(selectedMatch.starts_at)} · {selectedMatch.status_short || 'статус не задан'} · fixture {selectedMatch.external_fixture_id || '—'}</p>}
+      </section>
+
+      <section className="card admin-card video-admin-card">
+        <div className="admin-card-head">
+          <h2>Видео матча</h2>
+          <span>{videos.length || 0}</span>
+        </div>
+        <p className="muted small">Добавь официальную ссылку Match TV: во время матча — трансляцию, после матча — обзор или лучшие моменты.</p>
+
+        <div className="video-admin-form">
+          <select value={videoType} onChange={(event) => setVideoType(event.target.value)}>
+            {VIDEO_TYPES.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
+          </select>
+          <input value={videoTitle} onChange={(event) => setVideoTitle(event.target.value)} placeholder="Название: Смотреть трансляцию" />
+          <input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://matchtv.ru/..." />
+          <div className="video-admin-inline">
+            <input type="number" min="0" max="10000" value={videoPriority} onChange={(event) => setVideoPriority(event.target.value)} placeholder="Порядок" />
+            <label className="video-active-toggle">
+              <input type="checkbox" checked={videoActive} onChange={(event) => setVideoActive(event.target.checked)} />
+              <span>Показывать</span>
+            </label>
+          </div>
+          <button className="primary full" disabled={busy} onClick={() => runAction(addMatchVideo)}>Добавить видео</button>
+        </div>
+
+        <div className="video-admin-list">
+          {videos.length === 0 && <p className="muted small">Для выбранного матча видео пока не добавлено.</p>}
+          {videos.map((video) => (
+            <div className={`video-admin-item ${video.is_active ? '' : 'is-disabled'}`} key={video.id}>
+              <div>
+                <strong>{video.title}</strong>
+                <small>{videoTypeLabel(video.video_type)} · {video.source || 'matchtv'} · порядок {video.priority || 100}</small>
+              </div>
+              <div className="video-admin-actions">
+                <button type="button" onClick={() => openExternalUrl(video.url)}>Открыть</button>
+                <button type="button" disabled={busy} onClick={() => runAction(() => toggleMatchVideo(video))}>{video.is_active ? 'Скрыть' : 'Показать'}</button>
+                <button type="button" disabled={busy} onClick={() => runAction(() => deleteMatchVideo(video))}>Удалить</button>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="card admin-card">

@@ -28,6 +28,7 @@ from app.models import (
     FantasyTeamPlayer,
     HistoricalArchiveCard,
     Match,
+    MatchVideo,
     Prediction,
     QuizAnswer,
     QuizQuestion,
@@ -80,6 +81,15 @@ class MatchResultPayload(BaseModel):
     score_home: int = Field(ge=0, le=30)
     score_away: int = Field(ge=0, le=30)
     winner_side: str | None = None
+
+
+class MatchVideoPayload(BaseModel):
+    video_type: str = Field(default="highlights", max_length=40)
+    title: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=8, max_length=1000)
+    source: str = Field(default="matchtv", max_length=80)
+    is_active: bool = True
+    priority: int = Field(default=100, ge=0, le=10000)
 
 
 class NotificationSettingsPayload(BaseModel):
@@ -222,6 +232,62 @@ def _serialize_prediction(prediction: Prediction) -> dict:
         "points": prediction.points or 0,
     }
 
+
+
+VALID_MATCH_VIDEO_TYPES = {"live", "highlights", "review", "full_replay", "goal", "moment", "other"}
+
+
+def _normalize_match_video_payload(payload: MatchVideoPayload) -> dict:
+    """Validate and normalize a match video payload."""
+    video_type = (payload.video_type or "other").strip().lower()
+    if video_type not in VALID_MATCH_VIDEO_TYPES:
+        video_type = "other"
+
+    url = (payload.url or "").strip()
+    if not re.match(r"^https?://", url, flags=re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="URL должен начинаться с http:// или https://")
+
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Укажите название видео")
+
+    source = (payload.source or "matchtv").strip() or "matchtv"
+
+    return {
+        "video_type": video_type,
+        "title": title,
+        "url": url,
+        "source": source,
+        "is_active": bool(payload.is_active),
+        "priority": int(payload.priority or 100),
+    }
+
+
+def _serialize_match_video(video: MatchVideo) -> dict:
+    """Serialize a match video link for Mini App/API."""
+    return {
+        "id": video.id,
+        "match_id": video.match_id,
+        "source": video.source,
+        "video_type": video.video_type,
+        "title": video.title,
+        "url": video.url,
+        "is_active": bool(video.is_active),
+        "priority": video.priority or 100,
+        "available_from": _ensure_utc(video.available_from).isoformat() if video.available_from else None,
+        "created_at": _ensure_utc(video.created_at).isoformat() if video.created_at else None,
+        "updated_at": _ensure_utc(video.updated_at).isoformat() if video.updated_at else None,
+    }
+
+
+def _active_videos_for_match(db: Session, match_id: int) -> list[MatchVideo]:
+    """Return active video links for a match in display order."""
+    return (
+        db.query(MatchVideo)
+        .filter(MatchVideo.match_id == match_id, MatchVideo.is_active == True)
+        .order_by(MatchVideo.priority.asc(), MatchVideo.id.asc())
+        .all()
+    )
 
 
 def _require_miniapp_admin(user: User) -> None:
@@ -2096,6 +2162,7 @@ def _serialize_admin_match(match: Match) -> dict:
         "is_finished": bool(match.is_finished),
         "status_short": match.status_short,
         "status_long": match.status_long,
+        "videos_count": len(getattr(match, "videos", []) or []),
     }
 
 
@@ -2270,6 +2337,106 @@ def get_admin_overview(
             for key, default in ADMIN_NOTIFICATION_SETTING_KEYS.items()
         },
     }
+
+
+@router.get("/admin/matches/{match_id}/videos")
+def admin_get_match_videos(
+    match_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return video links configured for a match."""
+    _require_miniapp_admin(current_user)
+
+    match = db.query(Match).filter(Match.id == match_id, Match.tournament_code == TOURNAMENT_CODE).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден")
+
+    videos = (
+        db.query(MatchVideo)
+        .filter(MatchVideo.match_id == match.id)
+        .order_by(MatchVideo.priority.asc(), MatchVideo.id.asc())
+        .all()
+    )
+
+    return {
+        "match": _serialize_admin_match(match),
+        "videos": [_serialize_match_video(video) for video in videos],
+    }
+
+
+@router.post("/admin/matches/{match_id}/videos")
+def admin_create_match_video(
+    match_id: int,
+    payload: MatchVideoPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create a video link for a match."""
+    _require_miniapp_admin(current_user)
+
+    match = db.query(Match).filter(Match.id == match_id, Match.tournament_code == TOURNAMENT_CODE).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден")
+
+    data = _normalize_match_video_payload(payload)
+    video = MatchVideo(match_id=match.id, **data)
+    db.add(video)
+    db.commit()
+    db.refresh(video)
+
+    return {
+        "message": f"Видео добавлено: {video.title}",
+        "video": _serialize_match_video(video),
+    }
+
+
+@router.put("/admin/match-videos/{video_id}")
+def admin_update_match_video(
+    video_id: int,
+    payload: MatchVideoPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Update an existing match video link."""
+    _require_miniapp_admin(current_user)
+
+    video = db.query(MatchVideo).filter(MatchVideo.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+
+    data = _normalize_match_video_payload(payload)
+    for key, value in data.items():
+        setattr(video, key, value)
+    video.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(video)
+
+    return {
+        "message": f"Видео обновлено: {video.title}",
+        "video": _serialize_match_video(video),
+    }
+
+
+@router.delete("/admin/match-videos/{video_id}")
+def admin_delete_match_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Delete a video link from a match."""
+    _require_miniapp_admin(current_user)
+
+    video = db.query(MatchVideo).filter(MatchVideo.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+
+    title = video.title
+    db.delete(video)
+    db.commit()
+
+    return {"message": f"Видео удалено: {title}"}
 
 
 @router.post("/admin/matches/{match_id}/result")
@@ -2925,6 +3092,7 @@ def _serialize_match_center_match(
     payload["status_short"] = match.status_short
     payload["status_long"] = match.status_long
     payload["day_key"] = _ensure_utc(match.starts_at).date().isoformat()
+    payload["videos"] = [_serialize_match_video(video) for video in _active_videos_for_match(db, match.id)]
     return payload
 
 
