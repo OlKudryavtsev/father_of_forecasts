@@ -31,6 +31,12 @@ NOTIFICATION_OPTIONS = [
         "description": "Утренняя сводка игрового дня или ежедневный футбольный факт от Отца прогнозов.",
         "default": True,
     },
+    {
+        "key": "match_videos",
+        "title": "Видео матчей",
+        "description": "Уведомления, когда для матча появляется обзор, хайлайты или запись.",
+        "default": True,
+    },
 ]
 
 NOTIFICATION_DEFAULTS = {

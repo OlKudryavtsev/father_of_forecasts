@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.7';
+const APP_VERSION = '2.8.8';
 
 
 if (tg) {
@@ -1099,12 +1099,16 @@ function MatchParticipantsInline({ match }) {
 function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
+  const activeVideos = (match.videos || []).filter((video) => video?.is_active !== false && video?.url);
+  const hasVideos = activeVideos.length > 0;
 
   return (
-    <article className="match-card">
+    <article className={`match-card ${hasVideos ? 'has-video' : ''}`}>
       <div className="match-card-top">
         <span className="group-pill">{match.group_code ? `Группа ${match.group_code}` : match.stage}</span>
         <span className="round-pill">{formatRoundLabel(match)}</span>
+        {hasVideos && <span className="video-mini-icon" aria-label="Видео доступно" title="Видео доступно">🎥</span>}
+        {hasVideos && <span className="video-available-badge">Видео доступно</span>}
         <span className={match.is_finished ? 'dot dot-finished' : 'dot'} />
         <span className="muted small match-date">{formatDateTime(match.starts_at)}</span>
       </div>
@@ -2822,7 +2826,7 @@ function AdminPanel() {
         source: video.source || 'matchtv',
         is_active: !video.is_active,
         priority: Number(video.priority || 100),
-        discovery_status: video.discovery_status || 'manual',
+        discovery_status: video.is_active ? 'hidden' : (video.discovery_status === 'hidden' ? 'verified' : (video.discovery_status || 'manual')),
         confidence: Number(video.confidence || 100),
       }),
     });

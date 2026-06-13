@@ -2400,6 +2400,7 @@ def admin_sync_matchtv_videos(
             f"связано {result['videos_matched']}, "
             f"добавлено {result['created']}, обновлено {result['updated']}. "
             f"Без изменений {result.get('duplicates_unchanged', 0)}, "
+            f"push {result.get('push_notifications_sent', 0)}, "
             f"не связано {result['skipped_low_confidence']}"
         ),
         **result,

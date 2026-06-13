@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS match_videos (
 
     available_from TIMESTAMPTZ,
     discovered_at TIMESTAMPTZ,
+    notification_sent_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -6454,3 +6454,45 @@ body {
 .match-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+
+/* v2.8.8: video availability cues */
+.match-card.has-video {
+  border-color: rgba(90, 141, 255, 0.30);
+}
+
+.video-mini-icon {
+  width: 27px;
+  height: 27px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(90, 141, 255, 0.12);
+  border: 1px solid rgba(90, 141, 255, 0.24);
+  font-size: 14px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.video-available-badge {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border: 1px solid rgba(90, 141, 255, 0.18);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+  white-space: nowrap;
+}
+
+@media (max-width: 430px) {
+  .video-available-badge {
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

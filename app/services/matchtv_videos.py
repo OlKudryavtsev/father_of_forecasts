@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models import Match, MatchVideo
 from app.runtime import TOURNAMENT_CODE
 from app.team_names import get_team_name_ru
+from app.services.web_push import notify_active_web_push_subscribers_for_notification
 
 MATCHTV_WC_VIDEO_URL = os.getenv(
     "MATCHTV_WC_VIDEO_URL",
@@ -372,6 +373,58 @@ def _load_candidate_matches(db: Session, start_at: datetime, end_at: datetime) -
     )
 
 
+
+
+NOTIFIABLE_VIDEO_TYPES = {"highlights", "review", "full_replay"}
+
+
+def _video_push_title(video_type: str) -> str:
+    if video_type == "review":
+        return "Появился обзор матча"
+    if video_type == "full_replay":
+        return "Появилась запись матча"
+    return "Появились хайлайты матча"
+
+
+def _match_push_label(match: Match) -> str:
+    home = _ru_team_name(getattr(match, "home_team", None)) or str(getattr(match, "home_team", "") or "").strip()
+    away = _ru_team_name(getattr(match, "away_team", None)) or str(getattr(match, "away_team", "") or "").strip()
+    return f"{home} — {away}".strip(" —")
+
+
+def _notify_new_match_videos(db: Session, videos: list[MatchVideo]) -> int:
+    """Send one PWA push per newly active review/highlights/full replay."""
+    sent_total = 0
+    now = datetime.now(timezone.utc)
+    for video in videos:
+        if not video or not getattr(video, "id", None):
+            continue
+        if not bool(getattr(video, "is_active", False)):
+            continue
+        if getattr(video, "notification_sent_at", None):
+            continue
+        video_type = (getattr(video, "video_type", None) or "other").lower()
+        if video_type not in NOTIFIABLE_VIDEO_TYPES:
+            continue
+        match = getattr(video, "match", None)
+        if match is None and getattr(video, "match_id", None):
+            match = db.query(Match).filter(Match.id == video.match_id).first()
+        match_label = _match_push_label(match) if match else "матча"
+        body = f"🎥 {_video_push_title(video_type)} {match_label}"
+        sent_total += notify_active_web_push_subscribers_for_notification(
+            db,
+            "match_videos",
+            title="Отец прогнозов",
+            body=body,
+            url=f"/app?match_id={getattr(video, 'match_id', '')}",
+        )
+        video.notification_sent_at = now
+        video.updated_at = now
+    if videos:
+        db.commit()
+    return sent_total
+
+
 def sync_matchtv_videos(
     db: Session,
     *,
@@ -392,6 +445,8 @@ def sync_matchtv_videos(
     matched = 0
     skipped_low_confidence = 0
     duplicate_count = 0
+    push_notifications_sent = 0
+    notify_candidates: list[MatchVideo] = []
     unmatched_samples: list[str] = []
     best_debug: list[dict] = []
 
@@ -427,27 +482,35 @@ def sync_matchtv_videos(
         existing = db.query(MatchVideo).filter(MatchVideo.url == video.url).first()
 
         if existing:
+            was_active = bool(existing.is_active)
+            was_hidden = (getattr(existing, "discovery_status", None) or "").lower() == "hidden"
+            should_be_active = (best_score >= activate_min_confidence) and not was_hidden
+            new_discovery_status = "hidden" if was_hidden else ("verified" if should_be_active else "found")
             changed = any([
                 existing.match_id != best_match.id,
                 existing.title != video.title,
                 existing.video_type != video_type,
                 getattr(existing, "confidence", None) != best_score,
+                bool(existing.is_active) != should_be_active,
             ])
             existing.match_id = best_match.id
             existing.title = video.title
             existing.video_type = video_type
             existing.source = "matchtv"
             existing.priority = VIDEO_TYPE_PRIORITY.get(video_type, 100)
-            existing.discovery_status = "verified" if best_score >= activate_min_confidence else "found"
+            existing.discovery_status = new_discovery_status
             existing.confidence = best_score
+            existing.is_active = should_be_active
             existing.external_id = video.external_id or video.url
             existing.discovered_at = now
             existing.updated_at = now
+            if not was_active and should_be_active and not getattr(existing, "notification_sent_at", None):
+                notify_candidates.append(existing)
             updated += 1 if changed else 0
             duplicate_count += 0 if changed else 1
             continue
 
-        db.add(MatchVideo(
+        match_video = MatchVideo(
             match_id=best_match.id,
             source="matchtv",
             video_type=video_type,
@@ -459,10 +522,14 @@ def sync_matchtv_videos(
             confidence=best_score,
             external_id=video.external_id or video.url,
             discovered_at=now,
-        ))
+        )
+        db.add(match_video)
+        if bool(match_video.is_active):
+            notify_candidates.append(match_video)
         created += 1
 
     db.commit()
+    push_notifications_sent = _notify_new_match_videos(db, notify_candidates)
     return {
         "source_url": MATCHTV_WC_VIDEO_URL,
         "matches_checked": len(matches),
@@ -471,6 +538,7 @@ def sync_matchtv_videos(
         "created": created,
         "updated": updated,
         "duplicates_unchanged": duplicate_count,
+        "push_notifications_sent": push_notifications_sent,
         "skipped_low_confidence": skipped_low_confidence,
         "lookback_days": lookback_days,
         "lookahead_days": lookahead_days,

@@ -1,4 +1,13 @@
 
+## v2.8.8 — Match video UX and push notifications
+
+- Добавлен push при появлении нового активного видео матча Match TV: обзор, хайлайты или полная запись.
+- Добавлена настройка уведомлений «Видео матчей».
+- В карточке матча появился бейдж «Видео доступно» и иконка 🎥.
+- Добавлено поле `match_videos.notification_sent_at` для защиты от повторных push по одному видео.
+- PWA-версия обновлена до `2.8.8`.
+
+
 ## v2.8.7 — Match card inline sections and PWA update fix
 
 - Fixed PWA update banner button behavior for iOS Home Screen mode.
