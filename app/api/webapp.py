@@ -2396,8 +2396,11 @@ def admin_sync_matchtv_videos(
     return {
         "message": (
             f"Match TV: найдено {result['videos_found_on_source']}, "
+            f"проверено матчей {result['matches_checked']}, "
             f"связано {result['videos_matched']}, "
-            f"добавлено {result['created']}, обновлено {result['updated']}"
+            f"добавлено {result['created']}, обновлено {result['updated']}. "
+            f"Без изменений {result.get('duplicates_unchanged', 0)}, "
+            f"не связано {result['skipped_low_confidence']}"
         ),
         **result,
     }

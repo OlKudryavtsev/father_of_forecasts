@@ -2539,8 +2539,8 @@ function AdminPanel() {
   const [videoUrl, setVideoUrl] = useState('');
   const [videoPriority, setVideoPriority] = useState('100');
   const [videoActive, setVideoActive] = useState(true);
-  const [syncLookbackDays, setSyncLookbackDays] = useState('3');
-  const [syncLookaheadDays, setSyncLookaheadDays] = useState('2');
+  const [syncLookbackDays, setSyncLookbackDays] = useState('5');
+  const [syncLookaheadDays, setSyncLookaheadDays] = useState('7');
   const [syncMinConfidence, setSyncMinConfidence] = useState('85');
 
   async function load() {

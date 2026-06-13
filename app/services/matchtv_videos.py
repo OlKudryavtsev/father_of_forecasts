@@ -15,6 +15,7 @@ from typing import Iterable
 from urllib.parse import urljoin
 
 import requests
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import Match, MatchVideo
@@ -27,8 +28,8 @@ MATCHTV_WC_VIDEO_URL = os.getenv(
 )
 
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("MATCHTV_VIDEO_REQUEST_TIMEOUT", "15"))
-DEFAULT_LOOKBACK_DAYS = int(os.getenv("MATCHTV_VIDEO_LOOKBACK_DAYS", "3"))
-DEFAULT_LOOKAHEAD_DAYS = int(os.getenv("MATCHTV_VIDEO_LOOKAHEAD_DAYS", "2"))
+DEFAULT_LOOKBACK_DAYS = int(os.getenv("MATCHTV_VIDEO_LOOKBACK_DAYS", "5"))
+DEFAULT_LOOKAHEAD_DAYS = int(os.getenv("MATCHTV_VIDEO_LOOKAHEAD_DAYS", "7"))
 
 VIDEO_TYPE_PRIORITY = {
     "live": 10,
@@ -40,14 +41,91 @@ VIDEO_TYPE_PRIORITY = {
     "other": 100,
 }
 
+# Match TV and API-Football use different naming variants. Keep this list
+# deliberately practical: it is used only for matching official video page titles
+# to already imported World Cup fixtures.
+TEAM_RU_OVERRIDES = {
+    "algeria": "Алжир",
+    "bosnia and herzegovina": "Босния и Герцеговина",
+    "bosnia & herzegovina": "Босния и Герцеговина",
+    "bosnia-herzegovina": "Босния и Герцеговина",
+    "bosnia": "Босния и Герцеговина",
+    "czechia": "Чехия",
+    "czech republic": "Чехия",
+    "cote d ivoire": "Кот-д'Ивуар",
+    "côte d ivoire": "Кот-д'Ивуар",
+    "ivory coast": "Кот-д'Ивуар",
+    "congo dr": "ДР Конго",
+    "dr congo": "ДР Конго",
+    "d r congo": "ДР Конго",
+    "curacao": "Кюрасао",
+    "curaçao": "Кюрасао",
+    "korea republic": "Корея",
+    "south korea": "Корея",
+    "republic of korea": "Корея",
+    "united states": "США",
+    "usa": "США",
+    "u s a": "США",
+    "cape verde islands": "Кабо-Верде",
+    "cape verde": "Кабо-Верде",
+    "saudi arabia": "Саудовская Аравия",
+    "new zealand": "Новая Зеландия",
+    "turkiye": "Турция",
+    "türkiye": "Турция",
+    "qatar": "Катар",
+}
+
 TEAM_ALIASES_EXTRA = {
-    "Южная Корея": ["Корея"],
-    "ЮАР": ["Южная Африка"],
-    "США": ["Соединенные Штаты", "Сша"],
-    "ДР Конго": ["ДР Конго", "Конго"],
-    "Кот-д’Ивуар": ["Кот-д'Ивуар", "Кот-д’Ивуар", "Кот д Ивуар"],
-    "Кабо-Верде": ["Кабо Верде"],
-    "Нидерланды": ["Голландия"],
+    "Алжир": ["Алжир"],
+    "Англия": ["England"],
+    "Аргентина": ["Argentina"],
+    "Австралия": ["Australia"],
+    "Австрия": ["Austria"],
+    "Бельгия": ["Belgium"],
+    "Босния и Герцеговина": ["Босния", "БиГ", "Bosnia", "Bosnia and Herzegovina", "Bosnia & Herzegovina"],
+    "Бразилия": ["Brazil"],
+    "Гаити": ["Haiti"],
+    "Гана": ["Ghana"],
+    "Германия": ["Germany"],
+    "ДР Конго": ["ДР Конго", "Конго", "Congo DR", "DR Congo"],
+    "Египет": ["Egypt"],
+    "Иордания": ["Jordan"],
+    "Ирак": ["Iraq"],
+    "Иран": ["Iran"],
+    "Испания": ["Spain"],
+    "Кабо-Верде": ["Кабо Верде", "Cape Verde", "Cape Verde Islands"],
+    "Канада": ["Canada"],
+    "Катар": ["Qatar"],
+    "Колумбия": ["Colombia"],
+    "Корея": ["Южная Корея", "Korea", "South Korea", "Korea Republic", "Republic of Korea"],
+    "Южная Корея": ["Корея", "Korea", "South Korea", "Korea Republic", "Republic of Korea"],
+    "Кот-д’Ивуар": ["Кот-д'Ивуар", "Кот д Ивуар", "Ivory Coast", "Cote d'Ivoire", "Côte d'Ivoire"],
+    "Кот-д'Ивуар": ["Кот-д’Ивуар", "Кот д Ивуар", "Ivory Coast", "Cote d'Ivoire", "Côte d'Ivoire"],
+    "Кюрасао": ["Курасао", "Curacao", "Curaçao"],
+    "Марокко": ["Morocco"],
+    "Мексика": ["Mexico"],
+    "Нидерланды": ["Голландия", "Netherlands", "Holland"],
+    "Новая Зеландия": ["New Zealand"],
+    "Норвегия": ["Norway"],
+    "Панама": ["Panama"],
+    "Парагвай": ["Paraguay"],
+    "Португалия": ["Portugal"],
+    "Саудовская Аравия": ["Saudi Arabia"],
+    "Сенегал": ["Senegal"],
+    "США": ["Соединенные Штаты", "Сша", "USA", "United States", "USMNT"],
+    "Тунис": ["Tunisia"],
+    "Турция": ["Turkey", "Türkiye", "Turkiye"],
+    "Узбекистан": ["Uzbekistan"],
+    "Уругвай": ["Uruguay"],
+    "Франция": ["France"],
+    "Хорватия": ["Croatia"],
+    "Чехия": ["Czechia", "Czech Republic"],
+    "Швейцария": ["Switzerland"],
+    "Швеция": ["Sweden"],
+    "Шотландия": ["Scotland"],
+    "Эквадор": ["Ecuador"],
+    "ЮАР": ["Южная Африка", "South Africa", "RSA"],
+    "Япония": ["Japan"],
 }
 
 
@@ -67,14 +145,41 @@ def _normalize_text(value: str | None) -> str:
     value = html.unescape(str(value)).lower()
     value = value.replace("ё", "е").replace("й", "и")
     value = re.sub(r"[\u2010-\u2015—–−]+", "-", value)
+    value = value.replace("&", " and ")
     value = re.sub(r"[^a-zа-я0-9\-\s]", " ", value)
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _team_aliases(name: str | None) -> list[str]:
-    ru_name = get_team_name_ru(name)
-    aliases = [name or "", ru_name]
-    aliases.extend(TEAM_ALIASES_EXTRA.get(ru_name, []))
+def _ru_team_name(name: str | None) -> str:
+    if not name:
+        return ""
+    normalized = _normalize_text(name)
+    if normalized in TEAM_RU_OVERRIDES:
+        return TEAM_RU_OVERRIDES[normalized]
+    direct = get_team_name_ru(name)
+    if direct != name:
+        return direct
+    title_name = str(name).strip().title()
+    direct_title = get_team_name_ru(title_name)
+    return direct_title if direct_title != title_name else str(name).strip()
+
+
+def _team_aliases(*names: str | None) -> list[str]:
+    aliases: list[str] = []
+    ru_names: list[str] = []
+    for name in names:
+        if not name:
+            continue
+        ru_name = _ru_team_name(name)
+        ru_names.append(ru_name)
+        aliases.extend([name, ru_name])
+        aliases.extend(TEAM_ALIASES_EXTRA.get(ru_name, []))
+
+    # Some API names translate to "Южная Корея", while Match TV writes "Корея".
+    if any(_normalize_text(item) in {"корея", "южная корея"} for item in ru_names + aliases):
+        aliases.extend(TEAM_ALIASES_EXTRA.get("Корея", []))
+        aliases.append("Корея")
+
     seen: set[str] = set()
     result: list[str] = []
     for item in aliases:
@@ -82,11 +187,24 @@ def _team_aliases(name: str | None) -> list[str]:
         if normalized and normalized not in seen:
             seen.add(normalized)
             result.append(normalized)
-    return result
+    # Prefer longer aliases first to avoid accidental short matches.
+    return sorted(result, key=len, reverse=True)
 
 
 def _contains_any(text: str, aliases: Iterable[str]) -> bool:
-    return any(alias and alias in text for alias in aliases)
+    padded = f" {text} "
+    for alias in aliases:
+        if not alias:
+            continue
+        # For one-word country names substring matching is fine after strict
+        # normalization; for very short aliases require token boundaries.
+        if len(alias) <= 3:
+            if re.search(rf"(?<![a-zа-я0-9]){re.escape(alias)}(?![a-zа-я0-9])", text):
+                return True
+            continue
+        if alias in padded or alias in text:
+            return True
+    return False
 
 
 def _classify_video(title: str) -> str:
@@ -101,7 +219,17 @@ def _classify_video(title: str) -> str:
         return "full_replay"
     if text.startswith("гол ") or " гол " in f" {text} ":
         return "goal"
+    if re.search(r"[а-яa-z]+\s+-\s+[а-яa-z]+", text) and "чемпионат мира" in text:
+        return "live"
     return "moment" if any(word in text for word in ["момент", "удар", "спасает", "столкновение", "пенальти"]) else "other"
+
+
+def _clean_anchor_text(inner_html: str) -> str:
+    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", inner_html, flags=re.I | re.S)
+    text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _extract_cards(html_text: str, base_url: str = MATCHTV_WC_VIDEO_URL) -> list[DiscoveredVideo]:
@@ -113,7 +241,6 @@ def _extract_cards(html_text: str, base_url: str = MATCHTV_WC_VIDEO_URL) -> list
     """
     candidates: dict[str, DiscoveredVideo] = {}
 
-    # Prefer anchor text when available.
     for match in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html_text, flags=re.I | re.S):
         href, inner = match.group(1), match.group(2)
         url = urljoin(base_url, html.unescape(href))
@@ -121,15 +248,29 @@ def _extract_cards(html_text: str, base_url: str = MATCHTV_WC_VIDEO_URL) -> list
             continue
         if "/video" not in url and "/football/worldcup" not in url:
             continue
-        text = re.sub(r"<[^>]+>", " ", inner)
-        text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+        text = _clean_anchor_text(inner)
         if len(text) < 5:
             continue
+        normalized = _normalize_text(text)
+        # Keep program/video cards, skip navigation/logo/filter noise.
+        looks_like_wc_video = (
+            "чемпионат мира" in normalized
+            or "чм-2026" in normalized
+            or "чм 2026" in normalized
+            or "голы и лучшие моменты" in normalized
+            or "обзор" in normalized
+            or re.search(r"[а-яa-z]+\s+-\s+[а-яa-z]+", normalized)
+        )
+        if not looks_like_wc_video:
+            continue
         vtype = _classify_video(text)
-        if vtype == "other" and "чемпионат мира" not in _normalize_text(text):
+        previous = candidates.get(url)
+        # Prefer the longest human-readable text for duplicate anchors to the
+        # same page, but avoid replacing a good match title with navigation text.
+        if previous and len(previous.title) >= len(text):
             continue
         candidates[url] = DiscoveredVideo(
-            title=text[:200],
+            title=text[:240],
             url=url,
             video_type=vtype,
             external_id=url,
@@ -143,10 +284,12 @@ def _extract_cards(html_text: str, base_url: str = MATCHTV_WC_VIDEO_URL) -> list
             continue
         start = max(0, match.start() - 260)
         end = min(len(html_text), match.end() + 260)
-        nearby = html.unescape(re.sub(r"<[^>]+>", " ", html_text[start:end]))
-        nearby = re.sub(r"\s+", " ", nearby).strip()
-        title = nearby[:200]
+        nearby = _clean_anchor_text(html_text[start:end])
+        title = nearby[:240]
         if len(title) < 5:
+            continue
+        normalized = _normalize_text(title)
+        if "чемпионат мира" not in normalized and not re.search(r"[а-яa-z]+\s+-\s+[а-яa-z]+", normalized):
             continue
         candidates.setdefault(url, DiscoveredVideo(title=title, url=url, video_type=_classify_video(title), external_id=url))
 
@@ -168,22 +311,65 @@ def fetch_matchtv_worldcup_videos() -> list[DiscoveredVideo]:
 
 def _match_video_score(video: DiscoveredVideo, match: Match) -> int:
     text = _normalize_text(video.title)
-    home_aliases = _team_aliases(match.home_team)
-    away_aliases = _team_aliases(match.away_team)
+    home_aliases = _team_aliases(
+        match.home_team,
+        getattr(match, "home_team_api_name", None),
+    )
+    away_aliases = _team_aliases(
+        match.away_team,
+        getattr(match, "away_team_api_name", None),
+    )
 
     has_home = _contains_any(text, home_aliases)
     has_away = _contains_any(text, away_aliases)
     if not (has_home and has_away):
         return 0
 
-    score = 70
+    score = 72
     if "чемпионат мира" in text or "чм" in text:
-        score += 10
+        score += 8
     if video.video_type in {"highlights", "review", "live", "full_replay"}:
         score += 10
+    if re.search(r"[а-яa-z]+\s+-\s+[а-яa-z]+", text):
+        score += 5
+    # Avoid linking historical archive videos unless the teams and WC-2026 text
+    # strongly point to the current tournament.
+    if any(word in text for word in ["чм-2022", "чм 2022", "чм-2018", "чм 2018", "чм-2014", "чм 2014", "чм-2010", "чм 2010", "чм-2006", "чм 2006"]):
+        score -= 40
     if "молодеж" in text or "отбороч" in text:
         score -= 30
     return max(0, min(100, score))
+
+
+def _load_candidate_matches(db: Session, start_at: datetime, end_at: datetime) -> list[Match]:
+    filters = [Match.starts_at >= start_at, Match.starts_at <= end_at]
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE, *filters)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+    if matches:
+        return matches
+
+    # Be tolerant if older imports have empty/different tournament_code.
+    matches = (
+        db.query(Match)
+        .filter(*filters)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+    if matches:
+        return matches
+
+    # Last fallback: if server date/time is off or the admin intentionally wants
+    # to rescan old/current cards, compare to all imported WC fixtures.
+    return (
+        db.query(Match)
+        .filter(or_(Match.tournament_code == TOURNAMENT_CODE, Match.tournament_code.is_(None)))
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
 
 
 def sync_matchtv_videos(
@@ -198,22 +384,16 @@ def sync_matchtv_videos(
     start_at = now - timedelta(days=lookback_days)
     end_at = now + timedelta(days=lookahead_days)
 
-    matches = (
-        db.query(Match)
-        .filter(
-            Match.tournament_code == TOURNAMENT_CODE,
-            Match.starts_at >= start_at,
-            Match.starts_at <= end_at,
-        )
-        .order_by(Match.starts_at.asc())
-        .all()
-    )
-
+    matches = _load_candidate_matches(db, start_at, end_at)
     discovered = fetch_matchtv_worldcup_videos()
+
     created = 0
     updated = 0
     matched = 0
     skipped_low_confidence = 0
+    duplicate_count = 0
+    unmatched_samples: list[str] = []
+    best_debug: list[dict] = []
 
     for video in discovered:
         best_match: Match | None = None
@@ -226,25 +406,33 @@ def sync_matchtv_videos(
 
         if not best_match or best_score < 70:
             skipped_low_confidence += 1
+            if len(unmatched_samples) < 8:
+                unmatched_samples.append(video.title[:160])
             continue
 
         matched += 1
+        if len(best_debug) < 10:
+            best_debug.append({
+                "title": video.title[:160],
+                "match_id": best_match.id,
+                "match": f"{best_match.home_team} — {best_match.away_team}",
+                "score": best_score,
+            })
 
         video_type = video.video_type
-        # The upcoming/live cards on Match TV can be plain "Team A - Team B"
-        # without the word "трансляция". If a high-confidence card matches a
-        # nearby not-yet-finished game, show it as a live link.
         if video_type == "other" and not bool(best_match.is_finished) and best_match.starts_at <= now + timedelta(days=lookahead_days):
             video_type = "live"
             best_score = min(100, best_score + 10)
 
-        existing = (
-            db.query(MatchVideo)
-            .filter(MatchVideo.url == video.url)
-            .first()
-        )
+        existing = db.query(MatchVideo).filter(MatchVideo.url == video.url).first()
 
         if existing:
+            changed = any([
+                existing.match_id != best_match.id,
+                existing.title != video.title,
+                existing.video_type != video_type,
+                getattr(existing, "confidence", None) != best_score,
+            ])
             existing.match_id = best_match.id
             existing.title = video.title
             existing.video_type = video_type
@@ -255,7 +443,8 @@ def sync_matchtv_videos(
             existing.external_id = video.external_id or video.url
             existing.discovered_at = now
             existing.updated_at = now
-            updated += 1
+            updated += 1 if changed else 0
+            duplicate_count += 0 if changed else 1
             continue
 
         db.add(MatchVideo(
@@ -281,7 +470,11 @@ def sync_matchtv_videos(
         "videos_matched": matched,
         "created": created,
         "updated": updated,
+        "duplicates_unchanged": duplicate_count,
         "skipped_low_confidence": skipped_low_confidence,
         "lookback_days": lookback_days,
         "lookahead_days": lookahead_days,
+        "activate_min_confidence": activate_min_confidence,
+        "unmatched_samples": unmatched_samples,
+        "matched_samples": best_debug,
     }
