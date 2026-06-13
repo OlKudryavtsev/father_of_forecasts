@@ -48,6 +48,8 @@ def telegram_mini_app(
         raise HTTPException(status_code=404, detail="Mini App frontend is not built")
 
     response = FileResponse(index_path)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
 
     if web_token:
         response.set_cookie(

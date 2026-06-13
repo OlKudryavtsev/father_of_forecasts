@@ -84,7 +84,12 @@ CREATE TABLE IF NOT EXISTS match_videos (
     is_active BOOLEAN DEFAULT TRUE,
     priority INTEGER DEFAULT 100,
 
+    discovery_status VARCHAR NOT NULL DEFAULT 'manual',
+    confidence INTEGER DEFAULT 100,
+    external_id VARCHAR,
+
     available_from TIMESTAMPTZ,
+    discovered_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -92,6 +97,8 @@ CREATE TABLE IF NOT EXISTS match_videos (
 CREATE INDEX IF NOT EXISTS ix_match_videos_match_id ON match_videos (match_id);
 CREATE INDEX IF NOT EXISTS ix_match_videos_is_active ON match_videos (is_active);
 CREATE INDEX IF NOT EXISTS ix_match_videos_match_active_priority ON match_videos (match_id, is_active, priority);
+CREATE INDEX IF NOT EXISTS ix_match_videos_discovery_status ON match_videos (discovery_status);
+CREATE INDEX IF NOT EXISTS ix_match_videos_external_id ON match_videos (external_id);
 
 
 

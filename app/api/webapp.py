@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from collections import Counter
 from datetime import datetime, timezone
 import json
@@ -43,6 +44,7 @@ from app.services.misc import build_table_rows, get_team_flag
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins
 from app.services.forecast import build_forecast_text
+from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.team_names import get_team_name_ru
 from app.wc2026_sync import get_fixture_score, get_winner_side
@@ -90,6 +92,14 @@ class MatchVideoPayload(BaseModel):
     source: str = Field(default="matchtv", max_length=80)
     is_active: bool = True
     priority: int = Field(default=100, ge=0, le=10000)
+    discovery_status: str = Field(default="manual", max_length=40)
+    confidence: int = Field(default=100, ge=0, le=100)
+
+
+class MatchTvSyncPayload(BaseModel):
+    lookback_days: int = Field(default=3, ge=0, le=30)
+    lookahead_days: int = Field(default=2, ge=0, le=30)
+    activate_min_confidence: int = Field(default=85, ge=0, le=100)
 
 
 class NotificationSettingsPayload(BaseModel):
@@ -253,6 +263,10 @@ def _normalize_match_video_payload(payload: MatchVideoPayload) -> dict:
 
     source = (payload.source or "matchtv").strip() or "matchtv"
 
+    discovery_status = (getattr(payload, "discovery_status", "manual") or "manual").strip().lower()
+    if discovery_status not in {"manual", "found", "verified", "hidden"}:
+        discovery_status = "manual"
+
     return {
         "video_type": video_type,
         "title": title,
@@ -260,6 +274,8 @@ def _normalize_match_video_payload(payload: MatchVideoPayload) -> dict:
         "source": source,
         "is_active": bool(payload.is_active),
         "priority": int(payload.priority or 100),
+        "discovery_status": discovery_status,
+        "confidence": int(getattr(payload, "confidence", 100) or 0),
     }
 
 
@@ -274,7 +290,11 @@ def _serialize_match_video(video: MatchVideo) -> dict:
         "url": video.url,
         "is_active": bool(video.is_active),
         "priority": video.priority or 100,
+        "discovery_status": getattr(video, "discovery_status", "manual") or "manual",
+        "confidence": getattr(video, "confidence", 100) or 0,
+        "external_id": getattr(video, "external_id", None),
         "available_from": _ensure_utc(video.available_from).isoformat() if video.available_from else None,
+        "discovered_at": _ensure_utc(video.discovered_at).isoformat() if getattr(video, "discovered_at", None) else None,
         "created_at": _ensure_utc(video.created_at).isoformat() if video.created_at else None,
         "updated_at": _ensure_utc(video.updated_at).isoformat() if video.updated_at else None,
     }
@@ -2336,6 +2356,50 @@ def get_admin_overview(
             key: _get_app_setting(db, key, default)
             for key, default in ADMIN_NOTIFICATION_SETTING_KEYS.items()
         },
+    }
+
+
+
+
+@router.get("/app-version")
+def get_app_version() -> dict:
+    """Return currently deployed backend/frontend version for PWA update checks."""
+    version_path = Path(__file__).resolve().parents[2] / "VERSION"
+    try:
+        version = version_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        version = "unknown"
+
+    return {
+        "version": version,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/admin/match-videos/sync-matchtv")
+def admin_sync_matchtv_videos(
+    payload: MatchTvSyncPayload | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Discover and link Match TV videos for nearby World Cup matches."""
+    _require_miniapp_admin(current_user)
+    payload = payload or MatchTvSyncPayload()
+
+    result = sync_matchtv_videos(
+        db,
+        lookback_days=payload.lookback_days,
+        lookahead_days=payload.lookahead_days,
+        activate_min_confidence=payload.activate_min_confidence,
+    )
+
+    return {
+        "message": (
+            f"Match TV: найдено {result['videos_found_on_source']}, "
+            f"связано {result['videos_matched']}, "
+            f"добавлено {result['created']}, обновлено {result['updated']}"
+        ),
+        **result,
     }
 
 

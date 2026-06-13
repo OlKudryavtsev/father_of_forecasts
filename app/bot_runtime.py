@@ -104,6 +104,9 @@ from app.handlers.tournament import (
 )
 from app.jobs.reminders import reminders_enabled, reminders_loop
 from app.services.facts import daily_facts_loop
+from app.services.matchtv_videos import sync_matchtv_videos
+from app.db import SessionLocal
+import os
 
 dp.message.middleware(GroupCommandAccessMiddleware())
 dp.message.middleware(CommandLoggingMiddleware())
@@ -228,6 +231,27 @@ def register_handlers():
 register_handlers()
 
 
+async def matchtv_videos_loop():
+    """Periodically discover official Match TV video links for nearby matches."""
+    enabled = os.getenv("MATCHTV_VIDEO_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = int(os.getenv("MATCHTV_VIDEO_AUTOSYNC_INTERVAL_SECONDS", "1800"))
+
+    while True:
+        db = SessionLocal()
+        try:
+            result = sync_matchtv_videos(db)
+            print(f"Match TV video sync: {result}")
+        except Exception as error:
+            print(f"Match TV video sync failed: {error}")
+        finally:
+            db.close()
+
+        await asyncio.sleep(interval_seconds)
+
+
 async def main():
     """Start background jobs and run aiogram polling."""
     if reminders_enabled():
@@ -235,6 +259,8 @@ async def main():
 
     if DAILY_FACTS_ENABLED:
         asyncio.create_task(daily_facts_loop())
+
+    asyncio.create_task(matchtv_videos_loop())
 
     await dp.start_polling(bot)
 

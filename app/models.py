@@ -138,7 +138,12 @@ class MatchVideo(Base):
     is_active = Column(Boolean, default=True, index=True)
     priority = Column(Integer, default=100)
 
+    discovery_status = Column(String, nullable=False, default="manual", index=True)
+    confidence = Column(Integer, default=100)
+    external_id = Column(String, nullable=True, index=True)
+
     available_from = Column(DateTime(timezone=True), nullable=True)
+    discovered_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
+const APP_VERSION = '2.8.5';
+
 
 if (tg) {
   tg.ready();
@@ -269,6 +271,7 @@ async function api(path, options = {}) {
   }
 
   const response = await fetch(path, {
+    cache: options.cache || 'no-store',
     ...options,
     headers,
   });
@@ -593,6 +596,68 @@ async function disablePushSubscription() {
 
   await subscription.unsubscribe();
   return true;
+}
+
+
+function usePwaUpdateCheck() {
+  const [updateInfo, setUpdateInfo] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkVersion() {
+      try {
+        const result = await api(`/api/webapp/app-version?client_version=${encodeURIComponent(APP_VERSION)}&t=${Date.now()}`, { cache: 'no-store' });
+        if (!cancelled && result.version && result.version !== 'unknown' && result.version !== APP_VERSION) {
+          setUpdateInfo(result);
+        }
+      } catch {
+        // Version check must never break the app.
+      }
+    }
+
+    checkVersion();
+    const timer = window.setInterval(checkVersion, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return updateInfo;
+}
+
+async function forcePwaUpdate() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.update().catch(() => null)));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+  } catch {
+    // Best effort.
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('app_v', String(Date.now()));
+  window.location.replace(url.toString());
+}
+
+function PwaUpdateBanner({ updateInfo }) {
+  if (!updateInfo) return null;
+
+  return (
+    <div className="pwa-update-banner">
+      <div>
+        <b>Доступна новая версия</b>
+        <span>v{updateInfo.version}</span>
+      </div>
+      <button type="button" onClick={forcePwaUpdate}>Обновить</button>
+    </div>
+  );
 }
 
 function BrowserAuthGate() {
@@ -2474,6 +2539,9 @@ function AdminPanel() {
   const [videoUrl, setVideoUrl] = useState('');
   const [videoPriority, setVideoPriority] = useState('100');
   const [videoActive, setVideoActive] = useState(true);
+  const [syncLookbackDays, setSyncLookbackDays] = useState('3');
+  const [syncLookaheadDays, setSyncLookaheadDays] = useState('2');
+  const [syncMinConfidence, setSyncMinConfidence] = useState('85');
 
   async function load() {
     setError(null);
@@ -2558,6 +2626,19 @@ function AdminPanel() {
     return api('/api/webapp/admin/push/test', { method: 'POST' });
   }
 
+  async function syncMatchTvVideos() {
+    const result = await api('/api/webapp/admin/match-videos/sync-matchtv', {
+      method: 'POST',
+      body: JSON.stringify({
+        lookback_days: Number(syncLookbackDays || 3),
+        lookahead_days: Number(syncLookaheadDays || 2),
+        activate_min_confidence: Number(syncMinConfidence || 85),
+      }),
+    });
+    await loadVideos(selectedMatchId);
+    return result;
+  }
+
   function resetVideoForm() {
     setVideoTitle('');
     setVideoUrl('');
@@ -2580,6 +2661,8 @@ function AdminPanel() {
         source: 'matchtv',
         is_active: videoActive,
         priority: Number(videoPriority || 100),
+        discovery_status: 'manual',
+        confidence: 100,
       }),
     });
 
@@ -2598,6 +2681,8 @@ function AdminPanel() {
         source: video.source || 'matchtv',
         is_active: !video.is_active,
         priority: Number(video.priority || 100),
+        discovery_status: video.discovery_status || 'manual',
+        confidence: Number(video.confidence || 100),
       }),
     });
 
@@ -2659,7 +2744,16 @@ function AdminPanel() {
           <h2>Видео матча</h2>
           <span>{videos.length || 0}</span>
         </div>
-        <p className="muted small">Добавь официальную ссылку Match TV: во время матча — трансляцию, после матча — обзор или лучшие моменты.</p>
+        <p className="muted small">Добавь официальную ссылку Match TV вручную или запусти автопоиск по ближайшим матчам. Автопоиск связывает только официальные страницы Match TV и оставляет спорные находки на проверку.</p>
+
+        <div className="video-sync-panel">
+          <div className="video-sync-fields">
+            <label>Назад, дней<input type="number" min="0" max="30" value={syncLookbackDays} onChange={(event) => setSyncLookbackDays(event.target.value)} /></label>
+            <label>Вперед, дней<input type="number" min="0" max="30" value={syncLookaheadDays} onChange={(event) => setSyncLookaheadDays(event.target.value)} /></label>
+            <label>Автопоказ от %<input type="number" min="0" max="100" value={syncMinConfidence} onChange={(event) => setSyncMinConfidence(event.target.value)} /></label>
+          </div>
+          <button type="button" disabled={busy} onClick={() => runAction(syncMatchTvVideos)}>Найти видео Match TV</button>
+        </div>
 
         <div className="video-admin-form">
           <select value={videoType} onChange={(event) => setVideoType(event.target.value)}>
@@ -2683,7 +2777,7 @@ function AdminPanel() {
             <div className={`video-admin-item ${video.is_active ? '' : 'is-disabled'}`} key={video.id}>
               <div>
                 <strong>{video.title}</strong>
-                <small>{videoTypeLabel(video.video_type)} · {video.source || 'matchtv'} · порядок {video.priority || 100}</small>
+                <small>{videoTypeLabel(video.video_type)} · {video.source || 'matchtv'} · {video.discovery_status || 'manual'} · {video.confidence || 0}% · порядок {video.priority || 100}</small>
               </div>
               <div className="video-admin-actions">
                 <button type="button" onClick={() => openExternalUrl(video.url)}>Открыть</button>
@@ -3175,6 +3269,7 @@ function RulesModal({ onClose }) {
 }
 
 function App() {
+  const updateInfo = usePwaUpdateCheck();
   const [tab, setTab] = useState('matches');
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'light');
   const [dashboard, setDashboard] = useState(null);
@@ -3229,6 +3324,7 @@ function App() {
 
   return (
     <div className={`app theme-${appTheme}`}>
+      <PwaUpdateBanner updateInfo={updateInfo} />
       <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} onAdmin={() => setTab('admin')} />
 
       {tab === 'matches' && (
