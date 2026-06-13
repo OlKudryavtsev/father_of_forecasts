@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.5';
+const APP_VERSION = '2.8.7';
 
 
 if (tg) {
@@ -628,34 +628,58 @@ function usePwaUpdateCheck() {
 }
 
 async function forcePwaUpdate() {
+  const stamp = String(Date.now());
+
   try {
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.update().catch(() => null)));
+      await Promise.all(registrations.map(async (registration) => {
+        try {
+          registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+          registration.active?.postMessage({ type: 'SKIP_WAITING' });
+          await registration.update();
+          await registration.unregister();
+        } catch {
+          // Best effort for stubborn iOS PWA caches.
+        }
+      }));
     }
+
     if ('caches' in window) {
       const keys = await caches.keys();
       await Promise.all(keys.map((key) => caches.delete(key)));
     }
+
+    await fetch(`/app?app_v=${stamp}`, {
+      cache: 'reload',
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-cache' },
+    }).catch(() => null);
   } catch {
-    // Best effort.
+    // Best effort. Reload below must still happen.
   }
 
-  const url = new URL(window.location.href);
-  url.searchParams.set('app_v', String(Date.now()));
-  window.location.replace(url.toString());
+  sessionStorage.setItem('ff-force-app-reload', stamp);
+  window.location.href = `/app?app_v=${stamp}`;
 }
 
 function PwaUpdateBanner({ updateInfo }) {
+  const [updating, setUpdating] = useState(false);
   if (!updateInfo) return null;
 
+  async function handleUpdate() {
+    if (updating) return;
+    setUpdating(true);
+    await forcePwaUpdate();
+  }
+
   return (
-    <div className="pwa-update-banner">
+    <div className={`pwa-update-banner ${updating ? 'is-updating' : ''}`}>
       <div>
-        <b>Доступна новая версия</b>
+        <b>{updating ? 'Обновляю приложение…' : 'Доступна новая версия'}</b>
         <span>v{updateInfo.version}</span>
       </div>
-      <button type="button" onClick={forcePwaUpdate}>Обновить</button>
+      <button type="button" disabled={updating} onClick={handleUpdate}>{updating ? 'Обновляю…' : 'Обновить'}</button>
     </div>
   );
 }
@@ -930,32 +954,149 @@ function PredictionBars({ distribution }) {
 }
 
 
+function stripTextMarkup(value) {
+  if (!value) return '';
+  const doc = document.createElement('textarea');
+  doc.innerHTML = String(value).replace(/<[^>]*>/g, ' ');
+  return doc.value.replace(/\s+/g, ' ').trim();
+}
+
+function videoDisplayTitle(video) {
+  const type = video?.video_type || 'other';
+  if (type && type !== 'other') return videoTypeLabel(type);
+  const clean = stripTextMarkup(video?.title || '');
+  return clean || 'Видео Match TV';
+}
+
+function videoSourceLabel(source) {
+  const value = String(source || '').toLowerCase();
+  if (value.includes('match')) return 'Match TV';
+  return source || 'Видео';
+}
+
+function MatchInlineSection({ title, meta, iconName, children, defaultOpen = false, className = '', onOpen }) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (open && onOpen) onOpen();
+  }, [open]);
+
+  return (
+    <section className={`match-inline-section ${className} ${open ? 'open' : 'closed'}`}>
+      <button type="button" className="match-inline-head" onClick={() => setOpen((value) => !value)}>
+        <span>{iconName && <Icon name={iconName} />} {title}</span>
+        <small>{meta}</small>
+        <b>{open ? '−' : '+'}</b>
+      </button>
+      {open && <div className="match-inline-body">{children}</div>}
+    </section>
+  );
+}
+
 function MatchVideoBlock({ videos }) {
   const activeVideos = (videos || []).filter((video) => video?.is_active !== false && video?.url);
   if (!activeVideos.length) return null;
 
   const live = activeVideos.some((video) => video.video_type === 'live');
+  const meta = live ? 'live' : `${activeVideos.length} ${pluralRu(activeVideos.length, 'ссылка', 'ссылки', 'ссылок')}`;
 
   return (
-    <div className={`match-video-block ${live ? 'has-live' : ''}`}>
-      <div className="match-video-head">
-        <span><Icon name="video" /> Видео</span>
-        {live && <b>live</b>}
-      </div>
+    <MatchInlineSection title="Видео" meta={meta} iconName="video" className={`match-video-block ${live ? 'has-live' : ''}`}>
       <div className="match-video-list">
         {activeVideos.map((video) => (
           <button key={video.id || video.url} type="button" onClick={() => openExternalUrl(video.url)}>
             <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
-            <strong>{video.title || videoTypeLabel(video.video_type)}</strong>
-            <small>{video.source || 'video'} · {videoTypeLabel(video.video_type, true)}</small>
+            <strong>{videoDisplayTitle(video)}</strong>
+            <small>{videoSourceLabel(video.source)}</small>
           </button>
         ))}
       </div>
-    </div>
+    </MatchInlineSection>
   );
 }
 
-function MatchCard({ match, onPredict, onForecast, onParticipants, showDistribution = true }) {
+function MatchParticipantsInline({ match }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  async function load() {
+    setError(null);
+    try {
+      const result = await api(`/api/webapp/matches/${match.id}/predictions`);
+      setData(result);
+      setLoaded(true);
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  const count = data?.participants_count ?? match.prediction_distribution?.total ?? 0;
+  const participants = data?.participants || [];
+
+  return (
+    <MatchInlineSection
+      title="Прогнозы участников"
+      meta={`${count} ${pluralRu(count, 'прогноз', 'прогноза', 'прогнозов')}`}
+      iconName="target"
+      className="match-participants-block"
+      onOpen={() => { if (!loaded && !error) load(); }}
+    >
+      {!loaded && !error && <LoadingCard text="Загружаю прогнозы..." />}
+
+      {error && (
+        <div className="inline-error">
+          <span>{error.message}</span>
+          <button type="button" onClick={load}>Повторить</button>
+        </div>
+      )}
+
+      {loaded && data && (
+        <>
+          <div className="participants-summary inline-summary">
+            <strong>{data.participants_count}</strong>
+            <span>{pluralRu(data.participants_count, 'прогноз сделан', 'прогноза сделано', 'прогнозов сделано')}</span>
+          </div>
+
+          {!data.has_started && (
+            <p className="participants-note">
+              До начала матча показываем только, кто уже сделал прогноз. Счета откроются после стартового свистка.
+            </p>
+          )}
+
+          {participants.length === 0 ? (
+            <div className="empty-state compact-empty inline-empty">
+              <div className="empty-icon"><Icon name="target" /></div>
+              <h2>Пока никто не поставил</h2>
+              <p>Будь первым, кто рискнет репутацией.</p>
+            </div>
+          ) : (
+            <div className="participants-list inline-participants-list">
+              {data.father_prediction && (
+                <div className={`participant-row father-row ${data.father_prediction.result_class ? `result-${data.father_prediction.result_class}` : ''}`}>
+                  <span>🤖 Отец прогнозов</span>
+                  <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
+                </div>
+              )}
+              {participants.map((participant) => (
+                <div className={`participant-row ${participant.result_class ? `result-${participant.result_class}` : ''}`} key={participant.user_id}>
+                  <span>{participant.display_name}</span>
+                  {data.has_started ? (
+                    <b>{participant.pred_home}:{participant.pred_away}</b>
+                  ) : (
+                    <em>прогноз сделан</em>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </MatchInlineSection>
+  );
+}
+
+function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
 
@@ -1002,11 +1143,11 @@ function MatchCard({ match, onPredict, onForecast, onParticipants, showDistribut
 
       <div className="match-actions">
         {!locked && <button onClick={() => onPredict(match)}>{match.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}</button>}
-        <button onClick={() => onParticipants(match)}>Участники</button>
         {!locked && <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>}
       </div>
 
       <MatchVideoBlock videos={match.videos} />
+      <MatchParticipantsInline match={match} />
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
     </article>
@@ -1070,7 +1211,7 @@ function GroupTable({ group }) {
   );
 }
 
-function MatchCenter({ onPredict, onForecast, onParticipants }) {
+function MatchCenter({ onPredict, onForecast }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [data, setData] = useState(null);
@@ -1130,7 +1271,7 @@ function MatchCenter({ onPredict, onForecast, onParticipants }) {
                   <span>{formatDayTitle(matches[0]?.starts_at)}</span>
                   <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
                 </div>
-                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onParticipants={onParticipants} />)}
+                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} />)}
               </section>
             ))}
           </>
@@ -2378,7 +2519,7 @@ function FantasyPlayerPicker({
   );
 }
 
-function Predictions({ onPredict, onForecast, onParticipants }) {
+function Predictions({ onPredict, onForecast }) {
   const [data, setData] = useState(null);
   const [activeSection, setActiveSection] = useState('missing');
   const [error, setError] = useState(null);
@@ -2432,7 +2573,7 @@ function Predictions({ onPredict, onForecast, onParticipants }) {
             groupMatchesByDay(visibleMatches).map(([day, dayMatches]) => (
               <section key={day} className="match-day">
                 <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onParticipants={onParticipants} showDistribution={false} />)}
+                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
               </section>
             ))
           )}
@@ -3276,7 +3417,6 @@ function App() {
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
   const [forecastMatch, setForecastMatch] = useState(null);
-  const [participantsMatch, setParticipantsMatch] = useState(null);
   const [tournamentPickField, setTournamentPickField] = useState(null);
   const [tournamentPredictionsOpen, setTournamentPredictionsOpen] = useState(false);
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
@@ -3330,11 +3470,11 @@ function App() {
       {tab === 'matches' && (
         <>
           <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} onTournamentParticipants={() => setTournamentPredictionsOpen(true)} setTab={setTab} />
-          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} onParticipants={setParticipantsMatch} />
+          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />
         </>
       )}
       {tab === 'fantasy' && <Fantasy />}
-      {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} onParticipants={setParticipantsMatch} />}
+      {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
       {tab === 'resources' && <Resources />}
       {tab === 'rating' && <Rating />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
@@ -3350,7 +3490,6 @@ function App() {
       </nav>
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
-      {participantsMatch && <MatchParticipantsModal match={participantsMatch} onClose={() => setParticipantsMatch(null)} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
       {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} />}
       {tournamentPickField && !tournamentPrediction?.is_closed && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}

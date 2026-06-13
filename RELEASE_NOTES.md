@@ -1,4 +1,13 @@
 
+## v2.8.7 — Match card inline sections and PWA update fix
+
+- Fixed PWA update banner button behavior for iOS Home Screen mode.
+- Added stronger service worker unregister/cache clearing flow before reload.
+- Collapsed match video links by default and cleaned video link labels.
+- Replaced the participants modal button with an inline collapsed “Прогнозы участников” section inside each match card.
+- No database migrations required.
+
+
 ## v2.8.6 — Fix Match TV video matching
 
 - Исправлен автопоиск Match TV, когда источник находил карточки, но не связывал их с матчами.
