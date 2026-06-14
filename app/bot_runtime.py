@@ -105,6 +105,7 @@ from app.handlers.tournament import (
 from app.jobs.reminders import reminders_enabled, reminders_loop
 from app.services.facts import daily_facts_loop
 from app.services.matchtv_videos import sync_matchtv_videos
+from app.services.api_football_auto_sync import auto_sync_results_and_fantasy
 from app.db import SessionLocal
 import os
 
@@ -252,6 +253,27 @@ async def matchtv_videos_loop():
         await asyncio.sleep(interval_seconds)
 
 
+async def api_football_auto_sync_loop():
+    """Periodically update recently finished match results and Fantasy stats."""
+    enabled = os.getenv("API_FOOTBALL_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = int(os.getenv("API_FOOTBALL_AUTOSYNC_INTERVAL_SECONDS", "600"))
+
+    while True:
+        db = SessionLocal()
+        try:
+            result = auto_sync_results_and_fantasy(db)
+            print(f"API-Football auto sync: {result}")
+        except Exception as error:
+            print(f"API-Football auto sync failed: {error}")
+        finally:
+            db.close()
+
+        await asyncio.sleep(interval_seconds)
+
+
 async def main():
     """Start background jobs and run aiogram polling."""
     if reminders_enabled():
@@ -261,6 +283,7 @@ async def main():
         asyncio.create_task(daily_facts_loop())
 
     asyncio.create_task(matchtv_videos_loop())
+    asyncio.create_task(api_football_auto_sync_loop())
 
     await dp.start_polling(bot)
 

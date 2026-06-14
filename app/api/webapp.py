@@ -2362,8 +2362,11 @@ def get_admin_overview(
 
 
 @router.get("/app-version")
-def get_app_version() -> dict:
+def get_app_version(response: Response) -> dict:
     """Return currently deployed backend/frontend version for PWA update checks."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+
     version_path = Path(__file__).resolve().parents[2] / "VERSION"
     try:
         version = version_path.read_text(encoding="utf-8").strip()

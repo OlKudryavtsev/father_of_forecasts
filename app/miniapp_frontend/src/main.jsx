@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.8';
+const APP_VERSION = '2.8.10';
 
 
 if (tg) {
@@ -650,17 +650,24 @@ async function forcePwaUpdate() {
       await Promise.all(keys.map((key) => caches.delete(key)));
     }
 
-    await fetch(`/app?app_v=${stamp}`, {
-      cache: 'reload',
-      credentials: 'include',
-      headers: { 'Cache-Control': 'no-cache' },
-    }).catch(() => null);
+    // Warm up the no-cache /app response and the version endpoint before reload.
+    await Promise.all([
+      fetch(`/api/webapp/app-version?client_version=${encodeURIComponent(APP_VERSION)}&force=${stamp}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      }).catch(() => null),
+      fetch(`/app?app_v=${stamp}`, {
+        cache: 'reload',
+        credentials: 'include',
+        headers: { 'Cache-Control': 'no-cache' },
+      }).catch(() => null),
+    ]);
   } catch {
     // Best effort. Reload below must still happen.
   }
 
   sessionStorage.setItem('ff-force-app-reload', stamp);
-  window.location.href = `/app?app_v=${stamp}`;
+  window.location.replace(`/app?app_v=${stamp}`);
 }
 
 function PwaUpdateBanner({ updateInfo }) {
@@ -993,8 +1000,18 @@ function MatchInlineSection({ title, meta, iconName, children, defaultOpen = fal
   );
 }
 
-function MatchVideoBlock({ videos }) {
-  const activeVideos = (videos || []).filter((video) => video?.is_active !== false && video?.url);
+function visibleVideosForMatch(match) {
+  const videos = (match?.videos || []).filter((video) => video?.is_active !== false && video?.url);
+
+  if (match?.is_finished) {
+    return videos.filter((video) => video.video_type === 'highlights');
+  }
+
+  return videos.filter((video) => video.video_type === 'live');
+}
+
+function MatchVideoBlock({ match }) {
+  const activeVideos = visibleVideosForMatch(match);
   if (!activeVideos.length) return null;
 
   const live = activeVideos.some((video) => video.video_type === 'live');
@@ -1099,7 +1116,7 @@ function MatchParticipantsInline({ match }) {
 function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
-  const activeVideos = (match.videos || []).filter((video) => video?.is_active !== false && video?.url);
+  const activeVideos = visibleVideosForMatch(match);
   const hasVideos = activeVideos.length > 0;
 
   return (
@@ -1107,7 +1124,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
       <div className="match-card-top">
         <span className="group-pill">{match.group_code ? `Группа ${match.group_code}` : match.stage}</span>
         <span className="round-pill">{formatRoundLabel(match)}</span>
-        {hasVideos && <span className="video-mini-icon" aria-label="Видео доступно" title="Видео доступно">🎥</span>}
+        {hasVideos && <span className="video-mini-icon" aria-label="Видео" title="Видео">🎥</span>}
         <span className={match.is_finished ? 'dot dot-finished' : 'dot'} />
         <span className="muted small match-date">{formatDateTime(match.starts_at)}</span>
       </div>
@@ -1149,7 +1166,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
         {!locked && <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>}
       </div>
 
-      <MatchVideoBlock videos={match.videos} />
+      <MatchVideoBlock match={match} />
       <MatchParticipantsInline match={match} />
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
