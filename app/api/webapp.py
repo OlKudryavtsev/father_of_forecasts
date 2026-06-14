@@ -3246,7 +3246,7 @@ def _build_group_standings(db: Session) -> list[dict]:
 
 @router.get("/match-center")
 def get_match_center(
-    scope: str = Query(default="all", pattern="^(all|results)$"),
+    scope: str = Query(default="all", pattern="^(all|results|upcoming)$"),
     group_code: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -3263,6 +3263,8 @@ def get_match_center(
 
     if scope == "results":
         query = query.filter(Match.is_finished == True)
+    elif scope == "upcoming":
+        query = query.filter(Match.is_finished == False)
 
     matches = query.all()
     predictions_by_match = _prediction_by_match_id(db, current_user, matches)

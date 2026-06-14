@@ -277,6 +277,12 @@ button {
   border-color: rgba(244, 191, 54, 0.45);
 }
 
+.filter-strip button.future.active {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: rgba(90, 141, 255, 0.45);
+}
+
 .filter-strip button.group.active {
   color: var(--red);
   background: var(--red-soft);

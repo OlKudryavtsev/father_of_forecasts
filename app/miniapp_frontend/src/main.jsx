@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.10';
+const APP_VERSION = '2.8.13';
 
 
 if (tg) {
@@ -1267,6 +1267,10 @@ function MatchCenter({ onPredict, onForecast }) {
           <Icon name="star" />
           <span>Все</span>
         </button>
+        <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}>
+          <Icon name="ball" />
+          <span>Будущие</span>
+        </button>
         <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}>
           <Icon name="check" />
           <span>Результаты</span>
@@ -1284,7 +1288,7 @@ function MatchCenter({ onPredict, onForecast }) {
           <>
             {selectedStanding && <GroupTable group={selectedStanding} />}
             {loading && <LoadingCard text="Обновляю список..." />}
-            {!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : 'Матчи не найдены'} />}
+            {!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}
             {!loading && grouped.map(([day, matches]) => (
               <section key={day} className="match-day">
                 <div className="day-heading">
