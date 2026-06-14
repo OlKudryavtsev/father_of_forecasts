@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.12';
+const APP_VERSION = '2.8.10';
 
 
 if (tg) {
@@ -1012,14 +1012,6 @@ function visibleVideosForMatch(match) {
 
 function MatchVideoBlock({ match }) {
   const activeVideos = visibleVideosForMatch(match);
-  const [selectedVideo, setSelectedVideo] = useState(null);
-
-  useEffect(() => {
-    if (!selectedVideo) return;
-    const stillAvailable = activeVideos.some((video) => (video.id || video.url) === (selectedVideo.id || selectedVideo.url));
-    if (!stillAvailable) setSelectedVideo(null);
-  }, [activeVideos, selectedVideo]);
-
   if (!activeVideos.length) return null;
 
   const live = activeVideos.some((video) => video.video_type === 'live');
@@ -1028,40 +1020,14 @@ function MatchVideoBlock({ match }) {
   return (
     <MatchInlineSection title="Видео" meta={meta} iconName="video" className={`match-video-block ${live ? 'has-live' : ''}`}>
       <div className="match-video-list">
-        {activeVideos.map((video) => {
-          const isSelected = selectedVideo && (selectedVideo.id || selectedVideo.url) === (video.id || video.url);
-          return (
-            <button
-              key={video.id || video.url}
-              type="button"
-              className={isSelected ? 'selected' : ''}
-              onClick={() => setSelectedVideo(video)}
-            >
-              <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
-              <strong>{videoDisplayTitle(video)}</strong>
-              <small>{isSelected ? 'открыто' : 'смотреть'}</small>
-            </button>
-          );
-        })}
-      </div>
-
-      {selectedVideo && (
-        <div className="match-video-player match-video-external-card">
-          <div className="match-video-preview" aria-hidden="true">
-            <span>{selectedVideo.video_type === 'live' ? '🔴' : '🎥'}</span>
-          </div>
-          <div className="match-video-player-head">
-            <strong>{videoDisplayTitle(selectedVideo)}</strong>
-            <small>{selectedVideo.source_label || selectedVideo.source || 'официальный источник'}</small>
-          </div>
-          <p className="match-video-player-note">
-            Match TV не разрешает встроенный плеер внутри других сайтов. Чтобы не показывать черный экран, открываем официальную страницу просмотра отдельной кнопкой.
-          </p>
-          <button type="button" className="match-video-watch-button" onClick={() => openExternalUrl(selectedVideo.url)}>
-            Смотреть на Match TV
+        {activeVideos.map((video) => (
+          <button key={video.id || video.url} type="button" onClick={() => openExternalUrl(video.url)}>
+            <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
+            <strong>{videoDisplayTitle(video)}</strong>
+            <small>{videoSourceLabel(video.source)}</small>
           </button>
-        </div>
-      )}
+        ))}
+      </div>
     </MatchInlineSection>
   );
 }
