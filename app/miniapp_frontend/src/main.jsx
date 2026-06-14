@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.11';
+const APP_VERSION = '2.8.12';
 
 
 if (tg) {
@@ -1046,24 +1046,20 @@ function MatchVideoBlock({ match }) {
       </div>
 
       {selectedVideo && (
-        <div className="match-video-player">
+        <div className="match-video-player match-video-external-card">
+          <div className="match-video-preview" aria-hidden="true">
+            <span>{selectedVideo.video_type === 'live' ? '🔴' : '🎥'}</span>
+          </div>
           <div className="match-video-player-head">
             <strong>{videoDisplayTitle(selectedVideo)}</strong>
-            <button type="button" onClick={() => openExternalUrl(selectedVideo.url)}>Открыть отдельно</button>
-          </div>
-          <div className="match-video-frame-wrap">
-            <iframe
-              key={selectedVideo.url}
-              src={selectedVideo.url}
-              title={videoDisplayTitle(selectedVideo)}
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
+            <small>{selectedVideo.source_label || selectedVideo.source || 'официальный источник'}</small>
           </div>
           <p className="match-video-player-note">
-            Если плеер не загрузился, источник запретил встраивание. Нажмите “Открыть отдельно”.
+            Match TV не разрешает встроенный плеер внутри других сайтов. Чтобы не показывать черный экран, открываем официальную страницу просмотра отдельной кнопкой.
           </p>
+          <button type="button" className="match-video-watch-button" onClick={() => openExternalUrl(selectedVideo.url)}>
+            Смотреть на Match TV
+          </button>
         </div>
       )}
     </MatchInlineSection>

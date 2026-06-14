@@ -6542,3 +6542,55 @@ body {
 .app.theme-light .match-video-player-head button {
   background: rgba(15,23,42,0.04);
 }
+
+/* v2.8.12: Match TV blocks iframe embedding, so show a clean external preview card */
+.match-video-external-card {
+  padding: 12px;
+}
+
+.match-video-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 30%, rgba(90, 141, 255, 0.18), rgba(5, 7, 13, 0.96));
+  border: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 10px;
+}
+
+.match-video-preview span {
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.14);
+  font-size: 24px;
+}
+
+.match-video-external-card .match-video-player-head {
+  padding: 0;
+  align-items: flex-start;
+}
+
+.match-video-external-card .match-video-player-head small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.match-video-watch-button {
+  width: 100%;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: white;
+  font-weight: 900;
+  font-size: 13px;
+}
