@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.13';
+const APP_VERSION = '2.8.14';
 
 
 if (tg) {
@@ -2657,8 +2657,8 @@ function Rating() {
 
             <div className="rating-metrics-grid">
               <div>
-                <b>{row.match_predictions_count ?? row.total_predictions ?? 0}</b>
-                <span>прогнозов</span>
+                <b>{row.match_predictions_finished_count ?? 0}</b>
+                <span>по завершенным</span>
               </div>
               <div>
                 <b>{row.outcomes ?? 0}</b>
