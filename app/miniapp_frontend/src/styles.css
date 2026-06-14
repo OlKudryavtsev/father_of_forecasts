@@ -6475,3 +6475,70 @@ body {
 
 
 
+
+/* Inline video player inside match card */
+.match-video-list button.selected {
+  border-color: rgba(90, 141, 255, 0.52);
+  background: rgba(90, 141, 255, 0.14);
+}
+
+.match-video-player {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.match-video-player-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px 8px;
+}
+
+.match-video-player-head strong {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.match-video-player-head button {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.match-video-frame-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #05070d;
+}
+
+.match-video-frame-wrap iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #05070d;
+}
+
+.match-video-player-note {
+  margin: 0;
+  padding: 8px 10px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.app.theme-light .match-video-player-head button {
+  background: rgba(15,23,42,0.04);
+}

@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.10';
+const APP_VERSION = '2.8.11';
 
 
 if (tg) {
@@ -1012,6 +1012,14 @@ function visibleVideosForMatch(match) {
 
 function MatchVideoBlock({ match }) {
   const activeVideos = visibleVideosForMatch(match);
+  const [selectedVideo, setSelectedVideo] = useState(null);
+
+  useEffect(() => {
+    if (!selectedVideo) return;
+    const stillAvailable = activeVideos.some((video) => (video.id || video.url) === (selectedVideo.id || selectedVideo.url));
+    if (!stillAvailable) setSelectedVideo(null);
+  }, [activeVideos, selectedVideo]);
+
   if (!activeVideos.length) return null;
 
   const live = activeVideos.some((video) => video.video_type === 'live');
@@ -1020,14 +1028,44 @@ function MatchVideoBlock({ match }) {
   return (
     <MatchInlineSection title="Видео" meta={meta} iconName="video" className={`match-video-block ${live ? 'has-live' : ''}`}>
       <div className="match-video-list">
-        {activeVideos.map((video) => (
-          <button key={video.id || video.url} type="button" onClick={() => openExternalUrl(video.url)}>
-            <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
-            <strong>{videoDisplayTitle(video)}</strong>
-            <small>{videoSourceLabel(video.source)}</small>
-          </button>
-        ))}
+        {activeVideos.map((video) => {
+          const isSelected = selectedVideo && (selectedVideo.id || selectedVideo.url) === (video.id || video.url);
+          return (
+            <button
+              key={video.id || video.url}
+              type="button"
+              className={isSelected ? 'selected' : ''}
+              onClick={() => setSelectedVideo(video)}
+            >
+              <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
+              <strong>{videoDisplayTitle(video)}</strong>
+              <small>{isSelected ? 'открыто' : 'смотреть'}</small>
+            </button>
+          );
+        })}
       </div>
+
+      {selectedVideo && (
+        <div className="match-video-player">
+          <div className="match-video-player-head">
+            <strong>{videoDisplayTitle(selectedVideo)}</strong>
+            <button type="button" onClick={() => openExternalUrl(selectedVideo.url)}>Открыть отдельно</button>
+          </div>
+          <div className="match-video-frame-wrap">
+            <iframe
+              key={selectedVideo.url}
+              src={selectedVideo.url}
+              title={videoDisplayTitle(selectedVideo)}
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          </div>
+          <p className="match-video-player-note">
+            Если плеер не загрузился, источник запретил встраивание. Нажмите “Открыть отдельно”.
+          </p>
+        </div>
+      )}
     </MatchInlineSection>
   );
 }

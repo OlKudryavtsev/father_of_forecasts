@@ -1,5 +1,11 @@
 # Release Notes
 
+## v2.8.11 — Inline match video player
+
+- Видео в матч-центре теперь можно открыть внутри приложения.
+- Добавлен fallback “Открыть отдельно”, если Match TV запретит встраивание.
+- Версия PWA обновлена до `2.8.11`.
+
 ## v2.8.10 — PWA update fix, video filtering and automatic result sync
 
 - Исправлена рассинхронизация версии PWA: `APP_VERSION`, service worker и backend `VERSION` теперь синхронизированы.
