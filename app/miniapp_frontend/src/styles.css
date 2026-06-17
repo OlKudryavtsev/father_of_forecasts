@@ -6481,3 +6481,203 @@ body {
 
 
 
+
+/* v2.8.17 — league UI */
+.league-selector-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.league-selector-card span {
+  color: var(--muted, #9ca3af);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.league-selector-card select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.18);
+  font-weight: 800;
+}
+
+.leagues-screen {
+  padding-bottom: 96px;
+}
+
+.league-active-card,
+.leagues-list-card,
+.league-form-card {
+  border-radius: 22px;
+  padding: 16px;
+  margin: 12px 0;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+}
+
+.league-active-card h2 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+}
+
+.league-active-card p {
+  margin: 0 0 10px;
+  color: var(--muted, #9ca3af);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.success-card {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #bbf7d0;
+  font-weight: 700;
+}
+
+.leagues-list {
+  display: grid;
+  gap: 10px;
+}
+
+.league-row-card {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.league-row-card.active {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.league-row-main {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+
+.league-row-main strong,
+.league-row-main small {
+  display: block;
+}
+
+.league-row-main small {
+  margin-top: 4px;
+  color: var(--muted, #9ca3af);
+}
+
+.active-league-pill {
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.invite-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.invite-tools code {
+  flex: 1;
+  min-width: 0;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.invite-tools button,
+.league-form button {
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 12px;
+  color: white;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  font-weight: 800;
+}
+
+.league-form {
+  display: grid;
+  gap: 10px;
+}
+
+.league-form input,
+.league-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 12px;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.16);
+  font: inherit;
+}
+
+.league-form button:disabled {
+  opacity: 0.55;
+}
+
+.app.theme-light .league-selector-card,
+.app.theme-light .league-active-card,
+.app.theme-light .leagues-list-card,
+.app.theme-light .league-form-card,
+.app.theme-light .league-row-card {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .league-selector-card select,
+.app.theme-light .league-form input,
+.app.theme-light .league-form textarea,
+.app.theme-light .invite-tools code {
+  background: rgba(15, 23, 42, 0.055);
+}
+
+.app.theme-light .success-card {
+  color: #166534;
+}
+
+/* v2.8.17 — 7 tabs */
+.bottom-nav {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+@media (max-width: 430px) {
+  .bottom-nav button small {
+    font-size: 9.5px;
+  }
+}

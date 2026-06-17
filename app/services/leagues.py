@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import secrets
+import string
 
 from app.models import League, LeagueMember, User
 
@@ -118,3 +120,116 @@ def reject_user(db, user: User, rejected_by: User | None = None) -> None:
     user.rejected_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
+
+
+
+def generate_invite_code(db, length: int = 8) -> str:
+    """Generate a unique invite code for a league."""
+    alphabet = string.ascii_uppercase + string.digits
+    for _ in range(50):
+        code = "".join(secrets.choice(alphabet) for _ in range(length))
+        exists = db.query(League).filter(League.invite_code == code).first()
+        if not exists:
+            return code
+    return secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:12].upper()
+
+
+def get_user_active_leagues(db, user: User) -> list[League]:
+    """Return active leagues where the user is an active member."""
+    return (
+        db.query(League)
+        .join(LeagueMember, LeagueMember.league_id == League.id)
+        .filter(
+            LeagueMember.user_id == user.id,
+            LeagueMember.status == "active",
+            League.is_active == True,
+        )
+        .order_by(
+            League.league_type.desc(),
+            League.name.asc(),
+        )
+        .all()
+    )
+
+
+def get_default_or_first_user_league(db, user: User) -> League | None:
+    """Return default league for a user, falling back to their first active league."""
+    default_league = get_default_league(db)
+    if default_league:
+        member = (
+            db.query(LeagueMember)
+            .filter(
+                LeagueMember.league_id == default_league.id,
+                LeagueMember.user_id == user.id,
+                LeagueMember.status == "active",
+            )
+            .first()
+        )
+        if member:
+            return default_league
+
+    leagues = get_user_active_leagues(db, user)
+    return leagues[0] if leagues else None
+
+
+def require_user_league(db, user: User, league_id: int | None = None) -> League:
+    """Return a league only if the user is an active member of it."""
+    if league_id is None:
+        league = get_default_or_first_user_league(db, user)
+        if not league:
+            raise ValueError("У пользователя нет активных лиг")
+        return league
+
+    league = (
+        db.query(League)
+        .join(LeagueMember, LeagueMember.league_id == League.id)
+        .filter(
+            League.id == league_id,
+            League.is_active == True,
+            LeagueMember.user_id == user.id,
+            LeagueMember.status == "active",
+        )
+        .first()
+    )
+    if not league:
+        raise ValueError("Лига недоступна")
+    return league
+
+
+def create_user_league(db, owner: User, name: str, description: str | None = None) -> League:
+    """Create a private league and make the owner its admin."""
+    league_name = (name or "").strip()
+    if not league_name:
+        raise ValueError("Название лиги обязательно")
+    if len(league_name) > 80:
+        raise ValueError("Название лиги слишком длинное")
+
+    existing = db.query(League).filter(League.name == league_name).first()
+    if existing:
+        raise ValueError("Лига с таким названием уже существует")
+
+    league = League(
+        name=league_name,
+        description=(description or "").strip() or None,
+        league_type="private",
+        owner_user_id=owner.id,
+        invite_code=generate_invite_code(db),
+        is_active=True,
+    )
+    db.add(league)
+    db.flush()
+    ensure_user_in_league(db, owner, league, role="admin")
+    db.commit()
+    db.refresh(league)
+    return league
+
+
+def join_league_by_invite_code(db, user: User, invite_code: str | None) -> League:
+    """Join a league using an invite code."""
+    league = get_league_by_invite_code(db, invite_code)
+    if not league:
+        raise ValueError("Лига с таким кодом не найдена")
+    ensure_user_in_league(db, user, league, role="member")
+    db.commit()
+    db.refresh(league)
+    return league

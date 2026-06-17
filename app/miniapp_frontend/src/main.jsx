@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.16';
+const APP_VERSION = '2.8.17';
 
 
 if (tg) {
@@ -17,6 +17,7 @@ const TABS = [
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
   { id: 'fantasy', label: 'Fantasy-футбол', icon: 'team' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
+  { id: 'leagues', label: 'Лиги', icon: 'team' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
 ];
@@ -1032,7 +1033,7 @@ function MatchVideoBlock({ match }) {
   );
 }
 
-function MatchParticipantsInline({ match }) {
+function MatchParticipantsInline({ match, leagueId = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -1040,7 +1041,10 @@ function MatchParticipantsInline({ match }) {
   async function load() {
     setError(null);
     try {
-      const result = await api(`/api/webapp/matches/${match.id}/predictions`);
+      const params = new URLSearchParams();
+      if (leagueId) params.set('league_id', String(leagueId));
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      const result = await api(`/api/webapp/matches/${match.id}/predictions${suffix}`);
       setData(result);
       setLoaded(true);
     } catch (err) {
@@ -1113,7 +1117,7 @@ function MatchParticipantsInline({ match }) {
   );
 }
 
-function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
+function MatchCard({ match, onPredict, onForecast, showDistribution = true, leagueId = null }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
   const activeVideos = visibleVideosForMatch(match);
@@ -1167,7 +1171,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true }) {
       </div>
 
       <MatchVideoBlock match={match} />
-      <MatchParticipantsInline match={match} />
+      <MatchParticipantsInline match={match} leagueId={leagueId} />
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
     </article>
@@ -1231,7 +1235,29 @@ function GroupTable({ group }) {
   );
 }
 
-function MatchCenter({ onPredict, onForecast }) {
+function LeagueSelector({ leagues = [], activeLeagueId, onChange, label = 'Лига' }) {
+  if (!leagues.length) return null;
+
+  return (
+    <label className="league-selector-card">
+      <span>{label}</span>
+      <select
+        value={activeLeagueId || leagues[0]?.id || ''}
+        onChange={(event) => onChange(Number(event.target.value))}
+      >
+        {leagues.map((league) => (
+          <option key={league.id} value={league.id}>{league.name}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function activeLeagueLabel(leagues = [], activeLeagueId) {
+  return leagues.find((league) => Number(league.id) === Number(activeLeagueId))?.name || 'Отец прогнозов';
+}
+
+function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLeagueChange }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [data, setData] = useState(null);
@@ -1243,6 +1269,7 @@ function MatchCenter({ onPredict, onForecast }) {
     try {
       const params = new URLSearchParams({ scope });
       if (group) params.set('group_code', group);
+      if (activeLeagueId) params.set('league_id', String(activeLeagueId));
       setData(await api(`/api/webapp/match-center?${params.toString()}`));
     } catch (err) {
       setError(err);
@@ -1251,7 +1278,7 @@ function MatchCenter({ onPredict, onForecast }) {
     }
   }
 
-  useEffect(() => { load(); }, [scope, group]);
+  useEffect(() => { load(); }, [scope, group, activeLeagueId]);
 
   const grouped = useMemo(() => groupMatchesByDay(data?.matches || []), [data]);
   const selectedStanding = group ? data?.standings?.[0] : null;
@@ -1261,6 +1288,7 @@ function MatchCenter({ onPredict, onForecast }) {
   return (
     <main className="screen-content">
       <div className="section-label">Матч-центр</div>
+      <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
 
       <div className="filter-strip modern-filters">
         <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}>
@@ -1295,7 +1323,7 @@ function MatchCenter({ onPredict, onForecast }) {
                   <span>{formatDayTitle(matches[0]?.starts_at)}</span>
                   <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
                 </div>
-                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} />)}
+                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} leagueId={activeLeagueId} />)}
               </section>
             ))}
           </>
@@ -1514,23 +1542,24 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
 }
 
 
-function TournamentPredictionsModal({ onClose }) {
+function TournamentPredictionsModal({ onClose, leagueId = null, leagueName = '' }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let active = true;
-    api('/api/webapp/tournament-predictions')
+    api(`/api/webapp/tournament-predictions${leagueId ? `?league_id=${leagueId}` : ''}`)
       .then((result) => { if (active) setData(result); })
       .catch((err) => { if (active) setError(err); });
     return () => { active = false; };
-  }, []);
+  }, [leagueId]);
 
   return (
     <div className="modal-backdrop">
       <section className="modal-card tournament-predictions-modal">
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>Прогнозы участников на турнир</h2>
+        {leagueName && <p className="muted small">Лига: {leagueName}</p>}
         <p className="muted">Турнир уже начался — прогнозы открыты для просмотра и закрыты для редактирования.</p>
         {error && <p className="error-text">{error.message}</p>}
         {!error && !data && <LoadingCard text="Загружаю турнирные прогнозы..." />}
@@ -2607,14 +2636,19 @@ function Predictions({ onPredict, onForecast }) {
   );
 }
 
-function Rating() {
+function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
   const [data, setData] = useState(null);
   const [includeFantasy, setIncludeFantasy] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api('/api/webapp/table').then(setData).catch(setError);
-  }, []);
+    setData(null);
+    setError(null);
+    const params = new URLSearchParams();
+    if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    api(`/api/webapp/table${suffix}`).then(setData).catch(setError);
+  }, [activeLeagueId]);
 
   if (error) return <ErrorCard error={error} />;
   if (!data) return <LoadingCard />;
@@ -2631,6 +2665,7 @@ function Rating() {
   return (
     <main className="screen-content rating-screen">
       <div className="section-label">Рейтинг участников</div>
+      <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
 
       <label className="rating-toggle-card">
         <input type="checkbox" checked={includeFantasy} onChange={(event) => setIncludeFantasy(event.target.checked)} />
@@ -2687,6 +2722,140 @@ function Rating() {
 }
 
 
+
+
+function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesChanged }) {
+  const leagues = leaguesData?.leagues || [];
+  const activeLeague = leagues.find((league) => Number(league.id) === Number(activeLeagueId));
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function createLeague(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage('');
+    try {
+      const result = await api('/api/webapp/leagues', {
+        method: 'POST',
+        body: JSON.stringify({ name, description }),
+      });
+      setName('');
+      setDescription('');
+      await onLeaguesChanged?.();
+      onLeagueChange?.(result.league.id);
+      setMessage(`Лига «${result.league.name}» создана`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function joinLeague(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage('');
+    try {
+      const result = await api('/api/webapp/leagues/join', {
+        method: 'POST',
+        body: JSON.stringify({ invite_code: inviteCode }),
+      });
+      setInviteCode('');
+      await onLeaguesChanged?.();
+      onLeagueChange?.(result.league.id);
+      setMessage(`Вы вступили в лигу «${result.league.name}»`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyInvite(value) {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setMessage('Ссылка/код скопированы');
+    } catch (err) {
+      setMessage(value);
+    }
+  }
+
+  return (
+    <main className="screen-content leagues-screen">
+      <div className="section-label">Лиги</div>
+
+      <section className="league-active-card">
+        <div>
+          <span className="muted small">Активная лига</span>
+          <h2>{activeLeague?.name || 'Не выбрана'}</h2>
+          <p>Рейтинг, матч-центр и прогнозы участников показываются по выбранной лиге.</p>
+        </div>
+        <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} label="Переключить" />
+      </section>
+
+      {message && <div className="success-card">{message}</div>}
+      {error && <ErrorCard error={error} onRetry={() => setError(null)} />}
+
+      <section className="leagues-list-card">
+        <div className="subsection-title">
+          <h2>Мои лиги</h2>
+          <span>{leagues.length}</span>
+        </div>
+        {leagues.length === 0 ? (
+          <EmptyState iconName="team" title="Лиг пока нет" text="После одобрения администратором здесь появится «Отец прогнозов» или приглашенные лиги." />
+        ) : (
+          <div className="leagues-list">
+            {leagues.map((league) => (
+              <article key={league.id} className={`league-row-card ${Number(league.id) === Number(activeLeagueId) ? 'active' : ''}`}>
+                <button type="button" className="league-row-main" onClick={() => onLeagueChange?.(league.id)}>
+                  <div>
+                    <strong>{league.name}</strong>
+                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}</small>
+                  </div>
+                  {Number(league.id) === Number(activeLeagueId) && <span className="active-league-pill">активна</span>}
+                </button>
+                {league.can_manage && league.invite_code && (
+                  <div className="invite-tools">
+                    <code>{league.invite_code}</code>
+                    <button type="button" onClick={() => copyInvite(league.invite_url || league.invite_code)}>Скопировать приглашение</button>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="league-form-card">
+        <div className="subsection-title">
+          <h2>Создать лигу</h2>
+        </div>
+        <form onSubmit={createLeague} className="league-form">
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Название лиги" maxLength={80} />
+          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Описание, необязательно" maxLength={500} rows={3} />
+          <button type="submit" disabled={busy || name.trim().length < 2}>{busy ? 'Сохраняю…' : 'Создать'}</button>
+        </form>
+      </section>
+
+      <section className="league-form-card">
+        <div className="subsection-title">
+          <h2>Вступить по коду</h2>
+        </div>
+        <form onSubmit={joinLeague} className="league-form league-join-form">
+          <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} placeholder="Код приглашения" />
+          <button type="submit" disabled={busy || inviteCode.trim().length < 3}>{busy ? 'Проверяю…' : 'Вступить'}</button>
+        </form>
+      </section>
+    </main>
+  );
+}
 
 
 function AdminPanel() {
@@ -3437,6 +3606,8 @@ function App() {
   const updateInfo = usePwaUpdateCheck();
   const [tab, setTab] = useState('matches');
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'light');
+  const [leaguesData, setLeaguesData] = useState({ leagues: [], default_league_id: null });
+  const [activeLeagueId, setActiveLeagueIdState] = useState(() => Number(localStorage.getItem('ff_active_league_id') || 0) || null);
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState(null);
   const [predictionMatch, setPredictionMatch] = useState(null);
@@ -3478,6 +3649,43 @@ function App() {
     setRefreshKey((value) => value + 1);
   }
 
+  function setActiveLeagueId(nextLeagueId) {
+    const normalized = Number(nextLeagueId) || null;
+    setActiveLeagueIdState(normalized);
+    if (normalized) {
+      localStorage.setItem('ff_active_league_id', String(normalized));
+    } else {
+      localStorage.removeItem('ff_active_league_id');
+    }
+  }
+
+  async function loadLeagues() {
+    try {
+      const result = await api('/api/webapp/leagues');
+      const leagues = result.leagues || [];
+      setLeaguesData(result);
+      const stored = Number(localStorage.getItem('ff_active_league_id') || 0) || null;
+      const storedAvailable = leagues.some((league) => Number(league.id) === Number(stored));
+      if (stored && storedAvailable) {
+        setActiveLeagueIdState(stored);
+      } else if (result.active_league_id || result.default_league_id || leagues[0]?.id) {
+        const fallback = result.active_league_id || result.default_league_id || leagues[0]?.id;
+        setActiveLeagueId(fallback);
+      }
+      return result;
+    } catch (err) {
+      console.warn('Failed to load leagues', err);
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    if (!isTelegramMode() && !hasBrowserSession) return;
+    loadLeagues();
+  }, [hasBrowserSession, refreshKey]);
+
+  const activeLeagueName = activeLeagueLabel(leaguesData.leagues || [], activeLeagueId);
+
   if (!isTelegramMode() && !hasBrowserSession) {
     return <div className={`app theme-${appTheme}`}><BrowserAuthGate /></div>;
   }
@@ -3494,13 +3702,14 @@ function App() {
       {tab === 'matches' && (
         <>
           <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} onTournamentParticipants={() => setTournamentPredictionsOpen(true)} setTab={setTab} />
-          <MatchCenter key={`matches-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />
+          <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} />
         </>
       )}
       {tab === 'fantasy' && <Fantasy />}
       {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
       {tab === 'resources' && <Resources />}
-      {tab === 'rating' && <Rating />}
+      {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
+      {tab === 'rating' && <Rating leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
       {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 
@@ -3515,7 +3724,7 @@ function App() {
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
-      {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} />}
+      {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} leagueId={activeLeagueId} leagueName={activeLeagueName} />}
       {tournamentPickField && !tournamentPrediction?.is_closed && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>

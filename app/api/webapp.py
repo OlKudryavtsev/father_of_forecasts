@@ -7,6 +7,7 @@ from pathlib import Path
 from collections import Counter
 from datetime import datetime, timezone
 import json
+import os
 import random
 import re
 
@@ -28,6 +29,8 @@ from app.models import (
     FantasyTeam,
     FantasyTeamPlayer,
     HistoricalArchiveCard,
+    League,
+    LeagueMember,
     Match,
     MatchVideo,
     Prediction,
@@ -45,6 +48,13 @@ from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
+from app.services.leagues import (
+    create_user_league,
+    get_user_active_leagues,
+    join_league_by_invite_code,
+    normalize_invite_code,
+    require_user_league,
+)
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.team_names import get_team_name_ru
 from app.wc2026_sync import get_fixture_score, get_winner_side
@@ -76,6 +86,15 @@ class QuizAnswerPayload(BaseModel):
 
     question_id: int
     selected_option: str
+
+
+class LeagueCreatePayload(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class LeagueJoinPayload(BaseModel):
+    invite_code: str = Field(min_length=3, max_length=80)
 
 
 
@@ -483,6 +502,44 @@ def _prediction_by_match_id(db: Session, user: User, matches: list[Match]) -> di
     return {prediction.match_id: prediction for prediction in predictions}
 
 
+def _league_invite_url(league: League) -> str | None:
+    """Build Telegram deep-link for a league invite when bot username is configured."""
+    if not league.invite_code:
+        return None
+    bot_username = (
+        os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+        or os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
+    )
+    if not bot_username:
+        return None
+    return f"https://t.me/{bot_username}?start=league_{league.invite_code}"
+
+
+def _serialize_league(league: League, current_user: User | None = None) -> dict:
+    """Serialize a league for Mini App UI."""
+    current_member = None
+    if current_user:
+        for member in league.members or []:
+            if member.user_id == current_user.id:
+                current_member = member
+                break
+
+    active_members_count = sum(1 for member in (league.members or []) if member.status == "active")
+    role = current_member.role if current_member else None
+    return {
+        "id": league.id,
+        "name": league.name,
+        "description": league.description,
+        "league_type": league.league_type,
+        "invite_code": league.invite_code,
+        "invite_url": _league_invite_url(league),
+        "is_owner": bool(current_user and league.owner_user_id == current_user.id),
+        "role": role,
+        "can_manage": role in {"owner", "admin"} or bool(current_user and current_user.is_admin),
+        "members_count": active_members_count,
+    }
+
+
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)) -> dict:
     """Return current Mini App user profile."""
@@ -493,6 +550,54 @@ def get_me(current_user: User = Depends(get_current_user)) -> dict:
         "display_name": current_user.display_name,
         "is_admin": bool(current_user.is_admin),
     }
+
+
+@router.get("/leagues")
+def get_my_leagues(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return leagues where the current user is an active member."""
+    leagues = get_user_active_leagues(db, current_user)
+    default_league = None
+    try:
+        default_league = require_user_league(db, current_user, None)
+    except ValueError:
+        default_league = leagues[0] if leagues else None
+
+    return {
+        "leagues": [_serialize_league(league, current_user) for league in leagues],
+        "default_league_id": default_league.id if default_league else None,
+        "active_league_id": default_league.id if default_league else None,
+    }
+
+
+@router.post("/leagues")
+def create_league_endpoint(
+    payload: LeagueCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create a private league and add current user as admin."""
+    try:
+        league = create_user_league(db, current_user, payload.name, payload.description)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"ok": True, "league": _serialize_league(league, current_user)}
+
+
+@router.post("/leagues/join")
+def join_league_endpoint(
+    payload: LeagueJoinPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Join an existing league by invite code."""
+    try:
+        league = join_league_by_invite_code(db, current_user, payload.invite_code)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"ok": True, "league": _serialize_league(league, current_user)}
 
 
 
@@ -796,6 +901,7 @@ def get_match(
 @router.get("/matches/{match_id}/predictions")
 def get_match_predictions_visibility(
     match_id: int,
+    league_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -805,11 +911,22 @@ def get_match_predictions_visibility(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
     has_started = _ensure_utc(match.starts_at) <= datetime.now(timezone.utc)
     predictions = (
         db.query(Prediction, User)
         .join(User, User.id == Prediction.user_id)
-        .filter(Prediction.match_id == match.id)
+        .join(LeagueMember, LeagueMember.user_id == User.id)
+        .filter(
+            Prediction.match_id == match.id,
+            LeagueMember.league_id == active_league.id,
+            LeagueMember.status == "active",
+            User.access_status == "approved",
+        )
         .order_by(User.display_name.asc())
         .all()
     )
@@ -853,6 +970,7 @@ def get_match_predictions_visibility(
 
     return {
         "match": _serialize_match(match),
+        "league": _serialize_league(active_league, current_user),
         "has_started": has_started,
         "participants_count": len(participants),
         "participants": participants,
@@ -963,15 +1081,30 @@ async def save_prediction_endpoint(
 
 @router.get("/table")
 def get_table(
+    league_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Return tournament leaderboard with compact participant progress details."""
-    rows = build_table_rows(db)
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    rows = build_table_rows(db, league_id=active_league.id)
 
     users_by_name = {
         user.display_name: user
-        for user in db.query(User).all()
+        for user in (
+            db.query(User)
+            .join(LeagueMember, LeagueMember.user_id == User.id)
+            .filter(
+                LeagueMember.league_id == active_league.id,
+                LeagueMember.status == "active",
+                User.access_status == "approved",
+            )
+            .all()
+        )
     }
 
     total_matches_count = (
@@ -1117,7 +1250,11 @@ def get_table(
         row["accuracy_base"] = finished_predictions_count
         row["accuracy_percent"] = round(successful_predictions * 100 / finished_predictions_count) if finished_predictions_count else 0
 
-    return {"rows": rows, "father_row": father_row}
+    return {
+        "league": _serialize_league(active_league, current_user),
+        "rows": rows,
+        "father_row": father_row,
+    }
 
 
 @router.get("/tournament-forecast")
@@ -1198,11 +1335,27 @@ async def save_tournament_prediction_endpoint(
 
 @router.get("/tournament-predictions")
 def get_tournament_predictions(
+    league_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return all tournament predictions with pre-start privacy rules."""
-    users = db.query(User).order_by(User.display_name).all()
+    """Return tournament predictions with pre-start privacy rules, scoped by league."""
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    users = (
+        db.query(User)
+        .join(LeagueMember, LeagueMember.user_id == User.id)
+        .filter(
+            LeagueMember.league_id == active_league.id,
+            LeagueMember.status == "active",
+            User.access_status == "approved",
+        )
+        .order_by(User.display_name)
+        .all()
+    )
     predictions = (
         db.query(TournamentPrediction)
         .filter(TournamentPrediction.tournament_code == TOURNAMENT_CODE)
@@ -1223,7 +1376,7 @@ def get_tournament_predictions(
             }
         )
 
-    return {"revealed": revealed, "rows": rows}
+    return {"revealed": revealed, "league": _serialize_league(active_league, current_user), "rows": rows}
 
 
 def _serialize_tournament_prediction(prediction: TournamentPrediction | None) -> dict | None:
@@ -3118,9 +3271,20 @@ def _apply_group_match_result(row_home: dict, row_away: dict, match: Match) -> N
         row_away["points"] += 1
 
 
-def _prediction_distribution(db: Session, match: Match) -> dict:
-    """Return aggregated user prediction distribution for a match."""
-    predictions = db.query(Prediction).filter(Prediction.match_id == match.id).all()
+def _prediction_distribution(db: Session, match: Match, league_id: int | None = None) -> dict:
+    """Return aggregated user prediction distribution for a match, optionally scoped by league."""
+    query = db.query(Prediction).filter(Prediction.match_id == match.id)
+    if league_id is not None:
+        query = (
+            query.join(User, User.id == Prediction.user_id)
+            .join(LeagueMember, LeagueMember.user_id == User.id)
+            .filter(
+                LeagueMember.league_id == league_id,
+                LeagueMember.status == "active",
+                User.access_status == "approved",
+            )
+        )
+    predictions = query.all()
     total = len(predictions)
 
     home = 0
@@ -3155,10 +3319,11 @@ def _serialize_match_center_match(
     db: Session,
     match: Match,
     user_prediction: Prediction | None = None,
+    league_id: int | None = None,
 ) -> dict:
     """Serialize a match card for Mini App 2.0 match center."""
     payload = _serialize_match(match, user_prediction)
-    payload["prediction_distribution"] = _prediction_distribution(db, match)
+    payload["prediction_distribution"] = _prediction_distribution(db, match, league_id=league_id)
     payload["fifa_match_no"] = match.fifa_match_no
     payload["status_short"] = match.status_short
     payload["status_long"] = match.status_long
@@ -3248,10 +3413,16 @@ def _build_group_standings(db: Session) -> list[dict]:
 def get_match_center(
     scope: str = Query(default="all", pattern="^(all|results|upcoming)$"),
     group_code: str | None = Query(default=None),
+    league_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Return Mini App 2.0 match center data with filters and standings."""
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
     query = (
         db.query(Match)
         .filter(Match.tournament_code == TOURNAMENT_CODE)
@@ -3291,11 +3462,13 @@ def get_match_center(
         "filters": {
             "scope": scope,
             "group_code": group_code,
+            "league_id": active_league.id,
         },
+        "league": _serialize_league(active_league, current_user),
         "groups": groups,
         "standings": selected_group_standings,
         "matches": [
-            _serialize_match_center_match(db, match, predictions_by_match.get(match.id))
+            _serialize_match_center_match(db, match, predictions_by_match.get(match.id), league_id=active_league.id)
             for match in matches
         ],
     }

@@ -28,22 +28,21 @@ def get_group_chat_id() -> int | None:
 DEFAULT_LEAGUE_NAME = "Отец прогнозов"
 
 
-def _get_default_league_users(db, league_name: str = DEFAULT_LEAGUE_NAME):
-    """Return active users of the default league.
+def _get_league_users(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int | None = None):
+    """Return active approved users of a league.
 
-    Stage 1 of multi-league support keeps UX unchanged, but technically
-    leaderboards are already scoped to the system league. If the migration
-    has not been applied yet, fall back to the legacy all-users behavior so
-    the bot does not fail during deployment.
+    If league tables are not migrated yet, fall back to legacy all-users behavior.
     """
     try:
         from app.models import League, LeagueMember
 
-        league = (
-            db.query(League)
-            .filter(League.name == league_name, League.is_active == True)
-            .first()
-        )
+        query = db.query(League).filter(League.is_active == True)
+        if league_id is not None:
+            query = query.filter(League.id == league_id)
+        else:
+            query = query.filter(League.name == league_name)
+
+        league = query.first()
         if not league:
             return db.query(User).order_by(User.display_name).all()
 
@@ -67,9 +66,13 @@ def _get_default_league_users(db, league_name: str = DEFAULT_LEAGUE_NAME):
         return db.query(User).order_by(User.display_name).all()
 
 
-def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME) -> list[dict]:
+def _get_default_league_users(db, league_name: str = DEFAULT_LEAGUE_NAME):
+    return _get_league_users(db, league_name=league_name)
+
+
+def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int | None = None) -> list[dict]:
     """Provide bot helper logic for build_table_rows."""
-    users = _get_default_league_users(db, league_name=league_name)
+    users = _get_league_users(db, league_name=league_name, league_id=league_id)
 
     rows = []
 
