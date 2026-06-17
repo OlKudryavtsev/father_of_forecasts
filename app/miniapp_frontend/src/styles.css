@@ -6823,3 +6823,55 @@ button.danger.wide {
     justify-content: flex-start;
   }
 }
+
+/* Stable image-based team flags for Telegram Desktop / iOS PWA.
+   Emoji flags are rendered differently by platform fonts, so match cards use
+   flagcdn SVGs with text/emoji fallback. */
+.flag.flag-img {
+  width: 44px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.72);
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,0.08), 0 4px 12px rgba(15,23,42,0.10);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.flag.flag-img img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.flag.flag-img.mini {
+  width: 28px;
+  height: 20px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,0.10);
+}
+
+.flag-fallback {
+  display: none;
+  font-size: 11px;
+  color: #0f172a;
+}
+
+.flag-fallback-visible .flag-fallback {
+  display: inline;
+}
+
+.flag-fallback-visible img {
+  display: none;
+}
+
+.app.theme-light .flag.flag-img {
+  background: rgba(255,255,255,0.96);
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,0.10), 0 4px 12px rgba(15,23,42,0.08);
+}

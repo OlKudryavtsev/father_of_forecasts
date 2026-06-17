@@ -43,7 +43,7 @@ from app.models import (
 )
 from app.runtime import TOURNAMENT_CODE
 from app.services.matches import apply_match_result_from_admin, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
-from app.services.misc import build_table_rows, get_team_flag
+from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.forecast import build_forecast_text
@@ -171,6 +171,8 @@ def _serialize_match(match: Match, user_prediction: Prediction | None = None) ->
         "away_team": away_name,
         "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
         "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
+        "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
+        "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
         "stage": match.stage,
         "match_round": match.match_round,
         "group_code": match.group_code,
@@ -1150,6 +1152,7 @@ def get_tournament_teams(
                     "name": name,
                     "api_name": api_name or display_name,
                     "flag": get_team_flag(name, api_name or display_name),
+                    "flag_code": get_team_flag_code(name, api_name or display_name),
                 }
 
     teams = sorted(teams_by_name.values(), key=lambda item: item["name"])
@@ -2455,6 +2458,8 @@ def _serialize_admin_match(match: Match) -> dict:
         "away_team": away_name,
         "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
         "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
+        "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
+        "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
         "starts_at": _ensure_utc(match.starts_at).isoformat(),
         "stage": match.stage,
         "match_round": match.match_round,

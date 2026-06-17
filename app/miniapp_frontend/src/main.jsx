@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.21';
+const APP_VERSION = '2.8.22';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -55,6 +55,34 @@ function openExternalUrl(url) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+
+
+function TeamFlag({ code, emoji, name = '', size = 'normal' }) {
+  const normalizedCode = String(code || '').trim().toLowerCase();
+  const hasCode = /^[a-z0-9-]{2,10}$/.test(normalizedCode);
+  const className = `flag flag-img ${size === 'mini' ? 'mini' : ''}`.trim();
+
+  if (hasCode) {
+    return (
+      <span className={className} title={name} aria-label={name ? `Флаг: ${name}` : 'Флаг'}>
+        <img
+          src={`https://flagcdn.com/${normalizedCode}.svg`}
+          alt=""
+          loading="lazy"
+          onError={(event) => {
+            const img = event.currentTarget;
+            img.style.display = 'none';
+            const parent = img.parentElement;
+            if (parent) parent.classList.add('flag-fallback-visible');
+          }}
+        />
+        <span className="flag-fallback">{emoji || normalizedCode.toUpperCase()}</span>
+      </span>
+    );
+  }
+
+  return <span className={`flag ${size === 'mini' ? 'mini' : ''}`.trim()} title={name}>{emoji || '🏳️'}</span>;
+}
 
 function Icon({ name, className = '' }) {
   const common = {
@@ -1135,7 +1163,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true, leag
 
       <div className="match-teams">
         <div className="team-side">
-          <span className="flag">{match.home_flag || '🏳️'}</span>
+          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} />
           <strong>{match.home_team}</strong>
         </div>
         <div className="score-block match-score-stack">
@@ -1160,7 +1188,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true, leag
           )}
         </div>
         <div className="team-side">
-          <span className="flag">{match.away_flag || '🏳️'}</span>
+          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} />
           <strong>{match.away_team}</strong>
         </div>
       </div>
@@ -1387,7 +1415,7 @@ function ScorePicker({ match, onClose, onSaved }) {
 
         <div className="score-editor-compact">
           <div className="score-row">
-            <span className="score-team"><span className="flag mini">{match.home_flag}</span><strong>{match.home_team}</strong></span>
+            <span className="score-team"><TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" /><strong>{match.home_team}</strong></span>
             <div className="counter compact-counter">
               <button onClick={() => dec(setHome, home)}>−</button>
               <b>{home}</b>
@@ -1395,7 +1423,7 @@ function ScorePicker({ match, onClose, onSaved }) {
             </div>
           </div>
           <div className="score-row">
-            <span className="score-team"><span className="flag mini">{match.away_flag}</span><strong>{match.away_team}</strong></span>
+            <span className="score-team"><TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" /><strong>{match.away_team}</strong></span>
             <div className="counter compact-counter">
               <button onClick={() => dec(setAway, away)}>−</button>
               <b>{away}</b>

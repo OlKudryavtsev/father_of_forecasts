@@ -1,7 +1,7 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
 
-from app.constants.teams import TEAM_FLAGS
+from app.constants.teams import TEAM_FLAG_CODES, TEAM_FLAGS
 from app.formatters.matches import format_match_label
 from app.runtime import (
     GROUP_CHAT_ID_RAW,
@@ -198,6 +198,23 @@ def get_team_flag(team_name: str | None, api_name: str | None = None) -> str:
 
     if team_name and team_name in TEAM_FLAGS:
         return TEAM_FLAGS[team_name]
+
+    return ""
+
+
+def get_team_flag_code(team_name: str | None, api_name: str | None = None) -> str:
+    """Return a stable flag image code for frontend rendering.
+
+    Emoji flags are rendered inconsistently in Telegram Desktop and some iOS
+    WebView contexts, especially for subdivision flags such as Scotland/England.
+    The Mini App uses this code to render SVG/PNG flags instead of relying on
+    platform emoji fonts.
+    """
+    if api_name and api_name in TEAM_FLAG_CODES:
+        return TEAM_FLAG_CODES[api_name]
+
+    if team_name and team_name in TEAM_FLAG_CODES:
+        return TEAM_FLAG_CODES[team_name]
 
     return ""
 
