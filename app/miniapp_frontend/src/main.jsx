@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.22';
+const APP_VERSION = '2.8.23';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -919,10 +919,42 @@ function Header({ dashboard, onRules, onAdmin }) {
   );
 }
 
+function TournamentMiniPreview({ prediction }) {
+  if (!prediction) return null;
+
+  const teams = [
+    { key: 'champion', name: prediction.champion, code: prediction.champion_flag_code, emoji: prediction.champion_flag },
+    { key: 'runner_up', name: prediction.runner_up, code: prediction.runner_up_flag_code, emoji: prediction.runner_up_flag },
+    { key: 'third_place', name: prediction.third_place, code: prediction.third_place_flag_code, emoji: prediction.third_place_flag },
+  ].filter((item) => item.name);
+
+  const scorerInitials = String(prediction.top_scorer || '⚽')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+
+  return (
+    <div className="tournament-mini-preview" aria-label="Кратко: выбранные сборные и бомбардир">
+      <div className="tournament-mini-preview-flags">
+        {teams.map((team) => (
+          <TeamFlag key={team.key} code={team.code} emoji={team.emoji} name={team.name} size="mini" />
+        ))}
+      </div>
+      <div className="tournament-scorer-avatar" title={prediction.top_scorer || 'Бомбардир'}>
+        {prediction.top_scorer_photo ? <img src={prediction.top_scorer_photo} alt="" /> : <span>{scorerInitials || '⚽'}</span>}
+      </div>
+    </div>
+  );
+}
+
 function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournamentParticipants, setTab }) {
+  const [tournamentOpen, setTournamentOpen] = useState(true);
   const missing = dashboard?.missing_predictions_count ?? 0;
   const p = tournamentPrediction?.prediction;
-  const tournamentClosed = Boolean(tournamentPrediction?.is_closed);
+  const tournamentClosed = !Boolean(tournamentPrediction?.can_submit || !tournamentPrediction?.is_closed);
   const items = [
     { key: 'champion', label: 'Победитель', value: p?.champion, points: '+15', icon: 'cup' },
     { key: 'runner_up', label: '2-е место', value: p?.runner_up, points: '+10', icon: 'rank' },
@@ -941,24 +973,32 @@ function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournam
         <b>{missing}</b>
       </button>
 
-      <section className="tournament-mini">
+      <section className={`tournament-mini ${tournamentOpen ? 'open' : 'closed'}`}>
         <div className="tournament-mini-head">
-          <h2>Прогнозы на турнир</h2>
-          <div className="tournament-mini-actions">
-            <button type="button" onClick={onTournamentParticipants}>Участники</button>
-            <span>{tournamentClosed ? 'закрыто' : (p ? '4/4' : '0/4')}</span>
+          <button type="button" className="tournament-mini-title" onClick={() => setTournamentOpen((value) => !value)}>
+            <span>Прогнозы на турнир</span>
+            <b>{tournamentOpen ? '−' : '+'}</b>
+          </button>
+          <div className="tournament-mini-head-right">
+            <TournamentMiniPreview prediction={p} />
+            <div className="tournament-mini-actions">
+              <button type="button" onClick={onTournamentParticipants}>Участники</button>
+              <span>{tournamentClosed ? 'закрыто' : (p ? '4/4' : '0/4')}</span>
+            </div>
           </div>
         </div>
-        <div className="tournament-mini-grid">
-          {items.map((item) => (
-            <button key={item.key} disabled={tournamentClosed} onClick={() => !tournamentClosed && onTournamentPick(item.key)}>
-              <i><Icon name={item.icon} /></i>
-              <span>{item.label}</span>
-              <strong>{item.value || (tournamentClosed ? 'Нет прогноза' : 'Выбрать')}</strong>
-              <small>{tournamentClosed ? 'закрыто' : item.points}</small>
-            </button>
-          ))}
-        </div>
+        {tournamentOpen && (
+          <div className="tournament-mini-grid">
+            {items.map((item) => (
+              <button key={item.key} disabled={tournamentClosed} onClick={() => !tournamentClosed && onTournamentPick(item.key)}>
+                <i><Icon name={item.icon} /></i>
+                <span>{item.label}</span>
+                <strong>{item.value || (tournamentClosed ? 'Нет прогноза' : 'Выбрать')}</strong>
+                <small>{tournamentClosed ? 'закрыто' : item.points}</small>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
     </section>
   );

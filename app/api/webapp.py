@@ -1424,7 +1424,7 @@ def get_my_tournament_prediction(
     submit_state = tournament_prediction_submit_state(db, current_user)
 
     return {
-        "prediction": _serialize_tournament_prediction(prediction) if prediction else None,
+        "prediction": _serialize_tournament_prediction(prediction, db=db) if prediction else None,
         "is_closed": bool(submit_state["is_closed"]),
         "can_submit": bool(submit_state["can_submit"]),
         "is_late_entry": bool(submit_state["is_late_entry"]),
@@ -1463,7 +1463,7 @@ async def save_tournament_prediction_endpoint(
         .first()
     )
 
-    return {"ok": True, "message": text, "prediction": _serialize_tournament_prediction(prediction)}
+    return {"ok": True, "message": text, "prediction": _serialize_tournament_prediction(prediction, db=db)}
 
 
 @router.get("/tournament-predictions")
@@ -1505,14 +1505,56 @@ def get_tournament_predictions(
             {
                 "user_name": user.display_name,
                 "has_prediction": prediction is not None,
-                "prediction": _serialize_tournament_prediction(prediction) if revealed and prediction else None,
+                "prediction": _serialize_tournament_prediction(prediction, db=db) if revealed and prediction else None,
             }
         )
 
     return {"revealed": revealed, "league": _serialize_league(active_league, current_user), "rows": rows}
 
 
-def _serialize_tournament_prediction(prediction: TournamentPrediction | None) -> dict | None:
+def _top_scorer_photo(db: Session | None, player_name: str | None) -> str | None:
+    """Find a stored player photo for a tournament top scorer name."""
+    if db is None or not player_name:
+        return None
+
+    name = player_name.strip()
+    if not name:
+        return None
+
+    exact = (
+        db.query(FantasyPlayer)
+        .filter(
+            FantasyPlayer.tournament_code == TOURNAMENT_CODE,
+            FantasyPlayer.photo.isnot(None),
+            FantasyPlayer.photo != "",
+            func.lower(FantasyPlayer.player_name) == name.lower(),
+        )
+        .order_by(FantasyPlayer.is_active.desc())
+        .first()
+    )
+    if exact and exact.photo:
+        return exact.photo
+
+    parts = [part for part in re.split(r"\s+", name) if len(part) >= 3]
+    if not parts:
+        return None
+
+    query = (
+        db.query(FantasyPlayer)
+        .filter(
+            FantasyPlayer.tournament_code == TOURNAMENT_CODE,
+            FantasyPlayer.photo.isnot(None),
+            FantasyPlayer.photo != "",
+        )
+    )
+    for part in parts[:2]:
+        query = query.filter(FantasyPlayer.player_name.ilike(f"%{part}%"))
+
+    player = query.order_by(FantasyPlayer.is_active.desc()).first()
+    return player.photo if player else None
+
+
+def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db: Session | None = None) -> dict | None:
     """Serialize a tournament prediction."""
     if not prediction:
         return None
@@ -1522,6 +1564,13 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None) ->
         "runner_up": prediction.runner_up,
         "third_place": prediction.third_place,
         "top_scorer": prediction.top_scorer,
+        "champion_flag": get_team_flag(prediction.champion),
+        "runner_up_flag": get_team_flag(prediction.runner_up),
+        "third_place_flag": get_team_flag(prediction.third_place),
+        "champion_flag_code": get_team_flag_code(prediction.champion),
+        "runner_up_flag_code": get_team_flag_code(prediction.runner_up),
+        "third_place_flag_code": get_team_flag_code(prediction.third_place),
+        "top_scorer_photo": _top_scorer_photo(db, prediction.top_scorer),
         "champion_points": prediction.champion_points or 0,
         "runner_up_points": prediction.runner_up_points or 0,
         "third_place_points": prediction.third_place_points or 0,
@@ -3197,7 +3246,7 @@ def get_profile(
             {"key": "matches", "title": "Прогнозы", "points": match_points, "icon": "ball"},
             {"key": "tournament", "title": "Турнир", "points": tournament_points, "icon": "cup"},
         ],
-        "tournament_prediction": _serialize_tournament_prediction(tournament_prediction) if tournament_prediction else None,
+        "tournament_prediction": _serialize_tournament_prediction(tournament_prediction, db=db) if tournament_prediction else None,
         "badges": _profile_badges(
             exact_scores=exact_scores,
             outcomes=outcomes,
