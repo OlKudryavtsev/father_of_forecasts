@@ -20,10 +20,48 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR,
     display_name VARCHAR NOT NULL,
     is_admin BOOLEAN DEFAULT FALSE,
+    access_status VARCHAR NOT NULL DEFAULT 'approved',
+    approved_at TIMESTAMPTZ,
+    approved_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id);
+CREATE INDEX IF NOT EXISTS ix_users_access_status ON users (access_status);
+
+
+CREATE TABLE IF NOT EXISTS leagues (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR NOT NULL UNIQUE,
+    description TEXT,
+    league_type VARCHAR NOT NULL DEFAULT 'system',
+    owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    invite_code VARCHAR UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_leagues_name ON leagues (name);
+CREATE INDEX IF NOT EXISTS ix_leagues_league_type ON leagues (league_type);
+CREATE INDEX IF NOT EXISTS ix_leagues_invite_code ON leagues (invite_code);
+CREATE INDEX IF NOT EXISTS ix_leagues_is_active ON leagues (is_active);
+
+
+CREATE TABLE IF NOT EXISTS league_members (
+    id SERIAL PRIMARY KEY,
+    league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR NOT NULL DEFAULT 'member',
+    status VARCHAR NOT NULL DEFAULT 'active',
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_league_members_league_user UNIQUE (league_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_league_members_league_id ON league_members (league_id);
+CREATE INDEX IF NOT EXISTS ix_league_members_user_id ON league_members (user_id);
+CREATE INDEX IF NOT EXISTS ix_league_members_role ON league_members (role);
+CREATE INDEX IF NOT EXISTS ix_league_members_status ON league_members (status);
 
 
 CREATE TABLE IF NOT EXISTS matches (

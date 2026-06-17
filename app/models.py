@@ -26,10 +26,49 @@ class User(Base):
     display_name = Column(String, nullable=False)
 
     is_admin = Column(Boolean, default=False)
+    access_status = Column(String, nullable=False, default="approved", server_default="approved", index=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     predictions = relationship("Prediction", back_populates="user")
+    league_memberships = relationship("LeagueMember", back_populates="user", cascade="all, delete-orphan", foreign_keys="LeagueMember.user_id")
+
+
+class League(Base):
+    __tablename__ = "leagues"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    league_type = Column(String, nullable=False, default="system", server_default="system", index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    invite_code = Column(String, nullable=True, unique=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    owner = relationship("User", foreign_keys=[owner_user_id])
+    members = relationship("LeagueMember", back_populates="league", cascade="all, delete-orphan")
+
+
+class LeagueMember(Base):
+    __tablename__ = "league_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String, nullable=False, default="member", server_default="member", index=True)
+    status = Column(String, nullable=False, default="active", server_default="active", index=True)
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    league = relationship("League", back_populates="members")
+    user = relationship("User", back_populates="league_memberships", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("league_id", "user_id", name="uq_league_members_league_user"),
+    )
 
 
 class WebSession(Base):

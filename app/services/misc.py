@@ -25,9 +25,51 @@ def get_group_chat_id() -> int | None:
         return None
 
 
-def build_table_rows(db) -> list[dict]:
+DEFAULT_LEAGUE_NAME = "Отец прогнозов"
+
+
+def _get_default_league_users(db, league_name: str = DEFAULT_LEAGUE_NAME):
+    """Return active users of the default league.
+
+    Stage 1 of multi-league support keeps UX unchanged, but technically
+    leaderboards are already scoped to the system league. If the migration
+    has not been applied yet, fall back to the legacy all-users behavior so
+    the bot does not fail during deployment.
+    """
+    try:
+        from app.models import League, LeagueMember
+
+        league = (
+            db.query(League)
+            .filter(League.name == league_name, League.is_active == True)
+            .first()
+        )
+        if not league:
+            return db.query(User).order_by(User.display_name).all()
+
+        users = (
+            db.query(User)
+            .join(LeagueMember, LeagueMember.user_id == User.id)
+            .filter(
+                LeagueMember.league_id == league.id,
+                LeagueMember.status == "active",
+                getattr(User, "access_status") == "approved",
+            )
+            .order_by(User.display_name)
+            .all()
+        )
+        return users
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return db.query(User).order_by(User.display_name).all()
+
+
+def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME) -> list[dict]:
     """Provide bot helper logic for build_table_rows."""
-    users = db.query(User).order_by(User.display_name).all()
+    users = _get_default_league_users(db, league_name=league_name)
 
     rows = []
 
