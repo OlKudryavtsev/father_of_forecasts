@@ -50,6 +50,7 @@ class League(Base):
     owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     invite_code = Column(String, nullable=True, unique=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
+    scoring_start_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 

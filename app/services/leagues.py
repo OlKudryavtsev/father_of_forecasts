@@ -7,6 +7,7 @@ import secrets
 import string
 
 from app.models import League, LeagueMember, User
+from app.services.tournament import get_tournament_starts_at
 
 DEFAULT_LEAGUE_NAME = "Отец прогнозов"
 
@@ -47,6 +48,24 @@ def get_default_league(db) -> League | None:
         .filter(League.name == DEFAULT_LEAGUE_NAME, League.is_active == True)
         .first()
     )
+
+
+
+
+def league_scoring_start_at(league: League | None):
+    """Return the datetime from which match points should count for a league.
+
+    System league «Отец прогнозов» is intentionally scored from tournament start
+    to preserve the historical leaderboard. New private leagues are scored from
+    their creation/scoring_start_at.
+    """
+    if league is None:
+        return None
+    if getattr(league, "scoring_start_at", None):
+        return league.scoring_start_at
+    if league.name == DEFAULT_LEAGUE_NAME or league.league_type == "system":
+        return get_tournament_starts_at()
+    return league.created_at
 
 
 def get_league_by_invite_code(db, invite_code: str | None) -> League | None:
@@ -335,6 +354,7 @@ def create_user_league(db, owner: User, name: str, description: str | None = Non
         owner_user_id=owner.id,
         invite_code=generate_invite_code(db),
         is_active=True,
+        scoring_start_at=datetime.now(timezone.utc),
     )
     db.add(league)
     db.flush()

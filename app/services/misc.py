@@ -5,6 +5,7 @@ from app.constants.teams import TEAM_FLAGS
 from app.formatters.matches import format_match_label
 from app.runtime import (
     GROUP_CHAT_ID_RAW,
+    Match,
     Message,
     Prediction,
     TOURNAMENT_CODE,
@@ -70,9 +71,36 @@ def _get_default_league_users(db, league_name: str = DEFAULT_LEAGUE_NAME):
     return _get_league_users(db, league_name=league_name)
 
 
+def _get_league_context(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int | None = None):
+    """Return league and scoring start for leaderboard filters."""
+    try:
+        from app.models import League
+        from app.services.leagues import league_scoring_start_at
+
+        query = db.query(League).filter(League.is_active == True)
+        if league_id is not None:
+            query = query.filter(League.id == league_id)
+        else:
+            query = query.filter(League.name == league_name)
+        league = query.first()
+        return league, league_scoring_start_at(league) if league else None
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None, None
+
+
 def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int | None = None) -> list[dict]:
-    """Provide bot helper logic for build_table_rows."""
+    """Provide bot helper logic for build_table_rows.
+
+    When a league is selected, match points are counted only for matches whose
+    kickoff is on/after the league scoring_start_at. Tournament prediction points
+    remain included for all active league members by design.
+    """
     users = _get_league_users(db, league_name=league_name, league_id=league_id)
+    _league, scoring_start_at = _get_league_context(db, league_name=league_name, league_id=league_id)
 
     rows = []
 
@@ -80,9 +108,18 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
         if getattr(user, "is_bot", False):
             continue
 
-        predictions = db.query(Prediction).filter(
-            Prediction.user_id == user.id
-        ).all()
+        predictions_query = (
+            db.query(Prediction)
+            .join(Match, Prediction.match_id == Match.id)
+            .filter(
+                Prediction.user_id == user.id,
+                Match.tournament_code == TOURNAMENT_CODE,
+            )
+        )
+        if scoring_start_at is not None:
+            predictions_query = predictions_query.filter(Match.starts_at >= scoring_start_at)
+
+        predictions = predictions_query.all()
 
         tournament_prediction = db.query(TournamentPrediction).filter(
             TournamentPrediction.user_id == user.id,

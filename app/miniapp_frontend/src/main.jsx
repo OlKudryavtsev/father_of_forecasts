@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.20';
+const APP_VERSION = '2.8.21';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2941,7 +2941,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
         <div>
           <span className="muted small">Активная лига</span>
           <h2>{activeLeague?.name || 'Не выбрана'}</h2>
-          <p>Рейтинг, матч-центр и прогнозы участников показываются по выбранной лиге.</p>
+          <p>Рейтинг, матч-центр и прогнозы участников показываются по выбранной лиге.{activeLeague?.scoring_start_at ? ` Счет с ${formatDateTime(activeLeague.scoring_start_at)}.` : ''}</p>
         </div>
         <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} label="Переключить" />
       </section>
@@ -2963,7 +2963,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
                 <button type="button" className="league-row-main" onClick={() => onLeagueChange?.(league.id)}>
                   <div>
                     <strong>{league.name}</strong>
-                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}</small>
+                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}{league.scoring_start_at ? ` · счет с ${formatDateTime(league.scoring_start_at)}` : ''}</small>
                   </div>
                   {Number(league.id) === Number(activeLeagueId) && <span className="active-league-pill">активна</span>}
                 </button>

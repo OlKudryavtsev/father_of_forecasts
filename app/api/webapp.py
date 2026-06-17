@@ -53,6 +53,7 @@ from app.services.leagues import (
     deactivate_league,
     get_user_active_leagues,
     join_league_by_invite_code,
+    league_scoring_start_at,
     list_league_members,
     normalize_invite_code,
     remove_league_member,
@@ -546,6 +547,7 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
         "role": role,
         "can_manage": role in {"owner", "admin"} or bool(current_user and (current_user.is_admin or league.owner_user_id == current_user.id)),
         "can_deactivate": bool(current_user and league.league_type != "system" and (current_user.is_admin or league.owner_user_id == current_user.id)),
+        "scoring_start_at": _ensure_utc(league_scoring_start_at(league)).isoformat() if league_scoring_start_at(league) else None,
         "members_count": active_members_count,
     }
 
@@ -560,6 +562,22 @@ def get_me(current_user: User = Depends(get_current_user)) -> dict:
         "display_name": current_user.display_name,
         "is_admin": bool(current_user.is_admin),
     }
+
+
+def _league_match_filter(query, league: League):
+    """Apply league scoring-start filter to a Match query."""
+    scoring_start = league_scoring_start_at(league)
+    if scoring_start is not None:
+        query = query.filter(Match.starts_at >= scoring_start)
+    return query
+
+
+def _league_started_before_match_filter(league: League):
+    """Return SQLAlchemy filter ensuring a match is in the league scoring period."""
+    scoring_start = league_scoring_start_at(league)
+    if scoring_start is None:
+        return True
+    return Match.starts_at >= scoring_start
 
 
 @router.get("/leagues")
@@ -1028,6 +1046,7 @@ def get_match_predictions_visibility(
             Prediction.match_id == match.id,
             LeagueMember.league_id == active_league.id,
             LeagueMember.status == "active",
+            LeagueMember.joined_at <= match.starts_at,
             User.access_status == "approved",
         )
         .order_by(User.display_name.asc())
@@ -1194,6 +1213,7 @@ def get_table(
     except ValueError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
 
+    league_scoring_start = league_scoring_start_at(active_league)
     rows = build_table_rows(db, league_id=active_league.id)
 
     users_by_name = {
@@ -1210,18 +1230,19 @@ def get_table(
         )
     }
 
-    total_matches_count = (
-        db.query(Match)
-        .filter(Match.tournament_code == TOURNAMENT_CODE)
-        .count()
-    )
+    total_matches_query = db.query(Match).filter(Match.tournament_code == TOURNAMENT_CODE)
+    if league_scoring_start is not None:
+        total_matches_query = total_matches_query.filter(Match.starts_at >= league_scoring_start)
+    total_matches_count = total_matches_query.count()
 
-    father_predictions = (
+    father_predictions_query = (
         db.query(FatherMatchPrediction)
         .join(Match, FatherMatchPrediction.match_id == Match.id)
         .filter(Match.tournament_code == TOURNAMENT_CODE)
-        .all()
     )
+    if league_scoring_start is not None:
+        father_predictions_query = father_predictions_query.filter(Match.starts_at >= league_scoring_start)
+    father_predictions = father_predictions_query.all()
     father_points = 0
     father_exact = 0
     father_outcomes = 0
@@ -1287,23 +1308,24 @@ def get_table(
                 )
                 .first()
             )
-            user_predictions_count = (
-                db.query(Prediction)
-                .filter(Prediction.user_id == user.id)
-                .count()
-            )
-            finished_predictions_count = (
+            user_predictions_query = (
                 db.query(Prediction)
                 .join(Match, Prediction.match_id == Match.id)
                 .filter(
                     Prediction.user_id == user.id,
                     Match.tournament_code == TOURNAMENT_CODE,
-                    Match.is_finished == True,
-                    Match.score_home.isnot(None),
-                    Match.score_away.isnot(None),
                 )
-                .count()
             )
+            if league_scoring_start is not None:
+                user_predictions_query = user_predictions_query.filter(Match.starts_at >= league_scoring_start)
+            user_predictions_count = user_predictions_query.count()
+
+            finished_predictions_query = user_predictions_query.filter(
+                Match.is_finished == True,
+                Match.score_home.isnot(None),
+                Match.score_away.isnot(None),
+            )
+            finished_predictions_count = finished_predictions_query.count()
             fantasy_team = (
                 db.query(FantasyTeam)
                 .filter(
@@ -3388,6 +3410,7 @@ def _prediction_distribution(db: Session, match: Match, league_id: int | None = 
             .filter(
                 LeagueMember.league_id == league_id,
                 LeagueMember.status == "active",
+                LeagueMember.joined_at <= match.starts_at,
                 User.access_status == "approved",
             )
         )

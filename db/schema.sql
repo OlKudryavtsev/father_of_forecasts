@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS leagues (
     owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     invite_code VARCHAR UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    scoring_start_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -46,6 +47,7 @@ CREATE INDEX IF NOT EXISTS ix_leagues_name ON leagues (name);
 CREATE INDEX IF NOT EXISTS ix_leagues_league_type ON leagues (league_type);
 CREATE INDEX IF NOT EXISTS ix_leagues_invite_code ON leagues (invite_code);
 CREATE INDEX IF NOT EXISTS ix_leagues_is_active ON leagues (is_active);
+CREATE INDEX IF NOT EXISTS ix_leagues_scoring_start_at ON leagues (scoring_start_at);
 
 
 CREATE TABLE IF NOT EXISTS league_members (
