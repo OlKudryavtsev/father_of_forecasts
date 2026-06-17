@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.19';
+const APP_VERSION = '2.8.20';
 const FANTASY_UI_ENABLED = false;
 
 

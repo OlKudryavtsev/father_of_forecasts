@@ -82,8 +82,31 @@ def ensure_user_in_league(db, user: User, league: League, role: str = "member") 
     return member
 
 
+def is_user_in_default_league(db, user: User) -> bool:
+    """Return True when user is an active member of the system default league."""
+    default_league = get_default_league(db)
+    if not default_league:
+        return False
+
+    member = (
+        db.query(LeagueMember)
+        .filter(
+            LeagueMember.league_id == default_league.id,
+            LeagueMember.user_id == user.id,
+            LeagueMember.status == "active",
+        )
+        .first()
+    )
+    return bool(member)
+
+
 def approve_user(db, user: User, approved_by: User | None = None) -> list[str]:
-    """Approve user and add them to the default league and pending invite league."""
+    """Approve user and add them only to the pending invite league, if any.
+
+    New public users must not be added to the system league «Отец прогнозов»
+    automatically. Existing members stay there via the foundation migration, and
+    invite links still add a user to the league that was explicitly invited.
+    """
     now = datetime.now(timezone.utc)
     user.access_status = "approved"
     user.approved_at = user.approved_at or now
@@ -92,19 +115,9 @@ def approve_user(db, user: User, approved_by: User | None = None) -> list[str]:
 
     joined_leagues: list[str] = []
 
-    default_league = get_default_league(db)
-    if default_league:
-        ensure_user_in_league(
-            db,
-            user,
-            default_league,
-            role="admin" if user.is_admin else "member",
-        )
-        joined_leagues.append(default_league.name)
-
     invite_league = get_league_by_invite_code(db, user.pending_invite_code)
-    if invite_league and (not default_league or invite_league.id != default_league.id):
-        ensure_user_in_league(db, user, invite_league, role="member")
+    if invite_league:
+        ensure_user_in_league(db, user, invite_league, role="admin" if user.is_admin else "member")
         joined_leagues.append(invite_league.name)
 
     user.pending_invite_code = None

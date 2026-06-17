@@ -5,7 +5,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.runtime import CallbackQuery, Message, SessionLocal, bot
 from app.services.admin import get_admin_telegram_ids
 from app.services.leagues import approve_user, extract_invite_code_from_start_text, get_league_by_invite_code, reject_user
-from app.services.notifications import notify_group_chat
 from app.services.users import get_or_create_user, get_start_message_for_user
 from app.handlers.miniapp import answer_with_private_miniapp_button, get_miniapp_url
 
@@ -114,12 +113,6 @@ async def start_handler(message: Message):
                 except Exception as error:
                     print(f"Failed to send admin registration notification: {error}")
 
-            await notify_group_chat(
-                "🆕 Новый участник зашел в турнир\n\n"
-                f"{user.display_name} зарегистрировался в «Отце прогнозов».\n\n"
-                "Отец прогнозов одобрительно открыл Excel, хотя Excel уже не нужен."
-            )
-
     finally:
         db.close()
 
@@ -164,21 +157,27 @@ async def access_approve_callback(callback: CallbackQuery):
             except Exception:
                 pass
 
+        approval_text = "✅ Заявка одобрена!\n\n"
+        if joined_leagues:
+            approval_text += (
+                "Ты добавлен в лигу: "
+                f"{', '.join(joined_leagues)}.\n\n"
+                "Теперь можешь делать прогнозы и смотреть рейтинг своей лиги."
+            )
+        else:
+            approval_text += (
+                "Доступ к боту открыт.\n\n"
+                "Ты пока не состоишь ни в одной лиге: создай свою лигу в веб-приложении "
+                "или вступи в лигу по коду приглашения."
+            )
+
         try:
             await bot.send_message(
                 chat_id=user.telegram_id,
-                text=(
-                    "✅ Заявка одобрена!\n\n"
-                    "Ты добавлен в лигу «Отец прогнозов» и можешь делать прогнозы."
-                ),
+                text=approval_text,
             )
         except Exception as error:
             print(f"Failed to notify approved user {user.telegram_id}: {error}")
-
-        await notify_group_chat(
-            "🆕 Новый участник одобрен\n\n"
-            f"{user.display_name} теперь участвует в «Отце прогнозов»."
-        )
     finally:
         db.close()
 

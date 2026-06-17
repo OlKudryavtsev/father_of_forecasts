@@ -6,13 +6,31 @@ from app.runtime import ADMIN_NOTIFY_ENABLED, Match, User, bot
 from app.services.admin import get_admin_telegram_ids
 from app.services.forecast import is_forecast_bot_user
 
+def _is_default_league_member(user: User) -> bool:
+    """Keep old group-chat activity only for members of «Отец прогнозов»."""
+    try:
+        from app.db import SessionLocal
+        from app.models import User as DbUser
+        from app.services.leagues import is_user_in_default_league
+
+        db = SessionLocal()
+        try:
+            db_user = db.query(DbUser).filter(DbUser.id == user.id).first()
+            return bool(db_user and is_user_in_default_league(db, db_user))
+        finally:
+            db.close()
+    except Exception as error:
+        print(f"Failed to check default league membership for group notification: {error}")
+        return False
+
+
 async def notify_group_prediction_saved(
     user: User,
     match: Match,
     is_update: bool = False,
 ):
     """Handle asynchronous bot workflow for notify_group_prediction_saved."""
-    if is_forecast_bot_user(user):
+    if is_forecast_bot_user(user) or not _is_default_league_member(user):
         return
     action_text = "обновил прогноз" if is_update else "сделал прогноз"
 
@@ -30,7 +48,7 @@ async def notify_group_tournament_prediction_saved(
     is_update: bool = False,
 ):
     """Handle asynchronous bot workflow for notify_group_tournament_prediction_saved."""
-    if is_forecast_bot_user(user):
+    if is_forecast_bot_user(user) or not _is_default_league_member(user):
         return
 
     action_text = "обновил турнирный прогноз" if is_update else "сделал турнирный прогноз"
