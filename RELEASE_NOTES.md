@@ -1,3 +1,9 @@
+
+## v2.8.26 — League chat_id fix
+
+- Исправлена ошибка reminder loop из-за сравнения `leagues.chat_id` с пустой строкой при типе BIGINT.
+- Добавлена безопасная нормализация `chat_id` и миграция к TEXT.
+
 # Release Notes
 
 ## v2.8.22 — Stable flags in Mini App

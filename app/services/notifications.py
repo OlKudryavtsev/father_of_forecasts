@@ -132,7 +132,8 @@ async def notify_private_user(
 
 
 async def notify_league_chat(league: League, text: str) -> bool:
-    chat_id = (getattr(league, "chat_id", None) or "").strip()
+    raw_chat_id = getattr(league, "chat_id", None)
+    chat_id = str(raw_chat_id or "").strip()
     if not chat_id:
         return False
     try:

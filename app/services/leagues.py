@@ -284,22 +284,28 @@ def update_league_chat_id(db, actor: User, league_id: int, chat_id: str | None) 
 
 
 def get_active_league_chat_targets(db) -> list[League]:
-    """Return active leagues with an optional Telegram chat id configured."""
-    return (
+    """Return active leagues with an optional Telegram chat id configured.
+
+    ``chat_id`` is optional. In some production databases this column may be
+    BIGINT from an earlier migration, so never compare it with an empty string
+    in SQL: PostgreSQL cannot cast ``''`` to BIGINT. Empty values are normalized
+    to NULL on write, and in-memory filtering below protects old TEXT schemas.
+    """
+    leagues = (
         db.query(League)
         .filter(
             League.is_active == True,
             League.chat_id.isnot(None),
-            League.chat_id != "",
         )
         .order_by(League.name.asc())
         .all()
     )
+    return [league for league in leagues if str(getattr(league, "chat_id", "") or "").strip()]
 
 
 def get_user_active_leagues_with_chat(db, user: User) -> list[League]:
     """Return active leagues where user is active member and chat_id is configured."""
-    return (
+    leagues = (
         db.query(League)
         .join(LeagueMember, LeagueMember.league_id == League.id)
         .filter(
@@ -307,11 +313,11 @@ def get_user_active_leagues_with_chat(db, user: User) -> list[League]:
             LeagueMember.status == "active",
             League.is_active == True,
             League.chat_id.isnot(None),
-            League.chat_id != "",
         )
         .order_by(League.name.asc())
         .all()
     )
+    return [league for league in leagues if str(getattr(league, "chat_id", "") or "").strip()]
 
 def generate_invite_code(db, length: int = 8) -> str:
     """Generate a unique invite code for a league."""
