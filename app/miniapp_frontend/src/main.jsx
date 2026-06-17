@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.23';
+const APP_VERSION = '2.8.24';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2798,6 +2798,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   const [membersData, setMembersData] = useState(null);
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberActionBusy, setMemberActionBusy] = useState('');
+  const [leagueChatInputs, setLeagueChatInputs] = useState({});
 
   async function createLeague(event) {
     event.preventDefault();
@@ -2860,6 +2861,9 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     try {
       const result = await api(`/api/webapp/leagues/${leagueId}/members`);
       setMembersData(result);
+      if (result?.league) {
+        setLeagueChatInputs((prev) => ({ ...prev, [result.league.id]: result.league.chat_id ? String(result.league.chat_id) : '' }));
+      }
       return result;
     } catch (err) {
       setError(err);
@@ -2922,6 +2926,28 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     }
   }
 
+  async function saveLeagueChatId(league) {
+    if (!league?.id) return;
+    const chatId = (leagueChatInputs[league.id] || '').trim();
+    const busyKey = `${league.id}:chat`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    setMessage('');
+    try {
+      await api(`/api/webapp/leagues/${league.id}/chat`, {
+        method: 'PATCH',
+        body: JSON.stringify({ chat_id: chatId || null }),
+      });
+      await onLeaguesChanged?.();
+      await loadMembers(league.id);
+      setMessage(chatId ? 'chat_id лиги сохранен' : 'chat_id лиги очищен');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setMemberActionBusy('');
+    }
+  }
+
   async function deactivateLeagueAction(league) {
     if (!league?.id) return;
     if (!window.confirm(`Деактивировать лигу «${league.name}»? Участники больше не увидят ее в рейтинге и матч-центре.`)) return;
@@ -2957,6 +2983,20 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     const members = membersData?.members || [];
     return (
       <div className="league-management-panel">
+        <div className="league-chat-settings">
+          <label>
+            <span>chat_id чата лиги</span>
+            <input
+              value={leagueChatInputs[league.id] ?? (league.chat_id ? String(league.chat_id) : '')}
+              onChange={(event) => setLeagueChatInputs((prev) => ({ ...prev, [league.id]: event.target.value }))}
+              placeholder="например -1001234567890"
+            />
+          </label>
+          <button type="button" onClick={() => saveLeagueChatId(league)} disabled={memberActionBusy === `${league.id}:chat`}>
+            {memberActionBusy === `${league.id}:chat` ? 'Сохраняю…' : 'Сохранить chat_id'}
+          </button>
+          <small>Если указан chat_id, уведомления по лиге будут уходить в этот Telegram-чат только по участникам этой лиги.</small>
+        </div>
         <div className="subsection-title compact">
           <h3>Участники</h3>
           <button type="button" className="secondary small" onClick={() => loadMembers(league.id)} disabled={membersLoading}>Обновить</button>

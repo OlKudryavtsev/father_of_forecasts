@@ -117,12 +117,13 @@ async def save_prediction_and_notify_admins(
         advancement_bet_enabled: bool = False,
         predicted_advancing_side: str | None = None,
 ) -> tuple[bool, str]:
-    """Save match prediction without noisy admin/group notifications."""
-    # По просьбе админа отключены уведомления о факте прогноза на матч:
-    # - в групповой чат;
-    # - администраторам в личку.
-    # Само сохранение прогноза и текст ответа пользователю не меняются.
-    return save_prediction(
+    """Save match prediction and notify relevant private/league channels."""
+    existing_prediction = db.query(Prediction).filter(
+        Prediction.user_id == user.id,
+        Prediction.match_id == match.id,
+    ).first()
+
+    ok, text = save_prediction(
         db=db,
         user=user,
         match=match,
@@ -131,6 +132,20 @@ async def save_prediction_and_notify_admins(
         advancement_bet_enabled=advancement_bet_enabled,
         predicted_advancing_side=predicted_advancing_side,
     )
+
+    if ok:
+        try:
+            from app.services.notifications import notify_group_prediction_saved
+
+            await notify_group_prediction_saved(
+                user=user,
+                match=match,
+                is_update=existing_prediction is not None,
+            )
+        except Exception as error:
+            print(f"Failed to send prediction notifications: {error}")
+
+    return ok, text
 
 
 def user_has_prediction(db, user: User, match: Match) -> bool:

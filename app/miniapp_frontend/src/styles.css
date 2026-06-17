@@ -6987,3 +6987,63 @@ button.danger.wide {
   background: rgba(255,255,255,0.96);
   box-shadow: inset 0 0 0 1px rgba(15,23,42,0.10), 0 4px 12px rgba(15,23,42,0.08);
 }
+
+/* v2.8.24 — league chat notifications */
+.league-chat-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.league-chat-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.72);
+}
+
+.league-chat-settings input {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.league-chat-settings button {
+  border: 0;
+  border-radius: 12px;
+  background: rgba(47, 214, 145, 0.16);
+  color: inherit;
+  padding: 9px 12px;
+  font-weight: 800;
+}
+
+.league-chat-settings small {
+  color: rgba(255,255,255,0.56);
+  line-height: 1.35;
+}
+
+.app.theme-light .league-chat-settings {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .league-chat-settings label,
+.app.theme-light .league-chat-settings small {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+.app.theme-light .league-chat-settings input {
+  background: rgba(255,255,255,0.82);
+  border-color: rgba(15, 23, 42, 0.10);
+}

@@ -248,6 +248,24 @@ def remove_league_member(db, actor: User, league_id: int, user_id: int) -> Leagu
     return member
 
 
+def set_league_chat_id(db, actor: User, league_id: int, chat_id: int | str | None) -> League:
+    """Set optional Telegram chat_id for league-scoped notifications."""
+    league = require_manage_league(db, actor, league_id)
+
+    normalized = None
+    if chat_id is not None and str(chat_id).strip():
+        raw = str(chat_id).strip().replace(" ", "")
+        try:
+            normalized = int(raw)
+        except ValueError as exc:
+            raise ValueError("chat_id должен быть числом, например -1001234567890") from exc
+
+    league.chat_id = normalized
+    db.commit()
+    db.refresh(league)
+    return league
+
+
 def deactivate_league(db, actor: User, league_id: int) -> League:
     """Deactivate a private league."""
     league = require_manage_league(db, actor, league_id)
