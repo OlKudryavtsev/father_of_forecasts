@@ -6681,3 +6681,145 @@ body {
     font-size: 9.5px;
   }
 }
+
+/* v2.8.18 — league administration */
+.league-manage-toggle {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  color: inherit;
+  padding: 10px 12px;
+  font-weight: 700;
+  margin-top: 10px;
+}
+
+.league-management-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(0,0,0,0.16);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.subsection-title.compact {
+  margin-bottom: 8px;
+}
+
+.subsection-title.compact h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+button.secondary.small {
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.league-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.league-member-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.league-member-row.inactive {
+  opacity: 0.55;
+}
+
+.league-member-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.league-member-main strong,
+.league-member-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.league-member-main small {
+  color: rgba(255,255,255,0.62);
+}
+
+.league-member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.league-member-actions button,
+button.danger.wide {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(255,255,255,0.12);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.league-member-actions button.danger,
+button.danger.wide {
+  background: rgba(255,80,80,0.16);
+  color: #ffb6b6;
+}
+
+button.danger.wide {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.app.theme-light .league-management-panel {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .league-manage-toggle,
+.app.theme-light button.secondary.small,
+.app.theme-light .league-member-row,
+.app.theme-light .league-member-actions button {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+.app.theme-light .league-member-main small {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+.app.theme-light .league-member-actions button.danger,
+.app.theme-light button.danger.wide {
+  background: rgba(220, 38, 38, 0.10);
+  color: #b91c1c;
+}
+
+@media (max-width: 560px) {
+  .league-member-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .league-member-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

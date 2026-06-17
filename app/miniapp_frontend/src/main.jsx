@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.17';
+const APP_VERSION = '2.8.18';
 
 
 if (tg) {
@@ -2733,6 +2733,10 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   const [message, setMessage] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [managedLeagueId, setManagedLeagueId] = useState(null);
+  const [membersData, setMembersData] = useState(null);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberActionBusy, setMemberActionBusy] = useState('');
 
   async function createLeague(event) {
     event.preventDefault();
@@ -2748,6 +2752,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       setDescription('');
       await onLeaguesChanged?.();
       onLeagueChange?.(result.league.id);
+      setManagedLeagueId(result.league.id);
       setMessage(`Лига «${result.league.name}» создана`);
     } catch (err) {
       setError(err);
@@ -2787,6 +2792,154 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     }
   }
 
+  async function loadMembers(leagueId = managedLeagueId) {
+    if (!leagueId) return null;
+    setMembersLoading(true);
+    setError(null);
+    try {
+      const result = await api(`/api/webapp/leagues/${leagueId}/members`);
+      setMembersData(result);
+      return result;
+    } catch (err) {
+      setError(err);
+      return null;
+    } finally {
+      setMembersLoading(false);
+    }
+  }
+
+  async function toggleManageLeague(league) {
+    if (!league?.id) return;
+    if (Number(managedLeagueId) === Number(league.id)) {
+      setManagedLeagueId(null);
+      setMembersData(null);
+      return;
+    }
+    setManagedLeagueId(league.id);
+    setMembersData(null);
+    await loadMembers(league.id);
+  }
+
+  async function changeMemberRole(leagueId, member, role) {
+    if (!leagueId || !member || member.role === role) return;
+    const busyKey = `${leagueId}:${member.user_id}:${role}`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    setMessage('');
+    try {
+      await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+      await loadMembers(leagueId);
+      await onLeaguesChanged?.();
+      setMessage(role === 'admin' ? 'Участник назначен администратором' : 'Права администратора сняты');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setMemberActionBusy('');
+    }
+  }
+
+  async function removeMember(leagueId, member) {
+    if (!leagueId || !member) return;
+    const nameText = member.display_name || member.username || 'участника';
+    if (!window.confirm(`Исключить ${nameText} из лиги?`)) return;
+    const busyKey = `${leagueId}:${member.user_id}:remove`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    setMessage('');
+    try {
+      await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}`, { method: 'DELETE' });
+      await loadMembers(leagueId);
+      await onLeaguesChanged?.();
+      setMessage('Участник исключен из лиги');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setMemberActionBusy('');
+    }
+  }
+
+  async function deactivateLeagueAction(league) {
+    if (!league?.id) return;
+    if (!window.confirm(`Деактивировать лигу «${league.name}»? Участники больше не увидят ее в рейтинге и матч-центре.`)) return;
+    const busyKey = `${league.id}:deactivate`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    setMessage('');
+    try {
+      await api(`/api/webapp/leagues/${league.id}/deactivate`, { method: 'POST' });
+      setManagedLeagueId(null);
+      setMembersData(null);
+      const result = await onLeaguesChanged?.();
+      const nextLeague = result?.default_league_id || result?.leagues?.[0]?.id || null;
+      if (Number(activeLeagueId) === Number(league.id)) {
+        onLeagueChange?.(nextLeague);
+      }
+      setMessage(`Лига «${league.name}» деактивирована`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setMemberActionBusy('');
+    }
+  }
+
+  function memberRoleText(member) {
+    if (member.is_owner || member.role === 'owner') return 'владелец';
+    if (member.role === 'admin') return 'админ';
+    return 'участник';
+  }
+
+  function renderMembersManager(league) {
+    if (Number(managedLeagueId) !== Number(league.id)) return null;
+    const members = membersData?.members || [];
+    return (
+      <div className="league-management-panel">
+        <div className="subsection-title compact">
+          <h3>Участники</h3>
+          <button type="button" className="secondary small" onClick={() => loadMembers(league.id)} disabled={membersLoading}>Обновить</button>
+        </div>
+        {membersLoading && <p className="muted small">Загружаю участников…</p>}
+        {!membersLoading && members.length === 0 && <p className="muted small">Активных участников пока нет.</p>}
+        <div className="league-members-list">
+          {members.map((member) => {
+            const isActive = member.status === 'active';
+            const isProtected = member.is_owner || member.role === 'owner';
+            return (
+              <article key={`${league.id}-${member.user_id}`} className={`league-member-row ${!isActive ? 'inactive' : ''}`}>
+                <div className="league-member-main">
+                  <strong>{member.display_name || member.username || 'Участник'}</strong>
+                  <small>
+                    {member.username ? `@${member.username} · ` : ''}{memberRoleText(member)}{!isActive ? ` · ${member.status}` : ''}
+                  </small>
+                </div>
+                {isActive && (
+                  <div className="league-member-actions">
+                    {!isProtected && member.role !== 'admin' && (
+                      <button type="button" onClick={() => changeMemberRole(league.id, member, 'admin')} disabled={memberActionBusy === `${league.id}:${member.user_id}:admin`}>Сделать админом</button>
+                    )}
+                    {!isProtected && member.role === 'admin' && (
+                      <button type="button" onClick={() => changeMemberRole(league.id, member, 'member')} disabled={memberActionBusy === `${league.id}:${member.user_id}:member`}>Снять админа</button>
+                    )}
+                    {!isProtected && (
+                      <button type="button" className="danger" onClick={() => removeMember(league.id, member)} disabled={memberActionBusy === `${league.id}:${member.user_id}:remove`}>Исключить</button>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+        {league.can_deactivate && (
+          <button type="button" className="danger wide" onClick={() => deactivateLeagueAction(league)} disabled={memberActionBusy === `${league.id}:deactivate`}>
+            Деактивировать лигу
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <main className="screen-content leagues-screen">
       <div className="section-label">Лиги</div>
@@ -2817,7 +2970,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
                 <button type="button" className="league-row-main" onClick={() => onLeagueChange?.(league.id)}>
                   <div>
                     <strong>{league.name}</strong>
-                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}</small>
+                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}</small>
                   </div>
                   {Number(league.id) === Number(activeLeagueId) && <span className="active-league-pill">активна</span>}
                 </button>
@@ -2827,6 +2980,12 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
                     <button type="button" onClick={() => copyInvite(league.invite_url || league.invite_code)}>Скопировать приглашение</button>
                   </div>
                 )}
+                {league.can_manage && (
+                  <button type="button" className="league-manage-toggle" onClick={() => toggleManageLeague(league)}>
+                    {Number(managedLeagueId) === Number(league.id) ? 'Свернуть управление' : 'Управлять лигой'}
+                  </button>
+                )}
+                {renderMembersManager(league)}
               </article>
             ))}
           </div>
@@ -2856,7 +3015,6 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     </main>
   );
 }
-
 
 function AdminPanel() {
   const [data, setData] = useState(null);

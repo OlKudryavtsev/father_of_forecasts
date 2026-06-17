@@ -50,10 +50,14 @@ from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.leagues import (
     create_user_league,
+    deactivate_league,
     get_user_active_leagues,
     join_league_by_invite_code,
+    list_league_members,
     normalize_invite_code,
+    remove_league_member,
     require_user_league,
+    set_league_member_role,
 )
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.team_names import get_team_name_ru
@@ -96,6 +100,9 @@ class LeagueCreatePayload(BaseModel):
 class LeagueJoinPayload(BaseModel):
     invite_code: str = Field(min_length=3, max_length=80)
 
+
+class LeagueRolePayload(BaseModel):
+    role: str = Field(pattern="^(admin|member)$")
 
 
 class MatchResultPayload(BaseModel):
@@ -526,6 +533,8 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
 
     active_members_count = sum(1 for member in (league.members or []) if member.status == "active")
     role = current_member.role if current_member else None
+    if current_user and league.owner_user_id == current_user.id:
+        role = "owner"
     return {
         "id": league.id,
         "name": league.name,
@@ -535,7 +544,8 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
         "invite_url": _league_invite_url(league),
         "is_owner": bool(current_user and league.owner_user_id == current_user.id),
         "role": role,
-        "can_manage": role in {"owner", "admin"} or bool(current_user and current_user.is_admin),
+        "can_manage": role in {"owner", "admin"} or bool(current_user and (current_user.is_admin or league.owner_user_id == current_user.id)),
+        "can_deactivate": bool(current_user and league.league_type != "system" and (current_user.is_admin or league.owner_user_id == current_user.id)),
         "members_count": active_members_count,
     }
 
@@ -608,6 +618,99 @@ def _absolute_app_url(request: Request, token: str | None = None) -> str:
         separator = "&" if "?" in url else "?"
         url = f"{url}{separator}web_token={token}"
     return url
+
+
+
+
+def _serialize_league_member(member: LeagueMember, league: League) -> dict:
+    user = member.user
+    is_owner = bool(user and league.owner_user_id == user.id)
+    role = "owner" if is_owner else member.role
+    return {
+        "id": member.id,
+        "user_id": member.user_id,
+        "telegram_id": user.telegram_id if user else None,
+        "display_name": user.display_name if user else "Участник",
+        "username": user.username if user else None,
+        "is_bot_admin": bool(user and user.is_admin),
+        "role": role,
+        "status": member.status,
+        "is_owner": is_owner,
+        "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+    }
+
+
+@router.get("/leagues/{league_id}/members")
+def get_league_members_endpoint(
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return members for a league manageable by the current user."""
+    try:
+        league, members = list_league_members(db, current_user, league_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "league": _serialize_league(league, current_user),
+        "members": [_serialize_league_member(member, league) for member in members],
+    }
+
+
+@router.patch("/leagues/{league_id}/members/{user_id}")
+def update_league_member_endpoint(
+    league_id: int,
+    user_id: int,
+    payload: LeagueRolePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Promote/demote a league member."""
+    try:
+        member = set_league_member_role(db, current_user, league_id, user_id, payload.role)
+        league = member.league
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "member": _serialize_league_member(member, league)}
+
+
+@router.delete("/leagues/{league_id}/members/{user_id}")
+def remove_league_member_endpoint(
+    league_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Remove a user from a league."""
+    try:
+        member = remove_league_member(db, current_user, league_id, user_id)
+        league = member.league
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "member": _serialize_league_member(member, league)}
+
+
+@router.post("/leagues/{league_id}/deactivate")
+def deactivate_league_endpoint(
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Deactivate a private league."""
+    try:
+        league = deactivate_league(db, current_user, league_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "league": _serialize_league(league, current_user)}
 
 
 @router.post("/web-session/create")

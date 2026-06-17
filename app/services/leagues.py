@@ -123,6 +123,113 @@ def reject_user(db, user: User, rejected_by: User | None = None) -> None:
 
 
 
+
+def get_league_member(db, league: League, user: User) -> LeagueMember | None:
+    """Return membership row for a user in a league."""
+    return (
+        db.query(LeagueMember)
+        .filter(
+            LeagueMember.league_id == league.id,
+            LeagueMember.user_id == user.id,
+        )
+        .first()
+    )
+
+
+def can_manage_league(db, actor: User, league: League) -> bool:
+    """Return True when actor can manage a league."""
+    if actor.is_admin:
+        return True
+    if league.owner_user_id == actor.id:
+        return True
+    member = get_league_member(db, league, actor)
+    return bool(member and member.status == "active" and member.role in {"owner", "admin"})
+
+
+def require_manage_league(db, actor: User, league_id: int) -> League:
+    """Return an active league if actor has management rights."""
+    league = db.query(League).filter(League.id == league_id, League.is_active == True).first()
+    if not league:
+        raise ValueError("Лига не найдена или отключена")
+    if not can_manage_league(db, actor, league):
+        raise PermissionError("Недостаточно прав для управления лигой")
+    return league
+
+
+def list_league_members(db, actor: User, league_id: int) -> tuple[League, list[LeagueMember]]:
+    """Return league members for a manageable league."""
+    league = require_manage_league(db, actor, league_id)
+    members = (
+        db.query(LeagueMember)
+        .join(User, User.id == LeagueMember.user_id)
+        .filter(LeagueMember.league_id == league.id)
+        .order_by(
+            LeagueMember.status.asc(),
+            LeagueMember.role.desc(),
+            User.display_name.asc(),
+        )
+        .all()
+    )
+    return league, members
+
+
+def set_league_member_role(db, actor: User, league_id: int, user_id: int, role: str) -> LeagueMember:
+    """Set league member role to admin/member."""
+    if role not in {"admin", "member"}:
+        raise ValueError("Роль должна быть admin или member")
+
+    league = require_manage_league(db, actor, league_id)
+    member = (
+        db.query(LeagueMember)
+        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user_id)
+        .first()
+    )
+    if not member or member.status != "active":
+        raise ValueError("Участник не найден в лиге")
+    if league.owner_user_id == user_id:
+        raise ValueError("Нельзя изменить роль владельца лиги")
+
+    member.role = role
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+def remove_league_member(db, actor: User, league_id: int, user_id: int) -> LeagueMember:
+    """Mark a league member as removed."""
+    league = require_manage_league(db, actor, league_id)
+    member = (
+        db.query(LeagueMember)
+        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user_id)
+        .first()
+    )
+    if not member or member.status != "active":
+        raise ValueError("Участник не найден в лиге")
+    if league.owner_user_id == user_id:
+        raise ValueError("Нельзя исключить владельца лиги")
+    if user_id == actor.id and not actor.is_admin:
+        raise ValueError("Нельзя исключить самого себя из управляемой лиги")
+
+    member.status = "removed"
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+def deactivate_league(db, actor: User, league_id: int) -> League:
+    """Deactivate a private league."""
+    league = require_manage_league(db, actor, league_id)
+    if league.league_type == "system":
+        raise ValueError("Системную лигу нельзя деактивировать")
+    if not actor.is_admin and league.owner_user_id != actor.id:
+        raise PermissionError("Деактивировать лигу может только владелец или администратор бота")
+
+    league.is_active = False
+    db.query(LeagueMember).filter(LeagueMember.league_id == league.id).update({"status": "removed"})
+    db.commit()
+    db.refresh(league)
+    return league
+
 def generate_invite_code(db, length: int = 8) -> str:
     """Generate a unique invite code for a league."""
     alphabet = string.ascii_uppercase + string.digits
@@ -218,7 +325,7 @@ def create_user_league(db, owner: User, name: str, description: str | None = Non
     )
     db.add(league)
     db.flush()
-    ensure_user_in_league(db, owner, league, role="admin")
+    ensure_user_in_league(db, owner, league, role="owner")
     db.commit()
     db.refresh(league)
     return league
