@@ -29,6 +29,10 @@ class User(Base):
     access_status = Column(String, nullable=False, default="approved", server_default="approved", index=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
     approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    access_requested_at = Column(DateTime(timezone=True), nullable=True)
+    pending_invite_code = Column(String, nullable=True, index=True)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
+    rejected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

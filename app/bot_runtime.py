@@ -13,6 +13,7 @@ from aiogram.filters import Command
 from app.runtime import DAILY_FACTS_ENABLED, bot, dp
 from app.middleware.access import (
     CommandLoggingMiddleware,
+    UserAccessStatusMiddleware,
     GroupCallbackAccessMiddleware,
     GroupCommandAccessMiddleware,
 )
@@ -90,7 +91,7 @@ from app.handlers.quiz import (
     quiz_handler,
     quiz_stats_handler,
 )
-from app.handlers.start import chat_id_handler, start_handler
+from app.handlers.start import chat_id_handler, start_handler, access_approve_callback, access_reject_callback
 from app.handlers.table import ai_summary_handler, summary_handler, table_buttons_handler, table_handler, table_noop_callback
 from app.handlers.tournament import (
     tournament_champion_handler,
@@ -111,6 +112,8 @@ import os
 
 dp.message.middleware(GroupCommandAccessMiddleware())
 dp.message.middleware(CommandLoggingMiddleware())
+dp.message.middleware(UserAccessStatusMiddleware())
+dp.callback_query.middleware(UserAccessStatusMiddleware())
 dp.callback_query.middleware(GroupCallbackAccessMiddleware())
 
 def _cb_startswith(prefix: str):
@@ -226,6 +229,8 @@ def register_handlers():
     dp.callback_query.register(quiz_battle_size_callback, _cb_startswith("quiz_battle_size:"))
     dp.callback_query.register(quiz_battle_answer_callback, _cb_startswith("quiz_battle_answer:"))
     dp.callback_query.register(panini_team_callback, PaniniForm.waiting_for_team, _cb_startswith("panini_team:"))
+    dp.callback_query.register(access_approve_callback, _cb_startswith("access_approve:"))
+    dp.callback_query.register(access_reject_callback, _cb_startswith("access_reject:"))
     dp.callback_query.register(table_noop_callback, _cb_equals("table_noop"))
 
 

@@ -167,6 +167,11 @@ def get_or_create_user_from_telegram(db: Session, telegram_user: TelegramMiniApp
     if user:
         changed = False
 
+        if admin_status and getattr(user, "access_status", "approved") != "approved":
+            user.access_status = "approved"
+            user.approved_at = user.approved_at or datetime.now(timezone.utc)
+            changed = True
+
         if user.username != telegram_user.username:
             user.username = telegram_user.username
             changed = True
@@ -190,6 +195,9 @@ def get_or_create_user_from_telegram(db: Session, telegram_user: TelegramMiniApp
         username=telegram_user.username,
         display_name=telegram_user.display_name,
         is_admin=admin_status,
+        access_status="approved" if admin_status else "pending",
+        approved_at=datetime.now(timezone.utc) if admin_status else None,
+        access_requested_at=datetime.now(timezone.utc),
     )
 
     db.add(user)
@@ -278,6 +286,20 @@ def get_user_from_web_session(db: Session, raw_token: str) -> User:
 
     return session.user
 
+def _ensure_approved_for_web(user: User) -> User:
+    status_value = getattr(user, "access_status", "approved") or "approved"
+    if status_value != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Access request is pending approval"
+                if status_value == "pending"
+                else "Access is not approved"
+            ),
+        )
+    return user
+
+
 
 def get_current_user(
     db: Session = Depends(get_db),
@@ -298,7 +320,7 @@ def get_current_user(
     # Prefer fresh Telegram initData when Mini App runs inside Telegram.
     # This prevents a stale browser token in localStorage from breaking Telegram mode.
     if not init_data and raw_web_token:
-        return get_user_from_web_session(db, raw_web_token)
+        return _ensure_approved_for_web(get_user_from_web_session(db, raw_web_token))
 
     if not init_data and debug_telegram_id:
         debug_user = TelegramMiniAppUser(
@@ -307,7 +329,7 @@ def get_current_user(
             first_name=os.getenv("MINIAPP_DEBUG_FIRST_NAME") or "Debug",
             last_name=os.getenv("MINIAPP_DEBUG_LAST_NAME") or "User",
         )
-        return get_or_create_user_from_telegram(db, debug_user)
+        return _ensure_approved_for_web(get_or_create_user_from_telegram(db, debug_user))
 
     if not init_data:
         raise HTTPException(
@@ -316,4 +338,4 @@ def get_current_user(
         )
 
     telegram_user = parse_telegram_user_from_init_data(init_data)
-    return get_or_create_user_from_telegram(db, telegram_user)
+    return _ensure_approved_for_web(get_or_create_user_from_telegram(db, telegram_user))
