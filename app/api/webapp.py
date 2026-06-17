@@ -45,7 +45,7 @@ from app.runtime import TOURNAMENT_CODE
 from app.services.matches import apply_match_result_from_admin, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag
 from app.services.predictions import save_prediction_and_notify_admins
-from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins
+from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.leagues import (
@@ -1396,9 +1396,13 @@ def get_my_tournament_prediction(
         .first()
     )
 
+    submit_state = tournament_prediction_submit_state(db, current_user)
+
     return {
         "prediction": _serialize_tournament_prediction(prediction) if prediction else None,
-        "is_closed": is_tournament_started(),
+        "is_closed": bool(submit_state["is_closed"]),
+        "can_submit": bool(submit_state["can_submit"]),
+        "is_late_entry": bool(submit_state["is_late_entry"]),
     }
 
 
@@ -1409,7 +1413,8 @@ async def save_tournament_prediction_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Create or update current user's tournament prediction."""
-    if is_tournament_started():
+    submit_state = tournament_prediction_submit_state(db, current_user)
+    if not submit_state["can_submit"]:
         raise HTTPException(status_code=400, detail="Tournament predictions are closed")
 
     success, text = await save_tournament_prediction_and_notify_admins(
@@ -3164,7 +3169,6 @@ def get_profile(
         "points_breakdown": [
             {"key": "matches", "title": "Прогнозы", "points": match_points, "icon": "ball"},
             {"key": "tournament", "title": "Турнир", "points": tournament_points, "icon": "cup"},
-            {"key": "fantasy", "title": "Fantasy-команда", "points": 0, "icon": "team"},
         ],
         "tournament_prediction": _serialize_tournament_prediction(tournament_prediction) if tournament_prediction else None,
         "badges": _profile_badges(

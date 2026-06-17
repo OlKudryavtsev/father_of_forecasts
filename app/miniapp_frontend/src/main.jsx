@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.18';
+const APP_VERSION = '2.8.19';
+const FANTASY_UI_ENABLED = false;
 
 
 if (tg) {
@@ -15,7 +16,6 @@ if (tg) {
 const TABS = [
   { id: 'matches', label: 'Матч-центр', icon: 'ball' },
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
-  { id: 'fantasy', label: 'Fantasy-футбол', icon: 'team' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'leagues', label: 'Лиги', icon: 'team' },
   { id: 'resources', label: 'Ресурсы', icon: 'link' },
@@ -894,7 +894,7 @@ function Header({ dashboard, onRules, onAdmin }) {
 function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournamentParticipants, setTab }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
   const p = tournamentPrediction?.prediction;
-  const tournamentClosed = Boolean(tournamentPrediction?.is_closed || dashboard?.tournament?.is_started);
+  const tournamentClosed = Boolean(tournamentPrediction?.is_closed);
   const items = [
     { key: 'champion', label: 'Победитель', value: p?.champion, points: '+15', icon: 'cup' },
     { key: 'runner_up', label: '2-е место', value: p?.runner_up, points: '+10', icon: 'rank' },
@@ -2638,7 +2638,6 @@ function Predictions({ onPredict, onForecast }) {
 
 function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
   const [data, setData] = useState(null);
-  const [includeFantasy, setIncludeFantasy] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -2658,7 +2657,7 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
   const rows = sourceRows
     .map((row) => ({
       ...row,
-      display_points: includeFantasy && !row.is_father ? (row.points || 0) + (row.fantasy_points || 0) : (row.points || 0),
+      display_points: row.points || 0,
     }))
     .sort((a, b) => (b.display_points - a.display_points) || ((b.exact_scores || 0) - (a.exact_scores || 0)));
 
@@ -2667,12 +2666,6 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
       <div className="section-label">Рейтинг участников</div>
       <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
 
-      <label className="rating-toggle-card">
-        <input type="checkbox" checked={includeFantasy} onChange={(event) => setIncludeFantasy(event.target.checked)} />
-        <span />
-        <strong>Учитывать Fantasy</strong>
-        <small>{includeFantasy ? 'очки прогноза + fantasy' : 'только прогнозы'}</small>
-      </label>
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row, index) => (
@@ -2682,7 +2675,7 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
               <div className="rating-player">
                 <strong>{row.name}</strong>
                 <small>
-                  {row.is_father ? 'ИИ-прогнозы вне конкурса, но в общей гонке видны' : `Очки: ${row.points || 0} · Турнир: ${row.tournament_prediction_progress || '0/4'} · Fantasy: ${row.fantasy_points || 0}`}
+                  {row.is_father ? 'ИИ-прогнозы вне конкурса, но в общей гонке видны' : `Очки: ${row.points || 0} · Турнир: ${row.tournament_prediction_progress || '0/4'}`}
                 </small>
               </div>
               <div className="rating-points-pill">
@@ -2711,7 +2704,7 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
 
             <div className="rating-foot-line">
               <span>Матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
-              <span>{row.is_father ? `Завершено: ${row.match_predictions_finished_count || 0}` : `Fantasy: ${row.fantasy_team_progress || '0/15'}`}</span>
+              <span>Завершено: {row.match_predictions_finished_count || 0}</span>
               <span>{row.is_father ? 'ИИ-вне конкурса' : `Проход: +${row.advancement_plus || 0} / ${row.advancement_minus || 0}`}</span>
             </div>
           </div>
@@ -3214,7 +3207,7 @@ function AdminPanel() {
         <div><b>{data.summary?.matches_total || 0}</b><span>матчей</span></div>
         <div><b>{data.summary?.finished || 0}</b><span>завершено</span></div>
         <div><b>{data.summary?.ready_for_api_sync || 0}</b><span>к синхронизации</span></div>
-        <div><b>{data.summary?.fantasy_stat_rows || 0}</b><span>строк fantasy</span></div>
+        {FANTASY_UI_ENABLED && <div><b>{data.summary?.fantasy_stat_rows || 0}</b><span>строк fantasy</span></div>}
         <div><b>{data.summary?.active_push_subscriptions || 0}</b><span>push-подписок</span></div>
         <div><b>{data.summary?.push_users_count || 0}</b><span>push-пользователей</span></div>
       </section>
@@ -3303,11 +3296,13 @@ function AdminPanel() {
         </div>
       </section>
 
-      <section className="card admin-card">
-        <h2>3. Статистика игроков Fantasy</h2>
-        <p className="muted">Загружает статистику игроков по завершенным матчам и пересчитывает Fantasy-очки.</p>
-        <button className="primary full" disabled={busy} onClick={() => runAction(syncFantasyStats)}>Обновить статистику игроков</button>
-      </section>
+      {FANTASY_UI_ENABLED && (
+        <section className="card admin-card">
+          <h2>3. Статистика игроков Fantasy</h2>
+          <p className="muted">Загружает статистику игроков по завершенным матчам и пересчитывает Fantasy-очки.</p>
+          <button className="primary full" disabled={busy} onClick={() => runAction(syncFantasyStats)}>Обновить статистику игроков</button>
+        </section>
+      )}
 
       <section className="card admin-card">
         <h2>4. Push-уведомления</h2>
@@ -3455,7 +3450,7 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
 
   const user = profile.user || {};
   const summary = profile.summary || {};
-  const pointsBreakdown = profile.points_breakdown || [];
+  const pointsBreakdown = (profile.points_breakdown || []).filter((item) => item.key !== 'fantasy');
   const badges = profile.badges || [];
   const tournament = profile.tournament_prediction || tournamentPrediction?.prediction;
   const earnedBadges = badges.filter((badge) => badge.earned);
@@ -3863,7 +3858,7 @@ function App() {
           <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} />
         </>
       )}
-      {tab === 'fantasy' && <Fantasy />}
+      {FANTASY_UI_ENABLED && tab === 'fantasy' && <Fantasy />}
       {tab === 'predictions' && <Predictions key={`predictions-${refreshKey}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} />}
       {tab === 'resources' && <Resources />}
       {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
@@ -3883,7 +3878,7 @@ function App() {
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
       {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} leagueId={activeLeagueId} leagueName={activeLeagueName} />}
-      {tournamentPickField && !tournamentPrediction?.is_closed && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
+      {tournamentPickField && (tournamentPrediction?.can_submit || !tournamentPrediction?.is_closed) && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   );

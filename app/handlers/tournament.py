@@ -10,7 +10,7 @@ from app.runtime import (
     TournamentPrediction,
     User,
 )
-from app.services.tournament import get_tournament_starts_at, is_tournament_started, parse_tournament_prediction_payload, save_tournament_prediction_and_notify_admins
+from app.services.tournament import get_tournament_starts_at, is_tournament_started, parse_tournament_prediction_payload, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.tournament_forecast import build_father_tournament_forecast_text
 from app.services.users import get_or_create_user
 from app.states import TournamentPredictionForm
@@ -22,10 +22,11 @@ async def tournament_set_handler(message: Message, state: FSMContext):
     try:
         user, _ = get_or_create_user(db, message.from_user)
 
-        if is_tournament_started():
+        submit_state = tournament_prediction_submit_state(db, user)
+        if not submit_state["can_submit"]:
             await message.answer(
                 "Прогнозы на итоги турнира уже закрыты. "
-                "Турнир стартовал."
+                "Новые участники, зарегистрированные после старта турнира, могут заполнить прогноз один раз после одобрения."
             )
             return
 
@@ -269,11 +270,12 @@ async def tournament_top_scorer_handler(message: Message, state: FSMContext):
     try:
         user, _ = get_or_create_user(db, message.from_user)
 
-        if is_tournament_started():
+        submit_state = tournament_prediction_submit_state(db, user)
+        if not submit_state["can_submit"]:
             await state.clear()
             await message.answer(
                 "Прогнозы на итоги турнира уже закрыты. "
-                "Турнир стартовал."
+                "Новые участники, зарегистрированные после старта турнира, могут заполнить прогноз один раз после одобрения."
             )
             return
 

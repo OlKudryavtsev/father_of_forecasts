@@ -29,6 +29,50 @@ def is_tournament_started() -> bool:
     return datetime.now(timezone.utc) >= get_tournament_starts_at()
 
 
+def _to_utc(dt):
+    """Return timezone-aware UTC datetime."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def tournament_prediction_submit_state(db, user: User) -> dict:
+    """Return whether the user may create/update a tournament prediction.
+
+    Before tournament start all users can create/update their tournament prediction.
+    After tournament start, only users registered after the start and without an
+    existing prediction may create it once. This keeps old locked predictions
+    immutable while allowing late approved participants to join during the World Cup.
+    """
+    existing_prediction = db.query(TournamentPrediction).filter(
+        TournamentPrediction.user_id == user.id,
+        TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+    ).first()
+
+    tournament_started = is_tournament_started()
+    if not tournament_started:
+        return {
+            "can_submit": True,
+            "is_closed": False,
+            "is_late_entry": False,
+            "existing_prediction": existing_prediction,
+        }
+
+    registered_at = _to_utc(getattr(user, "access_requested_at", None) or getattr(user, "created_at", None))
+    starts_at = get_tournament_starts_at()
+    is_late_entry = bool(registered_at and registered_at >= starts_at)
+    can_submit = existing_prediction is None and is_late_entry
+
+    return {
+        "can_submit": can_submit,
+        "is_closed": not can_submit,
+        "is_late_entry": is_late_entry,
+        "existing_prediction": existing_prediction,
+    }
+
+
 def save_tournament_prediction(
         db,
         user: User,
