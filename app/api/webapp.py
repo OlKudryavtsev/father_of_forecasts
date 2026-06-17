@@ -59,7 +59,7 @@ from app.services.leagues import (
     remove_league_member,
     require_user_league,
     set_league_member_role,
-    set_league_chat_id,
+    update_league_chat_id,
 )
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.team_names import get_team_name_ru
@@ -107,8 +107,8 @@ class LeagueRolePayload(BaseModel):
     role: str = Field(pattern="^(admin|member)$")
 
 
-class LeagueChatPayload(BaseModel):
-    chat_id: str | int | None = None
+class LeagueSettingsPayload(BaseModel):
+    chat_id: str | None = Field(default=None, max_length=80)
 
 
 class MatchResultPayload(BaseModel):
@@ -550,12 +550,12 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
         "league_type": league.league_type,
         "invite_code": league.invite_code,
         "invite_url": _league_invite_url(league),
+        "chat_id": league.chat_id if (current_user and (current_user.is_admin or league.owner_user_id == current_user.id or role in {"owner", "admin"})) else None,
         "is_owner": bool(current_user and league.owner_user_id == current_user.id),
         "role": role,
         "can_manage": role in {"owner", "admin"} or bool(current_user and (current_user.is_admin or league.owner_user_id == current_user.id)),
         "can_deactivate": bool(current_user and league.league_type != "system" and (current_user.is_admin or league.owner_user_id == current_user.id)),
         "scoring_start_at": _ensure_utc(league_scoring_start_at(league)).isoformat() if league_scoring_start_at(league) else None,
-        "chat_id": league.chat_id,
         "members_count": active_members_count,
     }
 
@@ -666,6 +666,23 @@ def _serialize_league_member(member: LeagueMember, league: League) -> dict:
     }
 
 
+@router.patch("/leagues/{league_id}")
+def update_league_settings_endpoint(
+    league_id: int,
+    payload: LeagueSettingsPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Update manageable league settings."""
+    try:
+        league = update_league_chat_id(db, current_user, league_id, payload.chat_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "league": _serialize_league(league, current_user)}
+
+
 @router.get("/leagues/{league_id}/members")
 def get_league_members_endpoint(
     league_id: int,
@@ -703,23 +720,6 @@ def update_league_member_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "member": _serialize_league_member(member, league)}
-
-
-@router.patch("/leagues/{league_id}/chat")
-def update_league_chat_endpoint(
-    league_id: int,
-    payload: LeagueChatPayload,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> dict:
-    """Set optional Telegram chat_id for league group notifications."""
-    try:
-        league = set_league_chat_id(db, current_user, league_id, payload.chat_id)
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"ok": True, "league": _serialize_league(league, current_user)}
 
 
 @router.delete("/leagues/{league_id}/members/{user_id}")

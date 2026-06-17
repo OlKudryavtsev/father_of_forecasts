@@ -6988,13 +6988,12 @@ button.danger.wide {
   box-shadow: inset 0 0 0 1px rgba(15,23,42,0.10), 0 4px 12px rgba(15,23,42,0.08);
 }
 
-/* v2.8.24 — league chat notifications */
 .league-chat-settings {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 14px;
   padding: 10px;
+  margin-bottom: 12px;
   border-radius: 14px;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.08);
@@ -7005,32 +7004,18 @@ button.danger.wide {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   color: rgba(255,255,255,0.72);
 }
 
 .league-chat-settings input {
   width: 100%;
   border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.08);
+  background: rgba(0,0,0,0.16);
   color: inherit;
+  border-radius: 12px;
   padding: 10px 12px;
   font: inherit;
-}
-
-.league-chat-settings button {
-  border: 0;
-  border-radius: 12px;
-  background: rgba(47, 214, 145, 0.16);
-  color: inherit;
-  padding: 9px 12px;
-  font-weight: 800;
-}
-
-.league-chat-settings small {
-  color: rgba(255,255,255,0.56);
-  line-height: 1.35;
 }
 
 .app.theme-light .league-chat-settings {
@@ -7038,12 +7023,95 @@ button.danger.wide {
   border-color: rgba(15, 23, 42, 0.08);
 }
 
-.app.theme-light .league-chat-settings label,
-.app.theme-light .league-chat-settings small {
-  color: rgba(15, 23, 42, 0.58);
+.app.theme-light .league-chat-settings label {
+  color: rgba(15, 23, 42, 0.62);
 }
 
 .app.theme-light .league-chat-settings input {
-  background: rgba(255,255,255,0.82);
+  background: rgba(255,255,255,0.72);
   border-color: rgba(15, 23, 42, 0.10);
+}
+
+/* v2.8.25: tournament forecast card previews inside each tile */
+.tournament-mini-head {
+  position: relative;
+  padding-right: 36px;
+}
+
+.tournament-mini-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--green-soft);
+  font-size: 17px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.tournament-mini-title {
+  padding-right: 0;
+}
+
+.tournament-mini-grid button {
+  position: relative;
+  overflow: hidden;
+  padding-right: 72px;
+}
+
+.tournament-card-flag,
+.tournament-scorer-avatar.card-preview-avatar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+}
+
+.tournament-card-flag .flag.flag-img {
+  width: 56px;
+  height: 40px;
+  border-radius: 11px;
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,0.10), 0 8px 18px rgba(15,23,42,0.14);
+}
+
+.tournament-scorer-avatar.card-preview-avatar {
+  width: 56px;
+  height: 56px;
+  flex-basis: 56px;
+  border-radius: 18px;
+  border: 2px solid rgba(244,191,54,0.26);
+  box-shadow: 0 8px 18px rgba(15,23,42,0.14);
+  font-size: 15px;
+}
+
+.app.theme-light .tournament-card-flag .flag.flag-img,
+.app.theme-light .tournament-scorer-avatar.card-preview-avatar {
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,0.10), 0 8px 18px rgba(15,23,42,0.10);
+}
+
+@media (max-width: 390px) {
+  .tournament-mini-head {
+    padding-right: 32px;
+  }
+  .tournament-mini-grid button {
+    padding-right: 62px;
+  }
+  .tournament-card-flag .flag.flag-img {
+    width: 48px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .tournament-scorer-avatar.card-preview-avatar {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+    border-radius: 16px;
+  }
 }

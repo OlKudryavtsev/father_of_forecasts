@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.24';
+const APP_VERSION = '2.8.25';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -919,15 +919,8 @@ function Header({ dashboard, onRules, onAdmin }) {
   );
 }
 
-function TournamentMiniPreview({ prediction }) {
-  if (!prediction) return null;
-
-  const teams = [
-    { key: 'champion', name: prediction.champion, code: prediction.champion_flag_code, emoji: prediction.champion_flag },
-    { key: 'runner_up', name: prediction.runner_up, code: prediction.runner_up_flag_code, emoji: prediction.runner_up_flag },
-    { key: 'third_place', name: prediction.third_place, code: prediction.third_place_flag_code, emoji: prediction.third_place_flag },
-  ].filter((item) => item.name);
-
+function TournamentScorerAvatar({ prediction, className = '' }) {
+  if (!prediction?.top_scorer) return null;
   const scorerInitials = String(prediction.top_scorer || '⚽')
     .split(/\s+/)
     .filter(Boolean)
@@ -937,15 +930,28 @@ function TournamentMiniPreview({ prediction }) {
     .toUpperCase();
 
   return (
-    <div className="tournament-mini-preview" aria-label="Кратко: выбранные сборные и бомбардир">
-      <div className="tournament-mini-preview-flags">
-        {teams.map((team) => (
-          <TeamFlag key={team.key} code={team.code} emoji={team.emoji} name={team.name} size="mini" />
-        ))}
-      </div>
-      <div className="tournament-scorer-avatar" title={prediction.top_scorer || 'Бомбардир'}>
-        {prediction.top_scorer_photo ? <img src={prediction.top_scorer_photo} alt="" /> : <span>{scorerInitials || '⚽'}</span>}
-      </div>
+    <div className={`tournament-scorer-avatar ${className}`.trim()} title={prediction.top_scorer || 'Бомбардир'}>
+      {prediction.top_scorer_photo ? <img src={prediction.top_scorer_photo} alt="" /> : <span>{scorerInitials || '⚽'}</span>}
+    </div>
+  );
+}
+
+function TournamentCardPreview({ item, prediction }) {
+  if (!item?.value || !prediction) return null;
+  if (item.key === 'top_scorer') {
+    return <TournamentScorerAvatar prediction={prediction} className="card-preview-avatar" />;
+  }
+
+  const team = {
+    champion: { code: prediction.champion_flag_code, emoji: prediction.champion_flag, name: prediction.champion },
+    runner_up: { code: prediction.runner_up_flag_code, emoji: prediction.runner_up_flag, name: prediction.runner_up },
+    third_place: { code: prediction.third_place_flag_code, emoji: prediction.third_place_flag, name: prediction.third_place },
+  }[item.key];
+
+  if (!team?.name) return null;
+  return (
+    <div className="tournament-card-flag" title={team.name}>
+      <TeamFlag code={team.code} emoji={team.emoji} name={team.name} />
     </div>
   );
 }
@@ -975,22 +981,24 @@ function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournam
 
       <section className={`tournament-mini ${tournamentOpen ? 'open' : 'closed'}`}>
         <div className="tournament-mini-head">
-          <button type="button" className="tournament-mini-title" onClick={() => setTournamentOpen((value) => !value)}>
+          <div className="tournament-mini-title">
             <span>Прогнозы на турнир</span>
-            <b>{tournamentOpen ? '−' : '+'}</b>
-          </button>
+          </div>
           <div className="tournament-mini-head-right">
-            <TournamentMiniPreview prediction={p} />
             <div className="tournament-mini-actions">
               <button type="button" onClick={onTournamentParticipants}>Участники</button>
               <span>{tournamentClosed ? 'закрыто' : (p ? '4/4' : '0/4')}</span>
             </div>
           </div>
+          <button type="button" className="tournament-mini-toggle" onClick={() => setTournamentOpen((value) => !value)} aria-label={tournamentOpen ? 'Свернуть прогнозы на турнир' : 'Развернуть прогнозы на турнир'}>
+            {tournamentOpen ? '−' : '+'}
+          </button>
         </div>
         {tournamentOpen && (
           <div className="tournament-mini-grid">
             {items.map((item) => (
               <button key={item.key} disabled={tournamentClosed} onClick={() => !tournamentClosed && onTournamentPick(item.key)}>
+                <TournamentCardPreview item={item} prediction={p} />
                 <i><Icon name={item.icon} /></i>
                 <span>{item.label}</span>
                 <strong>{item.value || (tournamentClosed ? 'Нет прогноза' : 'Выбрать')}</strong>
@@ -2798,7 +2806,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   const [membersData, setMembersData] = useState(null);
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberActionBusy, setMemberActionBusy] = useState('');
-  const [leagueChatInputs, setLeagueChatInputs] = useState({});
+  const [leagueChatIds, setLeagueChatIds] = useState({});
 
   async function createLeague(event) {
     event.preventDefault();
@@ -2861,9 +2869,6 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     try {
       const result = await api(`/api/webapp/leagues/${leagueId}/members`);
       setMembersData(result);
-      if (result?.league) {
-        setLeagueChatInputs((prev) => ({ ...prev, [result.league.id]: result.league.chat_id ? String(result.league.chat_id) : '' }));
-      }
       return result;
     } catch (err) {
       setError(err);
@@ -2882,6 +2887,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     }
     setManagedLeagueId(league.id);
     setMembersData(null);
+    setLeagueChatIds((prev) => ({ ...prev, [league.id]: league.chat_id || '' }));
     await loadMembers(league.id);
   }
 
@@ -2926,28 +2932,6 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     }
   }
 
-  async function saveLeagueChatId(league) {
-    if (!league?.id) return;
-    const chatId = (leagueChatInputs[league.id] || '').trim();
-    const busyKey = `${league.id}:chat`;
-    setMemberActionBusy(busyKey);
-    setError(null);
-    setMessage('');
-    try {
-      await api(`/api/webapp/leagues/${league.id}/chat`, {
-        method: 'PATCH',
-        body: JSON.stringify({ chat_id: chatId || null }),
-      });
-      await onLeaguesChanged?.();
-      await loadMembers(league.id);
-      setMessage(chatId ? 'chat_id лиги сохранен' : 'chat_id лиги очищен');
-    } catch (err) {
-      setError(err);
-    } finally {
-      setMemberActionBusy('');
-    }
-  }
-
   async function deactivateLeagueAction(league) {
     if (!league?.id) return;
     if (!window.confirm(`Деактивировать лигу «${league.name}»? Участники больше не увидят ее в рейтинге и матч-центре.`)) return;
@@ -2972,6 +2956,27 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     }
   }
 
+  async function saveLeagueChatId(league) {
+    if (!league?.id) return;
+    const busyKey = `${league.id}:chat`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    setMessage('');
+    try {
+      const chatId = leagueChatIds[league.id] || '';
+      await api(`/api/webapp/leagues/${league.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ chat_id: chatId.trim() || null }),
+      });
+      await onLeaguesChanged?.();
+      setMessage(chatId.trim() ? 'Chat ID лиги сохранен' : 'Chat ID лиги очищен');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setMemberActionBusy('');
+    }
+  }
+
   function memberRoleText(member) {
     if (member.is_owner || member.role === 'owner') return 'владелец';
     if (member.role === 'admin') return 'админ';
@@ -2985,17 +2990,17 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       <div className="league-management-panel">
         <div className="league-chat-settings">
           <label>
-            <span>chat_id чата лиги</span>
+            <span>Chat ID лиги для уведомлений</span>
             <input
-              value={leagueChatInputs[league.id] ?? (league.chat_id ? String(league.chat_id) : '')}
-              onChange={(event) => setLeagueChatInputs((prev) => ({ ...prev, [league.id]: event.target.value }))}
+              value={leagueChatIds[league.id] ?? league.chat_id ?? ''}
+              onChange={(event) => setLeagueChatIds((prev) => ({ ...prev, [league.id]: event.target.value }))}
               placeholder="например -1001234567890"
             />
           </label>
-          <button type="button" onClick={() => saveLeagueChatId(league)} disabled={memberActionBusy === `${league.id}:chat`}>
+          <button type="button" className="secondary small" onClick={() => saveLeagueChatId(league)} disabled={memberActionBusy === `${league.id}:chat`}>
             {memberActionBusy === `${league.id}:chat` ? 'Сохраняю…' : 'Сохранить chat_id'}
           </button>
-          <small>Если указан chat_id, уведомления по лиге будут уходить в этот Telegram-чат только по участникам этой лиги.</small>
+          <p className="muted small">Если указать Telegram chat_id группы, уведомления по событиям этой лиги будут приходить туда.</p>
         </div>
         <div className="subsection-title compact">
           <h3>Участники</h3>
@@ -3071,7 +3076,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
                 <button type="button" className="league-row-main" onClick={() => onLeagueChange?.(league.id)}>
                   <div>
                     <strong>{league.name}</strong>
-                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}{league.scoring_start_at ? ` · счет с ${formatDateTime(league.scoring_start_at)}` : ''}</small>
+                    <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}{league.scoring_start_at ? ` · счет с ${formatDateTime(league.scoring_start_at)}` : ''}{league.chat_id ? ' · чат подключен' : ''}</small>
                   </div>
                   {Number(league.id) === Number(activeLeagueId) && <span className="active-league-pill">активна</span>}
                 </button>

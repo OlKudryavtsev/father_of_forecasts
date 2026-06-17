@@ -248,24 +248,6 @@ def remove_league_member(db, actor: User, league_id: int, user_id: int) -> Leagu
     return member
 
 
-def set_league_chat_id(db, actor: User, league_id: int, chat_id: int | str | None) -> League:
-    """Set optional Telegram chat_id for league-scoped notifications."""
-    league = require_manage_league(db, actor, league_id)
-
-    normalized = None
-    if chat_id is not None and str(chat_id).strip():
-        raw = str(chat_id).strip().replace(" ", "")
-        try:
-            normalized = int(raw)
-        except ValueError as exc:
-            raise ValueError("chat_id должен быть числом, например -1001234567890") from exc
-
-    league.chat_id = normalized
-    db.commit()
-    db.refresh(league)
-    return league
-
-
 def deactivate_league(db, actor: User, league_id: int) -> League:
     """Deactivate a private league."""
     league = require_manage_league(db, actor, league_id)
@@ -279,6 +261,57 @@ def deactivate_league(db, actor: User, league_id: int) -> League:
     db.commit()
     db.refresh(league)
     return league
+
+
+def update_league_chat_id(db, actor: User, league_id: int, chat_id: str | None) -> League:
+    """Set optional Telegram chat id for a league."""
+    league = require_manage_league(db, actor, league_id)
+    value = (chat_id or "").strip()
+    if value:
+        # Telegram group/channel ids are usually numeric and may start with -100.
+        # Keep as string to avoid JS precision issues and to support future aliases.
+        if len(value) > 80:
+            raise ValueError("Chat ID слишком длинный")
+        allowed = set("-0123456789")
+        if not set(value).issubset(allowed):
+            raise ValueError("Chat ID должен быть числом, например -1001234567890")
+        league.chat_id = value
+    else:
+        league.chat_id = None
+    db.commit()
+    db.refresh(league)
+    return league
+
+
+def get_active_league_chat_targets(db) -> list[League]:
+    """Return active leagues with an optional Telegram chat id configured."""
+    return (
+        db.query(League)
+        .filter(
+            League.is_active == True,
+            League.chat_id.isnot(None),
+            League.chat_id != "",
+        )
+        .order_by(League.name.asc())
+        .all()
+    )
+
+
+def get_user_active_leagues_with_chat(db, user: User) -> list[League]:
+    """Return active leagues where user is active member and chat_id is configured."""
+    return (
+        db.query(League)
+        .join(LeagueMember, LeagueMember.league_id == League.id)
+        .filter(
+            LeagueMember.user_id == user.id,
+            LeagueMember.status == "active",
+            League.is_active == True,
+            League.chat_id.isnot(None),
+            League.chat_id != "",
+        )
+        .order_by(League.name.asc())
+        .all()
+    )
 
 def generate_invite_code(db, length: int = 8) -> str:
     """Generate a unique invite code for a league."""

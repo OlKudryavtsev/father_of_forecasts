@@ -1,110 +1,74 @@
-"""Telegram and Web Push notification helpers."""
+"""Telegram and Web/PWA notification helpers."""
 
 from __future__ import annotations
 
 from app.constants.notifications import ADMIN_SETTING_BY_NOTIFICATION_KEY, NOTIFICATION_DEFAULTS
 from app.formatters.matches import format_match_short_for_group
-from app.runtime import ADMIN_NOTIFY_ENABLED, Match, User, bot
+from app.models import AppSetting, League, User, UserNotificationSetting
+from app.runtime import ADMIN_NOTIFY_ENABLED, Match, bot
 from app.services.admin import get_admin_telegram_ids
 from app.services.forecast import is_forecast_bot_user
 
 
-def _safe_rollback(db) -> None:
-    try:
-        db.rollback()
-    except Exception:
-        pass
-
-
 def _global_notification_enabled(db, notification_key: str) -> bool:
-    """Return global admin switch for Telegram/Web notifications."""
-    try:
-        from app.models import AppSetting
-
-        setting_key = ADMIN_SETTING_BY_NOTIFICATION_KEY.get(notification_key)
-        if not setting_key:
-            return True
-        setting = db.query(AppSetting).filter(AppSetting.setting_key == setting_key).first()
-        if setting is None:
-            return True
-        return str(setting.setting_value).lower() == "true"
-    except Exception:
-        _safe_rollback(db)
+    setting_key = ADMIN_SETTING_BY_NOTIFICATION_KEY.get(notification_key)
+    if not setting_key:
         return True
+    setting = db.query(AppSetting).filter(AppSetting.setting_key == setting_key).first()
+    if not setting:
+        return True
+    return str(setting.setting_value).lower() == "true"
 
 
 def _user_notification_enabled(db, user_id: int, notification_key: str) -> bool:
-    """Return whether a user enabled a notification type; defaults to enabled."""
-    try:
-        from app.models import UserNotificationSetting
-
-        default = NOTIFICATION_DEFAULTS.get(notification_key, True)
-        setting = (
-            db.query(UserNotificationSetting)
-            .filter(
-                UserNotificationSetting.user_id == user_id,
-                UserNotificationSetting.notification_key == notification_key,
-            )
-            .first()
+    default = NOTIFICATION_DEFAULTS.get(notification_key, True)
+    setting = (
+        db.query(UserNotificationSetting)
+        .filter(
+            UserNotificationSetting.user_id == user_id,
+            UserNotificationSetting.notification_key == notification_key,
         )
-        return default if setting is None else bool(setting.is_enabled)
-    except Exception:
-        _safe_rollback(db)
-        return NOTIFICATION_DEFAULTS.get(notification_key, True)
+        .first()
+    )
+    if not setting:
+        return default
+    return bool(setting.is_enabled)
 
 
-def get_personal_notification_users(db, notification_key: str | None = None, league_id: int | None = None) -> list[User]:
-    """Return approved users who should receive a private bot notification.
-
-    If league_id is provided, users are limited to active members of that league.
-    Notification settings are respected when a notification_key is provided.
-    """
-    try:
-        from app.models import LeagueMember
-
-        query = db.query(User).filter(User.access_status == "approved")
-        if league_id is not None:
-            query = query.join(LeagueMember, LeagueMember.user_id == User.id).filter(
-                LeagueMember.league_id == league_id,
-                LeagueMember.status == "active",
-            )
-        users = query.order_by(User.display_name.asc()).all()
-    except Exception:
-        _safe_rollback(db)
-        users = db.query(User).order_by(User.display_name.asc()).all()
-
-    if notification_key is None:
-        return users
-    if not _global_notification_enabled(db, notification_key):
-        return []
-    return [user for user in users if _user_notification_enabled(db, user.id, notification_key)]
+def _approved_users_query(db):
+    return db.query(User).filter(User.access_status == "approved").order_by(User.display_name.asc())
 
 
-async def send_private_notifications(
+async def notify_private_users(
     db,
-    *,
     notification_key: str,
     title: str,
     text: str,
-    users: list[User] | None = None,
-    reply_markup=None,
     url: str = "/app",
+    reply_markup=None,
+    exclude_user_id: int | None = None,
 ) -> int:
-    """Send Telegram private notifications and matching Web Push to users."""
+    """Send a Telegram DM + optional Web Push to approved users that enabled a notification type."""
     if not _global_notification_enabled(db, notification_key):
         return 0
 
-    if users is None:
-        users = get_personal_notification_users(db, notification_key=notification_key)
-    else:
-        users = [user for user in users if _user_notification_enabled(db, user.id, notification_key)]
-
+    users = _approved_users_query(db).all()
     sent = 0
+
     for user in users:
-        if not getattr(user, "telegram_id", None):
+        if exclude_user_id and user.id == exclude_user_id:
             continue
+        if is_forecast_bot_user(user):
+            continue
+        if not _user_notification_enabled(db, user.id, notification_key):
+            continue
+
         try:
-            await bot.send_message(chat_id=user.telegram_id, text=text, reply_markup=reply_markup)
+            await bot.send_message(
+                chat_id=user.telegram_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
             sent += 1
         except Exception as error:
             print(f"Failed to send private Telegram notification to {user.telegram_id}: {error}")
@@ -121,31 +85,78 @@ async def send_private_notifications(
                 url=url,
             )
         except Exception as push_error:
-            print(f"Failed to send private Web Push to {user.telegram_id}: {push_error}")
+            print(f"Failed to send private web push to {user.telegram_id}: {push_error}")
 
     return sent
 
 
-def _is_default_league_member_db(db, user: User) -> bool:
-    """Keep old GROUP_CHAT_ID activity only for members of «Отец прогнозов»."""
-    try:
-        from app.services.leagues import is_user_in_default_league
+async def notify_private_user(
+    db,
+    user: User,
+    notification_key: str,
+    title: str,
+    text: str,
+    url: str = "/app",
+    reply_markup=None,
+) -> bool:
+    """Send one Telegram DM + optional Web Push if enabled."""
+    if user.access_status != "approved" or is_forecast_bot_user(user):
+        return False
+    if not _global_notification_enabled(db, notification_key):
+        return False
+    if not _user_notification_enabled(db, user.id, notification_key):
+        return False
 
-        return bool(is_user_in_default_league(db, user))
+    ok = False
+    try:
+        await bot.send_message(chat_id=user.telegram_id, text=text, reply_markup=reply_markup)
+        ok = True
     except Exception as error:
-        print(f"Failed to check default league membership for group notification: {error}")
+        print(f"Failed to send private Telegram notification to {user.telegram_id}: {error}")
+
+    try:
+        from app.services.web_push import notify_web_push_subscribers_for_user_if_enabled
+
+        notify_web_push_subscribers_for_user_if_enabled(
+            db,
+            user_id=user.id,
+            notification_key=notification_key,
+            title=title,
+            body=text[:220],
+            url=url,
+        )
+    except Exception as push_error:
+        print(f"Failed to send private web push to {user.telegram_id}: {push_error}")
+
+    return ok
+
+
+async def notify_league_chat(league: League, text: str) -> bool:
+    chat_id = (getattr(league, "chat_id", None) or "").strip()
+    if not chat_id:
+        return False
+    try:
+        await bot.send_message(chat_id=int(chat_id), text=text)
+        return True
+    except ValueError:
+        print(f"Invalid chat_id for league {league.id}: {chat_id}")
+        return False
+    except Exception as error:
+        print(f"Failed to send message to league chat {chat_id}: {error}")
         return False
 
 
 def _is_default_league_member(user: User) -> bool:
+    """Keep old GROUP_CHAT_ID activity only for members of «Отец прогнозов»."""
     try:
         from app.db import SessionLocal
         from app.models import User as DbUser
+        from app.services.leagues import is_user_in_default_league
 
         db = SessionLocal()
         try:
             db_user = db.query(DbUser).filter(DbUser.id == user.id).first()
-            return bool(db_user and _is_default_league_member_db(db, db_user))
+            return bool(db_user and is_user_in_default_league(db, db_user))
         finally:
             db.close()
     except Exception as error:
@@ -153,87 +164,20 @@ def _is_default_league_member(user: User) -> bool:
         return False
 
 
-async def notify_telegram_chat(chat_id: int | str | None, text: str) -> bool:
-    """Send a message to a Telegram chat id."""
-    if not chat_id:
-        return False
-    try:
-        await bot.send_message(chat_id=int(chat_id), text=text)
-        return True
-    except Exception as error:
-        print(f"Failed to send message to chat {chat_id}: {error}")
-        return False
-
-
-async def notify_group_chat(text: str):
-    """Legacy GROUP_CHAT_ID delivery only, without broad Web Push fan-out."""
-    from app.services.misc import get_group_chat_id
-
-    group_chat_id = get_group_chat_id()
-    if not group_chat_id:
-        print("GROUP_CHAT_ID is not set")
+async def _notify_default_group_chat_if_default_member(db, user: User, text: str) -> None:
+    if not _is_default_league_member(user):
         return
-    await notify_telegram_chat(group_chat_id, text)
+    await notify_group_chat(text)
 
 
-def get_user_active_leagues_for_notifications(db, user: User):
-    """Return active leagues for a user."""
+async def _notify_actor_league_chats(db, user: User, text: str) -> None:
     try:
-        from app.models import League, LeagueMember
+        from app.services.leagues import get_user_active_leagues_with_chat
 
-        return (
-            db.query(League)
-            .join(LeagueMember, LeagueMember.league_id == League.id)
-            .filter(
-                LeagueMember.user_id == user.id,
-                LeagueMember.status == "active",
-                League.is_active == True,
-            )
-            .all()
-        )
-    except Exception:
-        _safe_rollback(db)
-        return []
-
-
-def get_leagues_with_chat_id(db):
-    """Return active leagues that have a Telegram chat_id configured."""
-    try:
-        from app.models import League
-
-        return (
-            db.query(League)
-            .filter(
-                League.is_active == True,
-                League.chat_id.isnot(None),
-            )
-            .all()
-        )
-    except Exception:
-        _safe_rollback(db)
-        return []
-
-
-async def notify_league_chats_for_user_activity(db, user: User, text: str) -> int:
-    """Notify all league chats where the actor is an active member.
-
-    GROUP_CHAT_ID is treated as the legacy chat for the system league only.
-    Private league chats use leagues.chat_id.
-    """
-    sent = 0
-    leagues = get_user_active_leagues_for_notifications(db, user)
-    for league in leagues:
-        if getattr(league, "chat_id", None):
-            if await notify_telegram_chat(league.chat_id, text):
-                sent += 1
-
-    if _is_default_league_member_db(db, user):
-        from app.services.misc import get_group_chat_id
-
-        if await notify_telegram_chat(get_group_chat_id(), text):
-            sent += 1
-
-    return sent
+        for league in get_user_active_leagues_with_chat(db, user):
+            await notify_league_chat(league, text)
+    except Exception as error:
+        print(f"Failed to send actor league chat notifications: {error}")
 
 
 async def notify_group_prediction_saved(
@@ -241,9 +185,10 @@ async def notify_group_prediction_saved(
     match: Match,
     is_update: bool = False,
 ):
-    """Notify relevant league chats when a participant makes/updates a match forecast."""
+    """Notify personal users and relevant league/group chats about saved match prediction."""
     if is_forecast_bot_user(user):
         return
+
     action_text = "обновил прогноз" if is_update else "сделал прогноз"
     text = (
         "✍️ Прогноз зафиксирован\n\n"
@@ -253,38 +198,30 @@ async def notify_group_prediction_saved(
         "Отец прогнозов уважает тайну до стартового свистка."
     )
 
-    try:
-        from app.db import SessionLocal
+    from app.db import SessionLocal
+    from app.models import User as DbUser
 
-        db = SessionLocal()
-        try:
-            await notify_league_chats_for_user_activity(db, user, text)
-            # Личные уведомления об активности получают участники тех же лиг.
-            notified_user_ids = set()
-            for league in get_user_active_leagues_for_notifications(db, user):
-                recipients = get_personal_notification_users(db, notification_key="group_activity", league_id=league.id)
-                recipients = [recipient for recipient in recipients if recipient.id not in notified_user_ids and recipient.id != user.id]
-                for recipient in recipients:
-                    notified_user_ids.add(recipient.id)
-                await send_private_notifications(
-                    db,
-                    notification_key="group_activity",
-                    title="Отец прогнозов",
-                    text=text,
-                    users=recipients,
-                    url="/app",
-                )
-        finally:
-            db.close()
-    except Exception as error:
-        print(f"Failed to send league prediction notifications: {error}")
+    db = SessionLocal()
+    try:
+        db_user = db.query(DbUser).filter(DbUser.id == user.id).first() or user
+        await notify_private_users(
+            db,
+            notification_key="group_activity",
+            title="Отец прогнозов",
+            text=text,
+            exclude_user_id=user.id,
+        )
+        await _notify_default_group_chat_if_default_member(db, db_user, text)
+        await _notify_actor_league_chats(db, db_user, text)
+    finally:
+        db.close()
 
 
 async def notify_group_tournament_prediction_saved(
     user: User,
     is_update: bool = False,
 ):
-    """Notify relevant league chats about tournament prediction activity."""
+    """Notify personal users and relevant league/group chats about tournament prediction."""
     if is_forecast_bot_user(user):
         return
 
@@ -296,34 +233,27 @@ async def notify_group_tournament_prediction_saved(
         "Пусть интрига живет хотя бы до первого спорного VAR."
     )
 
-    try:
-        from app.db import SessionLocal
+    from app.db import SessionLocal
+    from app.models import User as DbUser
 
-        db = SessionLocal()
-        try:
-            await notify_league_chats_for_user_activity(db, user, text)
-            notified_user_ids = set()
-            for league in get_user_active_leagues_for_notifications(db, user):
-                recipients = get_personal_notification_users(db, notification_key="group_activity", league_id=league.id)
-                recipients = [recipient for recipient in recipients if recipient.id not in notified_user_ids and recipient.id != user.id]
-                for recipient in recipients:
-                    notified_user_ids.add(recipient.id)
-                await send_private_notifications(
-                    db,
-                    notification_key="group_activity",
-                    title="Отец прогнозов",
-                    text=text,
-                    users=recipients,
-                    url="/app",
-                )
-        finally:
-            db.close()
-    except Exception as error:
-        print(f"Failed to send league tournament prediction notifications: {error}")
+    db = SessionLocal()
+    try:
+        db_user = db.query(DbUser).filter(DbUser.id == user.id).first() or user
+        await notify_private_users(
+            db,
+            notification_key="group_activity",
+            title="Отец прогнозов",
+            text=text,
+            exclude_user_id=user.id,
+        )
+        await _notify_default_group_chat_if_default_member(db, db_user, text)
+        await _notify_actor_league_chats(db, db_user, text)
+    finally:
+        db.close()
 
 
 async def notify_admins(text: str, exclude_telegram_id: int | None = None):
-    """Send private admin notifications only."""
+    """Send personal admin notifications only; never to GROUP_CHAT_ID."""
     if not ADMIN_NOTIFY_ENABLED:
         return
 
@@ -346,3 +276,21 @@ async def notify_admins(text: str, exclude_telegram_id: int | None = None):
                 f"Failed to send admin notification "
                 f"to {admin_telegram_id}: {error}"
             )
+
+
+async def notify_group_chat(text: str):
+    """Send to legacy GROUP_CHAT_ID only. Use only for «Отец прогнозов» league events."""
+    from app.services.misc import get_group_chat_id
+    group_chat_id = get_group_chat_id()
+
+    if not group_chat_id:
+        print("GROUP_CHAT_ID is not set")
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=group_chat_id,
+            text=text,
+        )
+    except Exception as error:
+        print(f"Failed to send message to group chat {group_chat_id}: {error}")

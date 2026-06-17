@@ -1,11 +1,6 @@
--- v2.8.24 — League chat notifications
--- Adds optional Telegram chat_id per league for league-scoped group notifications.
-
-BEGIN;
+-- v2.8.24: league-specific Telegram chat notifications
 
 ALTER TABLE leagues
-    ADD COLUMN IF NOT EXISTS chat_id BIGINT;
+    ADD COLUMN IF NOT EXISTS chat_id TEXT;
 
-CREATE INDEX IF NOT EXISTS ix_leagues_chat_id ON leagues (chat_id);
-
-COMMIT;
+COMMENT ON COLUMN leagues.chat_id IS 'Optional Telegram group/chat id for league-scoped notifications';

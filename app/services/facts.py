@@ -47,60 +47,53 @@ def get_random_archive_card_for_daily_rubric(db) -> HistoricalArchiveCard | None
 
 
 async def send_daily_match_summary_to_group(db):
-    """Send daily match/prognosis summary to GROUP_CHAT_ID and configured league chats."""
-    from app.services.matches import build_daily_match_summary_text
+    """Send daily match/prognosis summary to legacy GROUP_CHAT_ID for default league only."""
     from app.services.leagues import get_default_league
-    from app.services.notifications import get_leagues_with_chat_id, notify_telegram_chat
+    from app.services.matches import build_daily_match_summary_text
 
-    default_league = get_default_league(db)
     group_chat_id = get_group_chat_id()
 
-    if group_chat_id and default_league:
-        text = build_daily_match_summary_text(db, league_id=default_league.id)
-        if await notify_telegram_chat(group_chat_id, text):
-            print(f"Daily match summary sent to group chat {group_chat_id}")
-    elif not group_chat_id:
+    if not group_chat_id:
         print("GROUP_CHAT_ID is not set or invalid")
+        return
 
-    for league in get_leagues_with_chat_id(db):
-        text = build_daily_match_summary_text(db, league_id=league.id)
-        await notify_telegram_chat(league.chat_id, text)
+    default_league = get_default_league(db)
+    text = build_daily_match_summary_text(db, league=default_league)
+
+    try:
+        await bot.send_message(
+            chat_id=group_chat_id,
+            text=text,
+        )
+        print(f"Daily match summary sent to group chat {group_chat_id}")
+    except Exception as error:
+        print(f"Failed to send daily match summary to group {group_chat_id}: {error}")
+
+
+async def send_daily_match_summary_to_league_chats(db):
+    """Send daily summary to league-specific chats if league.chat_id is configured."""
+    from app.services.leagues import get_active_league_chat_targets
+    from app.services.matches import build_daily_match_summary_text
+    from app.services.notifications import notify_league_chat
+
+    for league in get_active_league_chat_targets(db):
+        text = build_daily_match_summary_text(db, league=league)
+        await notify_league_chat(league, text)
 
 
 async def send_daily_match_summary_to_private_users(db):
-    """Send daily match/prognosis summary to private users instead of daily fact rubric."""
+    """Send daily match/prognosis summary to approved private users by default."""
     from app.services.matches import build_daily_match_summary_text
+    from app.services.notifications import notify_private_users
 
-    users = db.query(User).filter(User.access_status == "approved").all()
     text = build_daily_match_summary_text(db)
-
-    for user in users:
-        try:
-            await bot.send_message(
-                chat_id=user.telegram_id,
-                text=text,
-            )
-            try:
-                from app.services.web_push import notify_web_push_subscribers_for_user_if_enabled
-
-                notify_web_push_subscribers_for_user_if_enabled(
-                    db,
-                    user_id=user.id,
-                    notification_key="daily_facts",
-                    title="☕ Утренняя сводка",
-                    body=text[:220],
-                    url="/app",
-                )
-            except Exception as push_error:
-                print(
-                    f"Failed to send daily summary web push "
-                    f"to {user.telegram_id}: {push_error}"
-                )
-        except Exception as error:
-            print(
-                f"Failed to send daily match summary "
-                f"to {user.telegram_id}: {error}"
-            )
+    await notify_private_users(
+        db,
+        notification_key="daily_facts",
+        title="☕ Утренняя сводка",
+        text=text,
+        url="/app",
+    )
 
 
 async def send_daily_fact_to_group(db, fact: WorldCupFact):
@@ -274,7 +267,7 @@ def get_days_until_wc2026() -> int:
 
 async def send_daily_fact_to_private_users(db, fact: WorldCupFact):
     """Handle asynchronous bot workflow for send_daily_fact_to_private_users."""
-    users = db.query(User).filter(User.access_status == "approved").all()
+    users = db.query(User).all()
     archive_card = get_random_archive_card_for_daily_rubric(db)
     text = format_daily_world_cup_rubric(fact, archive_card=archive_card)
 
@@ -352,9 +345,12 @@ async def daily_facts_loop():
                 # match/prognosis summary instead of Fact of the Day + archive.
                 if DAILY_FACT_TARGET == "group":
                     await send_daily_match_summary_to_group(db)
+                    await send_daily_match_summary_to_league_chats(db)
+                    await send_daily_match_summary_to_private_users(db)
 
                 elif DAILY_FACT_TARGET == "both":
                     await send_daily_match_summary_to_group(db)
+                    await send_daily_match_summary_to_league_chats(db)
                     await send_daily_match_summary_to_private_users(db)
 
                 else:

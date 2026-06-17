@@ -1,6 +1,7 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
 
+import os
 import re
 
 from app.constants.categories import PLAYOFF_STAGES
@@ -668,23 +669,31 @@ def _format_father_prediction_line(db, match: Match) -> str:
     return f"🤖 Отец прогнозов: {father.pred_home}:{father.pred_away}"
 
 
-def _get_match_predictions_with_users(db, match: Match, league_id: int | None = None):
+def _get_match_predictions_with_users(db, match: Match, league: League | None = None):
     query = (
         db.query(Prediction, User)
         .join(User, User.id == Prediction.user_id)
-        .filter(Prediction.match_id == match.id)
     )
-    if league_id is not None:
-        query = query.join(LeagueMember, LeagueMember.user_id == User.id).filter(
-            LeagueMember.league_id == league_id,
-            LeagueMember.status == "active",
-            LeagueMember.joined_at <= match.starts_at,
+
+    if league is not None:
+        query = query.join(
+            LeagueMember,
+            (LeagueMember.user_id == User.id)
+            & (LeagueMember.league_id == league.id)
+            & (LeagueMember.status == "active")
+            & (LeagueMember.joined_at <= match.starts_at),
         )
-    return query.order_by(User.display_name.asc()).all()
+
+    return (
+        query
+        .filter(Prediction.match_id == match.id)
+        .order_by(User.display_name.asc())
+        .all()
+    )
 
 
-def _format_participant_prediction_lines(db, match: Match, with_points: bool = False, league_id: int | None = None) -> list[str]:
-    rows = _get_match_predictions_with_users(db, match, league_id=league_id)
+def _format_participant_prediction_lines(db, match: Match, with_points: bool = False, league: League | None = None) -> list[str]:
+    rows = _get_match_predictions_with_users(db, match, league=league)
 
     if not rows:
         return ["— прогнозов участников нет. Видимо, все оставили аналитику в черновиках."]
@@ -719,8 +728,8 @@ def _format_participant_prediction_lines(db, match: Match, with_points: bool = F
     return lines
 
 
-def build_match_start_group_notification_text(db, match: Match, league_id: int | None = None) -> str:
-    participant_lines = _format_participant_prediction_lines(db, match, with_points=False, league_id=league_id)
+def build_match_start_group_notification_text(db, match: Match, league: League | None = None) -> str:
+    participant_lines = _format_participant_prediction_lines(db, match, with_points=False, league=league)
     father_line = _format_father_prediction_line(db, match)
 
     return (
@@ -734,7 +743,7 @@ def build_match_start_group_notification_text(db, match: Match, league_id: int |
     )
 
 
-def build_daily_match_summary_text(db, now_local=None, league_id: int | None = None) -> str:
+def build_daily_match_summary_text(db, now_local=None, league: League | None = None) -> str:
     """Build daily morning summary for matches finished/started during previous 24h."""
     now_utc = datetime.now(timezone.utc)
     since_utc = now_utc - timedelta(hours=24)
@@ -771,7 +780,7 @@ def build_daily_match_summary_text(db, now_local=None, league_id: int | None = N
         lines.extend(["", "🏁 Завершенные матчи:"])
 
         for match in finished:
-            predictions = _get_match_predictions_with_users(db, match, league_id=league_id)
+            predictions = _get_match_predictions_with_users(db, match, league=league)
             exact = []
             outcome = []
             miss = []
@@ -829,8 +838,50 @@ def _mark_app_event_sent(db, key: str):
     db.commit()
 
 
-async def _send_group_match_started_notifications(db, now, window_seconds: int):
-    """Send match-start notifications to private users, GROUP_CHAT_ID and league chats."""
+def build_match_finished_group_notification_text(db, match: Match, league: League | None = None) -> str:
+    predictions = _get_match_predictions_with_users(db, match, league=league)
+    exact = []
+    outcome = []
+    miss = []
+
+    for prediction, user in predictions:
+        label = f"{user.display_name} ({prediction.pred_home}:{prediction.pred_away})"
+        if prediction.score_points == 3:
+            exact.append(label)
+        elif prediction.score_points == 1:
+            outcome.append(label)
+        else:
+            miss.append(label)
+
+    return (
+        "🏁 Матч окончен. Отец достает красную ручку.\n\n"
+        f"{format_match_label(match, include_id=False)}\n"
+        f"Итог: {match.score_home}:{match.score_away}\n\n"
+        f"🎯 Точный счет: {', '.join(exact) if exact else 'никто. Коллективное мимо, но с достоинством.'}\n"
+        f"🔵 Исход: {', '.join(outcome) if outcome else 'никто.'}\n"
+        f"🔴 Мимо: {', '.join(miss) if miss else 'никто не пострадал.'}\n\n"
+        "Если ваш прогноз не зашел — это не ошибка, это авторская трактовка футбола."
+    )
+
+
+def build_private_match_started_text(match: Match) -> str:
+    return (
+        "⚽ Матч начался!\n\n"
+        f"{format_match_label(match, include_id=False)}\n\n"
+        "Прогнозы раскрыты. Открой Матч-центр, чтобы посмотреть прогнозы участников своей лиги."
+    )
+
+
+def build_private_match_finished_text(match: Match) -> str:
+    return (
+        "🏁 Матч окончен\n\n"
+        f"{format_match_label(match, include_id=False)}\n"
+        f"Итог: {match.score_home}:{match.score_away}\n\n"
+        "Очки пересчитаны. Открой рейтинг и Матч-центр, чтобы проверить свою лигу."
+    )
+
+
+async def _send_match_started_notifications(db, now, window_seconds: int):
     window_start = now - timedelta(seconds=window_seconds + 60)
     matches = (
         db.query(Match)
@@ -843,51 +894,51 @@ async def _send_group_match_started_notifications(db, now, window_seconds: int):
         .all()
     )
 
+    if not matches:
+        return
+
+    from app.services.leagues import get_active_league_chat_targets, get_default_league
+    from app.services.notifications import notify_league_chat, notify_private_users
+
+    default_league = get_default_league(db)
+    league_chat_targets = get_active_league_chat_targets(db)
+
     for match in matches:
-        key = f"group_match_started:{match.id}"
-        if _app_event_sent(db, key):
-            continue
+        private_key = f"private_match_started:{match.id}"
+        if not _app_event_sent(db, private_key):
+            text = build_private_match_started_text(match)
+            try:
+                await notify_private_users(
+                    db,
+                    notification_key="match_started",
+                    title="⚽ Матч начался",
+                    text=text,
+                    url="/app",
+                )
+                _mark_app_event_sent(db, private_key)
+            except Exception as error:
+                print(f"Failed to send private match-start notifications: {error}")
 
-        private_text = (
-            "⚽ Матч начался!\n\n"
-            f"{format_match_label(match, include_id=False)}\n\n"
-            "Прогнозы закрыты и раскрыты. Открой матч-центр, чтобы посмотреть расклады."
-        )
+        if GROUP_CHAT_ID_RAW and default_league:
+            key = f"group_match_started:{match.id}"
+            if not _app_event_sent(db, key):
+                text = build_match_start_group_notification_text(db, match, league=default_league)
+                try:
+                    await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
+                    _mark_app_event_sent(db, key)
+                except Exception as error:
+                    print(f"Failed to send default group match-start notification: {error}")
 
-        try:
-            from app.services.notifications import (
-                get_leagues_with_chat_id,
-                send_private_notifications,
-                notify_telegram_chat,
-            )
-            from app.services.leagues import get_default_league
-            from app.services.misc import get_group_chat_id
-
-            await send_private_notifications(
-                db,
-                notification_key="match_started",
-                title="⚽ Матч начался",
-                text=private_text,
-                reply_markup=build_matches_keyboard([match]),
-                url="/app",
-            )
-
-            default_league = get_default_league(db)
-            if default_league:
-                default_text = build_match_start_group_notification_text(db, match, league_id=default_league.id)
-                await notify_telegram_chat(get_group_chat_id(), default_text)
-
-            for league in get_leagues_with_chat_id(db):
-                league_text = build_match_start_group_notification_text(db, match, league_id=league.id)
-                await notify_telegram_chat(league.chat_id, league_text)
-
-            _mark_app_event_sent(db, key)
-        except Exception as error:
-            print(f"Failed to send match-start notifications: {error}")
+        for league in league_chat_targets:
+            key = f"league_match_started:{league.id}:{match.id}"
+            if _app_event_sent(db, key):
+                continue
+            text = build_match_start_group_notification_text(db, match, league=league)
+            if await notify_league_chat(league, text):
+                _mark_app_event_sent(db, key)
 
 
-async def _send_group_match_finished_notifications(db):
-    """Send match-finish notifications to private users, GROUP_CHAT_ID and league chats."""
+async def _send_match_finished_notifications(db):
     matches = (
         db.query(Match)
         .filter(
@@ -901,72 +952,48 @@ async def _send_group_match_finished_notifications(db):
         .all()
     )
 
-    def build_finish_text(match: Match, league_id: int | None = None) -> str:
-        predictions = _get_match_predictions_with_users(db, match, league_id=league_id)
-        exact = []
-        outcome = []
-        miss = []
+    if not matches:
+        return
 
-        for prediction, user in predictions:
-            label = f"{user.display_name} ({prediction.pred_home}:{prediction.pred_away})"
-            if prediction.score_points == 3:
-                exact.append(label)
-            elif prediction.score_points == 1:
-                outcome.append(label)
-            else:
-                miss.append(label)
+    from app.services.leagues import get_active_league_chat_targets, get_default_league
+    from app.services.notifications import notify_league_chat, notify_private_users
 
-        return (
-            "🏁 Матч окончен. Отец достает красную ручку.\n\n"
-            f"{format_match_label(match, include_id=False)}\n"
-            f"Итог: {match.score_home}:{match.score_away}\n\n"
-            f"🎯 Точный счет: {', '.join(exact) if exact else 'никто. Коллективное мимо, но с достоинством.'}\n"
-            f"🔵 Исход: {', '.join(outcome) if outcome else 'никто.'}\n"
-            f"🔴 Мимо: {', '.join(miss) if miss else 'никто не пострадал.'}\n\n"
-            "Если ваш прогноз не зашел — это не ошибка, это авторская трактовка футбола."
-        )
+    default_league = get_default_league(db)
+    league_chat_targets = get_active_league_chat_targets(db)
 
     for match in matches:
-        key = f"group_match_finished:{match.id}"
-        if _app_event_sent(db, key):
-            continue
+        private_key = f"private_match_finished:{match.id}"
+        if not _app_event_sent(db, private_key):
+            text = build_private_match_finished_text(match)
+            try:
+                await notify_private_users(
+                    db,
+                    notification_key="match_finished",
+                    title="🏁 Матч окончен",
+                    text=text,
+                    url="/app",
+                )
+                _mark_app_event_sent(db, private_key)
+            except Exception as error:
+                print(f"Failed to send private match-finish notifications: {error}")
 
-        private_text = (
-            "🏁 Матч окончен\n\n"
-            f"{format_match_label(match, include_id=False)}\n"
-            f"Итог: {match.score_home}:{match.score_away}\n\n"
-            "Очки пересчитаны. Загляни в рейтинг — там уже кто-то радуется, а кто-то философствует."
-        )
+        if GROUP_CHAT_ID_RAW and default_league:
+            key = f"group_match_finished:{match.id}"
+            if not _app_event_sent(db, key):
+                text = build_match_finished_group_notification_text(db, match, league=default_league)
+                try:
+                    await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
+                    _mark_app_event_sent(db, key)
+                except Exception as error:
+                    print(f"Failed to send default group match-finish notification: {error}")
 
-        try:
-            from app.services.notifications import (
-                get_leagues_with_chat_id,
-                send_private_notifications,
-                notify_telegram_chat,
-            )
-            from app.services.leagues import get_default_league
-            from app.services.misc import get_group_chat_id
-
-            await send_private_notifications(
-                db,
-                notification_key="match_finished",
-                title="🏁 Матч окончен",
-                text=private_text,
-                reply_markup=build_matches_keyboard([match]),
-                url="/app",
-            )
-
-            default_league = get_default_league(db)
-            if default_league:
-                await notify_telegram_chat(get_group_chat_id(), build_finish_text(match, league_id=default_league.id))
-
-            for league in get_leagues_with_chat_id(db):
-                await notify_telegram_chat(league.chat_id, build_finish_text(match, league_id=league.id))
-
-            _mark_app_event_sent(db, key)
-        except Exception as error:
-            print(f"Failed to send match-finish notifications: {error}")
-
+        for league in league_chat_targets:
+            key = f"league_match_finished:{league.id}:{match.id}"
+            if _app_event_sent(db, key):
+                continue
+            text = build_match_finished_group_notification_text(db, match, league=league)
+            if await notify_league_chat(league, text):
+                _mark_app_event_sent(db, key)
 
 async def send_match_reminders_once():
     """Handle asynchronous bot workflow for send_match_reminders_once."""
@@ -989,11 +1016,11 @@ async def send_match_reminders_once():
         offsets = get_reminder_offsets_minutes()
         check_interval_seconds = get_reminder_check_interval_seconds()
 
-        await _send_group_match_started_notifications(db, now, check_interval_seconds)
-        await _send_group_match_finished_notifications(db)
+        await _send_match_started_notifications(db, now, check_interval_seconds)
+        await _send_match_finished_notifications(db)
 
-        reminder_offsets_for_window = list(offsets) + [60]
-        max_offset = max(reminder_offsets_for_window)
+        confidence_offset_minutes = int(os.getenv("CONFIDENCE_REMINDER_OFFSET_MINUTES", "60") or "60")
+        max_offset = max(offsets + [confidence_offset_minutes])
 
         matches = db.query(Match).filter(
             Match.is_finished == False,
@@ -1004,7 +1031,7 @@ async def send_match_reminders_once():
         if not matches:
             return
 
-        users = db.query(User).filter(User.access_status == "approved").order_by(User.display_name.asc()).all()
+        users = db.query(User).filter(User.access_status == "approved").all()
 
         for match in matches:
             match_start = match.starts_at
@@ -1012,58 +1039,43 @@ async def send_match_reminders_once():
             if match_start.tzinfo is None:
                 match_start = match_start.replace(tzinfo=timezone.utc)
 
-            confirm_due_at = match_start - timedelta(minutes=60)
-            confirm_window_end = confirm_due_at + timedelta(seconds=check_interval_seconds + 30)
+            # Personal confidence-check reminder: always sent 1 hour before kickoff,
+            # regardless of whether a prediction already exists.
+            confidence_due_at = match_start - timedelta(minutes=confidence_offset_minutes)
+            confidence_window_end = confidence_due_at + timedelta(seconds=check_interval_seconds + 30)
+            if confidence_due_at <= now <= confidence_window_end:
+                from app.services.notifications import notify_private_user
 
-            if confirm_due_at <= now <= confirm_window_end:
-                reminder_type = "match_prediction_check"
-                reminder_key = "60m"
                 for user in users:
+                    reminder_type = "match_confidence_check"
+                    reminder_key = f"{confidence_offset_minutes}m"
                     if reminder_was_sent(
-                            db=db,
-                            user=user,
-                            match=match,
-                            reminder_type=reminder_type,
-                            reminder_key=reminder_key,
+                        db=db,
+                        user=user,
+                        match=match,
+                        reminder_type=reminder_type,
+                        reminder_key=reminder_key,
                     ):
                         continue
 
-                    has_prediction = user_has_prediction(db, user, match)
                     text = (
-                        "⏰ До матча остался час\n\n"
+                        "⏰ До матча остался 1 час\n\n"
                         f"{format_match_label(match, include_id=False)}\n"
                         f"Старт: {format_datetime(match.starts_at)}\n\n"
-                        + (
-                            "Ты уверен, что сделал верный прогноз? Может, поменяешь, пока не поздно?"
-                            if has_prediction
-                            else "Прогноза еще нет. Самое время поставить счет, пока Отец прогнозов не начал смотреть осуждающе."
-                        )
+                        "Ты уверен, что сделал верный прогноз? Может, поменяешь? "
+                        "До стартового свистка еще есть время."
                     )
 
                     try:
-                        await bot.send_message(
-                            chat_id=user.telegram_id,
+                        await notify_private_user(
+                            db,
+                            user=user,
+                            notification_key="match_reminders",
+                            title="⏰ Проверь прогноз",
                             text=text,
+                            url="/app",
                             reply_markup=build_matches_keyboard([match]),
                         )
-
-                        try:
-                            from app.services.web_push import notify_web_push_subscribers_for_user_if_enabled
-
-                            notify_web_push_subscribers_for_user_if_enabled(
-                                db,
-                                user_id=user.id,
-                                notification_key="match_reminders",
-                                title="⏰ До матча час",
-                                body=text[:220],
-                                url="/app",
-                            )
-                        except Exception as push_error:
-                            print(
-                                f"Failed to send 1-hour reminder web push to user "
-                                f"{user.telegram_id}: {push_error}"
-                            )
-
                         mark_reminder_sent(
                             db=db,
                             user=user,
@@ -1072,13 +1084,7 @@ async def send_match_reminders_once():
                             reminder_key=reminder_key,
                         )
                     except Exception as error:
-                        print(
-                            f"Failed to send 1-hour reminder to user "
-                            f"{user.telegram_id}: {error}"
-                        )
-
-            if not offsets:
-                continue
+                        print(f"Failed to send confidence reminder to {user.telegram_id}: {error}")
 
             for offset_minutes in offsets:
                 reminder_due_at = match_start - timedelta(minutes=offset_minutes)
