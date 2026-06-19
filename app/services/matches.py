@@ -873,12 +873,210 @@ def build_private_match_started_text(match: Match) -> str:
 
 
 def build_private_match_finished_text(match: Match) -> str:
+    """Fallback for approved users who have not joined any active league yet."""
     return (
         "🏁 Матч окончен\n\n"
         f"{format_match_label(match, include_id=False)}\n"
         f"Итог: {match.score_home}:{match.score_away}\n\n"
-        "Очки пересчитаны. Открой рейтинг и Матч-центр, чтобы проверить свою лигу."
+        "Очки пересчитаны. Создай лигу или вступи по приглашению, чтобы получать лиговые итоги."
     )
+
+
+def _prediction_total_points(prediction: Prediction, match: Match) -> int:
+    """Return saved points, with a safe calculation fallback for old rows."""
+    if prediction.points is not None:
+        return int(prediction.points or 0)
+    if match.score_home is None or match.score_away is None:
+        return 0
+    result = score_match_prediction(
+        pred_home=prediction.pred_home,
+        pred_away=prediction.pred_away,
+        actual_home=match.score_home,
+        actual_away=match.score_away,
+        advancement_bet_enabled=prediction.advancement_bet_enabled,
+        predicted_advancing_side=prediction.predicted_advancing_side,
+        actual_winner_side=match.winner_side,
+    )
+    return int(result["total_points"] or 0)
+
+
+def _league_rank_snapshots_for_match(db, league: League, match: Match) -> tuple[dict[int, int], dict[int, int], dict[int, int], int]:
+    """Build current and pre-match rank snapshots for one league.
+
+    Results are already written by the time notifications are sent. To describe
+    movement in a personal notification we reconstruct the standings immediately
+    before the match by subtracting the current match contribution for every
+    eligible participant. This avoids storing another persistent leaderboard
+    snapshot while keeping the message understandable.
+    """
+    from app.models import TournamentPrediction
+    from app.services.leagues import league_scoring_start_at
+
+    scoring_start = league_scoring_start_at(league)
+    member_rows = (
+        db.query(LeagueMember, User)
+        .join(User, User.id == LeagueMember.user_id)
+        .filter(
+            LeagueMember.league_id == league.id,
+            LeagueMember.status == "active",
+            User.access_status == "approved",
+        )
+        .all()
+    )
+
+    current_entries = []
+    before_entries = []
+    match_predictions = {
+        prediction.user_id: prediction
+        for prediction in (
+            db.query(Prediction)
+            .join(LeagueMember, LeagueMember.user_id == Prediction.user_id)
+            .filter(
+                Prediction.match_id == match.id,
+                LeagueMember.league_id == league.id,
+                LeagueMember.status == "active",
+                LeagueMember.joined_at <= match.starts_at,
+            )
+            .all()
+        )
+    }
+
+    for member, user in member_rows:
+        predictions_query = (
+            db.query(Prediction)
+            .join(Match, Prediction.match_id == Match.id)
+            .filter(
+                Prediction.user_id == user.id,
+                Match.tournament_code == TOURNAMENT_CODE,
+            )
+        )
+        if scoring_start is not None:
+            predictions_query = predictions_query.filter(Match.starts_at >= scoring_start)
+        predictions = predictions_query.all()
+
+        tournament_prediction = (
+            db.query(TournamentPrediction)
+            .filter(
+                TournamentPrediction.user_id == user.id,
+                TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+            )
+            .first()
+        )
+        tournament_points = int(tournament_prediction.points or 0) if tournament_prediction else 0
+        match_points = sum(_prediction_total_points(prediction, prediction.match) for prediction in predictions)
+        exact_scores = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 3)
+        outcomes = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 1)
+
+        current_entries.append({
+            "user_id": user.id,
+            "points": match_points + tournament_points,
+            "exact": exact_scores,
+            "outcomes": outcomes,
+        })
+
+        prediction_for_match = match_predictions.get(user.id)
+        contribution = _prediction_total_points(prediction_for_match, match) if prediction_for_match else 0
+        score_points = int(prediction_for_match.score_points or 0) if prediction_for_match else 0
+        before_entries.append({
+            "user_id": user.id,
+            "points": match_points + tournament_points - contribution,
+            "exact": exact_scores - (1 if score_points == 3 else 0),
+            "outcomes": outcomes - (1 if score_points == 1 else 0),
+        })
+
+    def _rank(entries):
+        ordered = sorted(
+            entries,
+            key=lambda row: (row["points"], row["exact"], row["outcomes"]),
+            reverse=True,
+        )
+        return {row["user_id"]: index for index, row in enumerate(ordered, start=1)}
+
+    current_rank = _rank(current_entries)
+    before_rank = _rank(before_entries)
+    current_points = {entry["user_id"]: entry["points"] for entry in current_entries}
+    return current_rank, before_rank, current_points, len(current_entries)
+
+
+def _user_success_streak_for_league(db, user: User, league: League, match: Match) -> int:
+    """Return current successful-prediction streak inside the league score window."""
+    from app.services.leagues import league_scoring_start_at
+
+    query = (
+        db.query(Prediction)
+        .join(Match, Prediction.match_id == Match.id)
+        .filter(
+            Prediction.user_id == user.id,
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished == True,
+            Match.score_home.isnot(None),
+            Match.score_away.isnot(None),
+            Match.starts_at <= match.starts_at,
+        )
+        .order_by(Match.starts_at.desc())
+    )
+    scoring_start = league_scoring_start_at(league)
+    if scoring_start is not None:
+        query = query.filter(Match.starts_at >= scoring_start)
+
+    streak = 0
+    for prediction in query.all():
+        if int(prediction.score_points or 0) > 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def build_personal_match_emotion_text(db, user: User, match: Match, league: League) -> str:
+    """Create an emotional, personal post-match summary for a league."""
+    prediction = (
+        db.query(Prediction)
+        .filter(Prediction.user_id == user.id, Prediction.match_id == match.id)
+        .first()
+    )
+
+    current_rank, before_rank, current_points, participants_count = _league_rank_snapshots_for_match(db, league, match)
+    rank_after = current_rank.get(user.id)
+    rank_before = before_rank.get(user.id)
+    league_points = current_points.get(user.id, 0)
+
+    lines = ["✨ Твой итог"]
+    if not prediction:
+        lines.append("Прогноза на этот матч не было — в этот раз без очков, но следующий свисток уже близко.")
+    else:
+        points = _prediction_total_points(prediction, match)
+        score_points = int(prediction.score_points or 0)
+        prediction_label = f"{prediction.pred_home}:{prediction.pred_away}"
+        if score_points == 3:
+            lines.append(f"🎯 Точный счет {prediction_label}! +{points} очк. Это попадание уровня футбольного оракула.")
+        elif score_points == 1:
+            lines.append(f"🔵 Исход {prediction_label} угадан. +{points} очк. Скромно, но в таблице все помнят.")
+        elif points > 0:
+            lines.append(f"➕ Прогноз {prediction_label}: +{points} очк. Дополнительный футбольный бонус сработал.")
+        else:
+            lines.append(f"😬 Прогноз {prediction_label}: без очков. Футбол снова выбрал свой сценарий.")
+
+    if rank_after:
+        if rank_before and rank_after < rank_before:
+            lines.append(f"📈 В лиге ты поднялся с #{rank_before} на #{rank_after} из {participants_count}.")
+        elif rank_before and rank_after > rank_before:
+            lines.append(f"↘️ В лиге сейчас #{rank_after} из {participants_count}; впереди есть повод для камбэка.")
+        else:
+            lines.append(f"🏆 В лиге сейчас #{rank_after} из {participants_count} · {league_points} очк.")
+
+    streak = _user_success_streak_for_league(db, user, league, match)
+    if streak >= 2:
+        lines.append(f"🔥 Серия: {streak} удачных прогнозов подряд.")
+
+    return "\n".join(lines)
+
+
+def build_private_match_finished_league_text(db, user: User, match: Match, league: League) -> str:
+    """Render league-level result text plus the recipient's personal emotion."""
+    group_text = build_match_finished_group_notification_text(db, match, league=league)
+    emotion = build_personal_match_emotion_text(db, user, match, league)
+    return f"🏆 Лига «{league.name}»\n\n{group_text}\n\n──────────\n{emotion}"
 
 
 async def _send_match_started_notifications(db, now, window_seconds: int):
@@ -955,28 +1153,62 @@ async def _send_match_finished_notifications(db):
     if not matches:
         return
 
-    from app.services.leagues import get_active_league_chat_targets, get_default_league
-    from app.services.notifications import notify_league_chat, notify_private_users
+    from app.services.leagues import (
+        get_active_league_chat_targets,
+        get_default_league,
+        get_user_active_leagues_for_match,
+    )
+    from app.services.notifications import notify_league_chat, notify_private_user
 
     default_league = get_default_league(db)
     league_chat_targets = get_active_league_chat_targets(db)
+    approved_users = db.query(User).filter(User.access_status == "approved").all()
 
     for match in matches:
-        private_key = f"private_match_finished:{match.id}"
-        if not _app_event_sent(db, private_key):
-            text = build_private_match_finished_text(match)
-            try:
-                await notify_private_users(
-                    db,
-                    notification_key="match_finished",
-                    title="🏁 Матч окончен",
-                    text=text,
-                    url="/app",
-                )
-                _mark_app_event_sent(db, private_key)
-            except Exception as error:
-                print(f"Failed to send private match-finish notifications: {error}")
+        # Do not replay up to 20 historical result messages after this release is
+        # deployed. Earlier builds stored one legacy event key per match; fresh
+        # matches use the recipient+league keys below.
+        legacy_private_key = f"private_match_finished:{match.id}"
+        if not _app_event_sent(db, legacy_private_key):
+            # A recipient can belong to several leagues. Send the full league result
+            # separately for each one, so the participant list and personal position
+            # always match the league that the message is about.
+            for user in approved_users:
+                leagues = get_user_active_leagues_for_match(db, user, match)
+                if not leagues:
+                    private_key = f"private_match_finished:{match.id}:user:{user.id}:no_league"
+                    if not _app_event_sent(db, private_key):
+                        try:
+                            await notify_private_user(
+                                db,
+                                user=user,
+                                notification_key="match_finished",
+                                title="🏁 Матч окончен",
+                                text=build_private_match_finished_text(match),
+                                url="/app",
+                            )
+                        finally:
+                            _mark_app_event_sent(db, private_key)
+                    continue
 
+                for league in leagues:
+                    private_key = f"private_match_finished:{match.id}:user:{user.id}:league:{league.id}"
+                    if _app_event_sent(db, private_key):
+                        continue
+                    try:
+                        text = build_private_match_finished_league_text(db, user, match, league)
+                        await notify_private_user(
+                            db,
+                            user=user,
+                            notification_key="match_finished",
+                            title=f"🏁 Итоги · {league.name}",
+                            text=text,
+                            url="/app",
+                        )
+                    except Exception as error:
+                        print(f"Failed to send private match-finish notification to {user.telegram_id} for league {league.id}: {error}")
+                    finally:
+                        _mark_app_event_sent(db, private_key)
         if GROUP_CHAT_ID_RAW and default_league:
             key = f"group_match_finished:{match.id}"
             if not _app_event_sent(db, key):

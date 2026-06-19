@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.26';
+const APP_VERSION = '2.8.27';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2712,6 +2712,78 @@ function Predictions({ onPredict, onForecast }) {
   );
 }
 
+function RatingMatchAnalytics({ analytics, leagueName = '' }) {
+  const exactScores = analytics?.exact_scores || [];
+  const outcomes = analytics?.outcomes || [];
+
+  function AnalyticsList({ title, subtitle, iconName, rows, accentClass }) {
+    return (
+      <section className={`rating-analytics-card ${accentClass}`}>
+        <div className="rating-analytics-card-head">
+          <div className="rating-analytics-icon"><Icon name={iconName} /></div>
+          <div>
+            <h3>{title}</h3>
+            <p>{subtitle}</p>
+          </div>
+          <span className="rating-analytics-count">Топ {rows.length || 0}</span>
+        </div>
+        {rows.length === 0 ? (
+          <p className="rating-analytics-empty">Пока ни один матч не попал в этот рейтинг.</p>
+        ) : (
+          <div className="rating-analytics-list">
+            {rows.map((match, index) => (
+              <div className="rating-analytics-row" key={`${title}-${match.match_id}`}>
+                <span className="rating-analytics-place">{index + 1}</span>
+                <div className="rating-analytics-teams">
+                  <span className="rating-analytics-team">
+                    <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
+                    <b>{match.home_team}</b>
+                  </span>
+                  <strong className="rating-analytics-score">{match.score_home}:{match.score_away}</strong>
+                  <span className="rating-analytics-team away">
+                    <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
+                    <b>{match.away_team}</b>
+                  </span>
+                </div>
+                <span className="rating-analytics-result">{match.count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="rating-analytics-section">
+      <div className="rating-analytics-head">
+        <div>
+          <div className="section-label">Аналитика матчей</div>
+          <h2>Где в лиге лучше всего читали игру</h2>
+          <p>{leagueName ? `Лига «${leagueName}»` : 'Выбранная лига'} · только завершенные матчи</p>
+        </div>
+      </div>
+      <div className="rating-analytics-grid">
+        <AnalyticsList
+          title="Точные счета"
+          subtitle="Больше всего попаданий на 3 очка"
+          iconName="target"
+          rows={exactScores}
+          accentClass="exact"
+        />
+        <AnalyticsList
+          title="Угаданные исходы"
+          subtitle="Больше всего попаданий на 1 очко"
+          iconName="rank"
+          rows={outcomes}
+          accentClass="outcome"
+        />
+      </div>
+    </section>
+  );
+}
+
+
 function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -2786,6 +2858,11 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
           </div>
         ))}
       </div>
+
+      <RatingMatchAnalytics
+        analytics={data.match_analytics}
+        leagueName={data.league?.name || ''}
+      />
     </main>
   );
 }

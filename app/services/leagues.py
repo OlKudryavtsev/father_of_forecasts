@@ -348,6 +348,28 @@ def get_user_active_leagues(db, user: User) -> list[League]:
     )
 
 
+
+
+def get_user_active_leagues_for_match(db, user: User, match) -> list[League]:
+    """Return active leagues where the user was already a member at kickoff.
+
+    This is used for match-result notifications and match-centre participant
+    views: a user should not be shown or notified as a league participant for a
+    match that started before they joined that league.
+    """
+    return (
+        db.query(League)
+        .join(LeagueMember, LeagueMember.league_id == League.id)
+        .filter(
+            LeagueMember.user_id == user.id,
+            LeagueMember.status == "active",
+            LeagueMember.joined_at <= match.starts_at,
+            League.is_active == True,
+        )
+        .order_by(League.league_type.desc(), League.name.asc())
+        .all()
+    )
+
 def get_default_or_first_user_league(db, user: User) -> League | None:
     """Return default league for a user, falling back to their first active league."""
     default_league = get_default_league(db)

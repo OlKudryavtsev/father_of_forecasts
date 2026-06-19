@@ -82,18 +82,37 @@ async def send_daily_match_summary_to_league_chats(db):
 
 
 async def send_daily_match_summary_to_private_users(db):
-    """Send daily match/prognosis summary to approved private users by default."""
-    from app.services.matches import build_daily_match_summary_text
-    from app.services.notifications import notify_private_users
+    """Send each approved user a summary scoped to every league they belong to.
 
-    text = build_daily_match_summary_text(db)
-    await notify_private_users(
-        db,
-        notification_key="daily_facts",
-        title="☕ Утренняя сводка",
-        text=text,
-        url="/app",
+    The old implementation rendered one shared default-league summary for every
+    private user. With multiple leagues that is misleading: the same user can
+    have different participants, score window and standings in each league.
+    """
+    from app.services.leagues import get_user_active_leagues
+    from app.services.matches import build_daily_match_summary_text
+    from app.services.notifications import notify_private_user
+
+    users = (
+        db.query(User)
+        .filter(User.access_status == "approved")
+        .order_by(User.display_name.asc())
+        .all()
     )
+
+    for user in users:
+        leagues = get_user_active_leagues(db, user)
+        # A user without a league has no meaningful league-specific daily table.
+        # They still receive personal match reminders and can create/join a league.
+        for league in leagues:
+            text = build_daily_match_summary_text(db, league=league)
+            await notify_private_user(
+                db,
+                user=user,
+                notification_key="daily_facts",
+                title=f"☕ Итоги дня · {league.name}",
+                text=f"🏆 Лига «{league.name}»\n\n{text}",
+                url="/app",
+            )
 
 
 async def send_daily_fact_to_group(db, fact: WorldCupFact):

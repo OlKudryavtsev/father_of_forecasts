@@ -1,3 +1,9 @@
+## v2.8.27 — League result emotions and rating analytics
+
+- Personal post-match result messages are now sent per league, with emotion, position and streak.
+- Daily summaries are scoped to the recipient's league(s).
+- Rating has top-10 match analytics for exact scores and correct outcomes.
+
 
 ## v2.8.26 — League chat_id fix
 

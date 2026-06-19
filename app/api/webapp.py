@@ -588,6 +588,83 @@ def _league_started_before_match_filter(league: League):
     return Match.starts_at >= scoring_start
 
 
+def _serialize_match_points_analytics_item(match: Match, count: int, total_predictions: int) -> dict:
+    """Serialize one match for the compact rating analytics cards."""
+    home_name = get_team_name_ru(match.home_team)
+    away_name = get_team_name_ru(match.away_team)
+    return {
+        "match_id": match.id,
+        "home_team": home_name,
+        "away_team": away_name,
+        "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
+        "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
+        "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
+        "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
+        "score_home": match.score_home,
+        "score_away": match.score_away,
+        "count": count,
+        "total_predictions": total_predictions,
+        "starts_at": _ensure_utc(match.starts_at).isoformat(),
+    }
+
+
+def _build_league_match_points_analytics(db: Session, league: League) -> dict:
+    """Return the 10 most successful matches inside the selected league.
+
+    Exact-score and outcome rankings intentionally use different counters:
+    exact scores are predictions worth 3 points, while outcomes are predictions
+    worth 1 point. This mirrors the metrics shown in the rating cards.
+    """
+    matches_query = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished == True,
+            Match.score_home.isnot(None),
+            Match.score_away.isnot(None),
+        )
+    )
+    scoring_start = league_scoring_start_at(league)
+    if scoring_start is not None:
+        matches_query = matches_query.filter(Match.starts_at >= scoring_start)
+
+    exact_rows: list[dict] = []
+    outcome_rows: list[dict] = []
+
+    for match in matches_query.order_by(Match.starts_at.desc()).all():
+        predictions = (
+            db.query(Prediction)
+            .join(LeagueMember, LeagueMember.user_id == Prediction.user_id)
+            .filter(
+                Prediction.match_id == match.id,
+                LeagueMember.league_id == league.id,
+                LeagueMember.status == "active",
+                LeagueMember.joined_at <= match.starts_at,
+            )
+            .all()
+        )
+        total_predictions = len(predictions)
+        if not total_predictions:
+            continue
+
+        exact_count = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 3)
+        outcome_count = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 1)
+
+        if exact_count:
+            exact_rows.append(_serialize_match_points_analytics_item(match, exact_count, total_predictions))
+        if outcome_count:
+            outcome_rows.append(_serialize_match_points_analytics_item(match, outcome_count, total_predictions))
+
+    sort_key = lambda row: (row["count"], row["total_predictions"], row["starts_at"])
+    exact_rows.sort(key=sort_key, reverse=True)
+    outcome_rows.sort(key=sort_key, reverse=True)
+
+    return {
+        "exact_scores": exact_rows[:10],
+        "outcomes": outcome_rows[:10],
+    }
+
+
 @router.get("/leagues")
 def get_my_leagues(
     db: Session = Depends(get_db),
@@ -1405,6 +1482,7 @@ def get_table(
         "league": _serialize_league(active_league, current_user),
         "rows": rows,
         "father_row": father_row,
+        "match_analytics": _build_league_match_points_analytics(db, active_league),
     }
 
 
