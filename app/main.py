@@ -20,12 +20,24 @@ from app.api.webapp import router as webapp_router
 
 MINIAPP_STATIC_DIR = Path(__file__).resolve().parent / "miniapp_static"
 
+
+class PwaStaticFiles(StaticFiles):
+    """Keep PWA control files fresh while allowing hashed frontend assets to cache."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if path in {"sw.js", "app-version.json", "manifest.webmanifest"}:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
 app.include_router(webapp_router)
 
 if MINIAPP_STATIC_DIR.exists():
     app.mount(
         "/miniapp-static",
-        StaticFiles(directory=str(MINIAPP_STATIC_DIR)),
+        PwaStaticFiles(directory=str(MINIAPP_STATIC_DIR)),
         name="miniapp-static",
     )
 

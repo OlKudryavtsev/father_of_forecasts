@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.29';
+const APP_VERSION = '2.8.30';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -633,9 +633,15 @@ function assertPushSupported() {
   }
 }
 
-async function getCurrentPushSubscription() {
+async function getServiceWorkerRegistration() {
   assertPushSupported();
-  const registration = await navigator.serviceWorker.register('/miniapp-static/sw.js');
+  return navigator.serviceWorker.register('/miniapp-static/sw.js', {
+    updateViaCache: 'none',
+  });
+}
+
+async function getCurrentPushSubscription() {
+  const registration = await getServiceWorkerRegistration();
   return registration.pushManager.getSubscription();
 }
 
@@ -653,7 +659,7 @@ async function ensurePushSubscription() {
     throw new Error('Web Push не настроен на сервере: нужны VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY.');
   }
 
-  const registration = await navigator.serviceWorker.register('/miniapp-static/sw.js');
+  const registration = await getServiceWorkerRegistration();
   let subscription = await registration.pushManager.getSubscription();
 
   if (!subscription) {
@@ -688,6 +694,32 @@ async function disablePushSubscription() {
 }
 
 
+function parseVersion(value) {
+  const parts = String(value || '')
+    .trim()
+    .replace(/^v/i, '')
+    .split('.')
+    .map((part) => Number.parseInt(part, 10));
+
+  if (!parts.length || parts.some((part) => Number.isNaN(part) || part < 0)) return null;
+  return parts;
+}
+
+function isNewerVersion(serverVersion, clientVersion) {
+  const server = parseVersion(serverVersion);
+  const client = parseVersion(clientVersion);
+  if (!server || !client) return false;
+
+  const length = Math.max(server.length, client.length);
+  for (let index = 0; index < length; index += 1) {
+    const left = server[index] || 0;
+    const right = client[index] || 0;
+    if (left !== right) return left > right;
+  }
+
+  return false;
+}
+
 function usePwaUpdateCheck() {
   const [updateInfo, setUpdateInfo] = useState(null);
 
@@ -697,8 +729,14 @@ function usePwaUpdateCheck() {
     async function checkVersion() {
       try {
         const result = await api(`/api/webapp/app-version?client_version=${encodeURIComponent(APP_VERSION)}&t=${Date.now()}`, { cache: 'no-store' });
-        if (!cancelled && result.version && result.version !== 'unknown' && result.version !== APP_VERSION) {
+        if (cancelled) return;
+
+        if (result.version && result.version !== 'unknown' && isNewerVersion(result.version, APP_VERSION)) {
           setUpdateInfo(result);
+        } else {
+          // A stale backend value (for example, after a partial deploy) must never
+          // leave users with a permanent update banner.
+          setUpdateInfo(null);
         }
       } catch {
         // Version check must never break the app.
@@ -721,42 +759,32 @@ async function forcePwaUpdate() {
 
   try {
     if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(async (registration) => {
-        try {
-          registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
-          registration.active?.postMessage({ type: 'SKIP_WAITING' });
-          await registration.update();
-          await registration.unregister();
-        } catch {
-          // Best effort for stubborn iOS PWA caches.
-        }
-      }));
+      const registration = await navigator.serviceWorker.register('/miniapp-static/sw.js', {
+        updateViaCache: 'none',
+      });
+
+      await registration.update();
+      registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+      registration.installing?.postMessage({ type: 'SKIP_WAITING' });
+
+      // Keep the registration intact: unregistering can disrupt Web Push in an
+      // installed iOS PWA. The new worker activates through skipWaiting/claim.
+      await navigator.serviceWorker.ready;
     }
 
-    if ('caches' in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((key) => caches.delete(key)));
-    }
-
-    // Warm up the no-cache /app response and the version endpoint before reload.
-    await Promise.all([
-      fetch(`/api/webapp/app-version?client_version=${encodeURIComponent(APP_VERSION)}&force=${stamp}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      }).catch(() => null),
-      fetch(`/app?app_v=${stamp}`, {
-        cache: 'reload',
-        credentials: 'include',
-        headers: { 'Cache-Control': 'no-cache' },
-      }).catch(() => null),
-    ]);
+    // Ensure the latest non-cached HTML is available before navigation.
+    await fetch(`/app?app_v=${stamp}`, {
+      cache: 'reload',
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-cache' },
+    }).catch(() => null);
   } catch {
-    // Best effort. Reload below must still happen.
+    // Best effort. The cache-busted navigation below is still enough for apps
+    // without Service Worker support (for example, Telegram Desktop).
   }
 
   sessionStorage.setItem('ff-force-app-reload', stamp);
-  window.location.replace(`/app?app_v=${stamp}`);
+  window.location.assign(`/app?app_v=${stamp}&updated=1`);
 }
 
 function PwaUpdateBanner({ updateInfo }) {
