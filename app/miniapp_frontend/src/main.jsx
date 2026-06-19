@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.27';
+const APP_VERSION = '2.8.28';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -231,6 +231,15 @@ function Icon({ name, className = '' }) {
     );
   }
 
+  if (name === 'edit') {
+    return (
+      <svg {...common}>
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z" />
+      </svg>
+    );
+  }
+
   if (name === 'video') {
     return (
       <svg {...common}>
@@ -393,6 +402,21 @@ function formatCountdown(days) {
     else if ([2, 3, 4].includes(last)) word = 'дня';
   }
   return `до ЧМ ${days} ${word}`;
+}
+
+function formatMatchCountdown(value, now = Date.now()) {
+  if (!value) return '';
+  const diff = new Date(value).getTime() - now;
+  if (!Number.isFinite(diff) || diff <= 0) return 'матч начинается';
+
+  const totalMinutes = Math.max(1, Math.floor(diff / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `через ${days} ${pluralRu(days, 'день', 'дня', 'дней')}${hours ? ` ${hours} ч` : ''}`;
+  if (hours > 0) return `через ${hours} ч ${minutes ? `${minutes} мин` : ''}`.trim();
+  return `через ${minutes} мин`;
 }
 
 function pluralRu(value, one, few, many) {
@@ -956,7 +980,66 @@ function TournamentCardPreview({ item, prediction }) {
   );
 }
 
-function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournamentParticipants, setTab }) {
+function NextMatchHero({ match, onPredict, onShowPredictions }) {
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  if (!match) return null;
+
+  const hasPrediction = Boolean(match.prediction);
+  const statusText = hasPrediction
+    ? `Твой прогноз: ${formatPredictionScore(match.prediction)}`
+    : 'Прогноз пока не сделан';
+  const statusClass = hasPrediction ? 'ready' : 'missing';
+  const ctaText = hasPrediction ? 'Изменить прогноз' : 'Сделать прогноз';
+
+  return (
+    <section className={`next-match-hero ${hasPrediction ? 'has-prediction' : 'needs-prediction'}`}>
+      <div className="next-match-hero-top">
+        <span className="next-match-kicker"><Icon name="ball" /> Следующий матч</span>
+        <span className="next-match-countdown">{formatMatchCountdown(match.starts_at, nowTick)}</span>
+      </div>
+
+      <div className="next-match-teams" aria-label={`${match.home_team} против ${match.away_team}`}>
+        <div className="next-match-team home">
+          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} />
+          <strong>{match.home_team}</strong>
+        </div>
+        <div className="next-match-versus">
+          <b>—</b>
+          <small>{formatDateTime(match.starts_at)}</small>
+        </div>
+        <div className="next-match-team away">
+          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} />
+          <strong>{match.away_team}</strong>
+        </div>
+      </div>
+
+      <div className={`next-match-status ${statusClass}`}>
+        <span>{hasPrediction ? '✓' : '!'}</span>
+        <strong>{statusText}</strong>
+        {hasPrediction && <small>До стартового свистка можно изменить</small>}
+      </div>
+
+      <button type="button" className="next-match-cta" onClick={() => onPredict?.(match)}>
+        <Icon name={hasPrediction ? 'edit' : 'target'} />
+        {ctaText}
+      </button>
+
+      {hasPrediction && (
+        <button type="button" className="next-match-secondary" onClick={() => onShowPredictions?.()}>
+          Посмотреть матч-центр
+        </button>
+      )}
+    </section>
+  );
+}
+
+function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournamentParticipants, setTab, onNextMatchPredict }) {
   const [tournamentOpen, setTournamentOpen] = useState(true);
   const missing = dashboard?.missing_predictions_count ?? 0;
   const p = tournamentPrediction?.prediction;
@@ -970,14 +1053,22 @@ function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournam
 
   return (
     <section className="matchcenter-top">
-      <button className="compact-action" onClick={() => setTab('predictions')}>
-        <span className="compact-action-icon"><Icon name="target" /></span>
-        <span>
-          <strong>Нужен прогноз для {missing} матчей</strong>
-          <small>Перейти к матчам без вашего счета</small>
-        </span>
-        <b>{missing}</b>
-      </button>
+      {dashboard?.nearest_matches?.[0] ? (
+        <NextMatchHero
+          match={dashboard.nearest_matches[0]}
+          onPredict={onNextMatchPredict}
+          onShowPredictions={() => setTab('predictions')}
+        />
+      ) : (
+        <button className="compact-action" onClick={() => setTab('predictions')}>
+          <span className="compact-action-icon"><Icon name="target" /></span>
+          <span>
+            <strong>{missing ? `Нужен прогноз для ${missing} матчей` : 'Все ближайшие прогнозы сделаны'}</strong>
+            <small>{missing ? 'Перейти к матчам без вашего счета' : 'Можно посмотреть рейтинг и результаты'}</small>
+          </span>
+          <b>{missing || '✓'}</b>
+        </button>
+      )}
 
       <section className={`tournament-mini ${tournamentOpen ? 'open' : 'closed'}`}>
         <div className="tournament-mini-head">
@@ -4044,7 +4135,14 @@ function App() {
 
       {tab === 'matches' && (
         <>
-          <HomeHero dashboard={dashboard} tournamentPrediction={tournamentPrediction} onTournamentPick={setTournamentPickField} onTournamentParticipants={() => setTournamentPredictionsOpen(true)} setTab={setTab} />
+          <HomeHero
+            dashboard={dashboard}
+            tournamentPrediction={tournamentPrediction}
+            onTournamentPick={setTournamentPickField}
+            onTournamentParticipants={() => setTournamentPredictionsOpen(true)}
+            setTab={setTab}
+            onNextMatchPredict={setPredictionMatch}
+          />
           <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} />
         </>
       )}

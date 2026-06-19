@@ -7,7 +7,7 @@ import re
 from app.constants.categories import PLAYOFF_STAGES
 from app.formatters.matches import format_datetime, format_match_label, format_match_result, format_user_match_prediction
 from app.formatters.misc import format_reminder_offset
-from app.keyboards.matches import build_matches_keyboard
+from app.keyboards.matches import build_matches_keyboard, build_prediction_reminder_keyboard
 from app.models import AppSetting, FatherMatchPrediction, League, LeagueMember
 from app.runtime import (
     APP_TIMEZONE,
@@ -1290,23 +1290,39 @@ async def send_match_reminders_once():
                     ):
                         continue
 
-                    text = (
-                        "⏰ До матча остался 1 час\n\n"
-                        f"{format_match_label(match, include_id=False)}\n"
-                        f"Старт: {format_datetime(match.starts_at)}\n\n"
-                        "Ты уверен, что сделал верный прогноз? Может, поменяешь? "
-                        "До стартового свистка еще есть время."
+                    prediction = (
+                        db.query(Prediction)
+                        .filter(Prediction.user_id == user.id, Prediction.match_id == match.id)
+                        .first()
                     )
+
+                    if prediction:
+                        text = (
+                            "⏰ До матча остался 1 час\n\n"
+                            f"{format_match_label(match, include_id=False)}\n"
+                            f"Старт: {format_datetime(match.starts_at)}\n\n"
+                            f"Твой прогноз: {prediction.pred_home}:{prediction.pred_away}\n\n"
+                            "Время еще есть. Уверен в счете или рискнешь что-то поменять?"
+                        )
+                        title = "⏰ Проверь прогноз"
+                    else:
+                        text = (
+                            "⏰ До матча остался 1 час\n\n"
+                            f"{format_match_label(match, include_id=False)}\n"
+                            f"Старт: {format_datetime(match.starts_at)}\n\n"
+                            "Прогноза пока нет. Еще успеешь выбрать счет до стартового свистка."
+                        )
+                        title = "⏰ Успей сделать прогноз"
 
                     try:
                         await notify_private_user(
                             db,
                             user=user,
                             notification_key="match_reminders",
-                            title="⏰ Проверь прогноз",
+                            title=title,
                             text=text,
                             url="/app",
-                            reply_markup=build_matches_keyboard([match]),
+                            reply_markup=build_prediction_reminder_keyboard(match, bool(prediction)),
                         )
                         mark_reminder_sent(
                             db=db,
@@ -1319,6 +1335,10 @@ async def send_match_reminders_once():
                         print(f"Failed to send confidence reminder to {user.telegram_id}: {error}")
 
             for offset_minutes in offsets:
+                # The one-hour confidence reminder already handles both users with and without a prediction.
+                if offset_minutes == confidence_offset_minutes:
+                    continue
+
                 reminder_due_at = match_start - timedelta(minutes=offset_minutes)
 
                 window_end = reminder_due_at + timedelta(

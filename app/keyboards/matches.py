@@ -54,3 +54,13 @@ def build_forecast_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarku
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
+
+def build_prediction_reminder_keyboard(match: Match, has_prediction: bool) -> InlineKeyboardMarkup:
+    """Build one clear action for the personal pre-match reminder."""
+    label = "✏️ Изменить прогноз" if has_prediction else "📝 Сделать прогноз"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=f"predict_match:{match.id}")]
+        ]
+    )
