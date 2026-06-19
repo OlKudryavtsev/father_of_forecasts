@@ -7504,3 +7504,215 @@ button.danger.wide {
   .next-match-versus small { font-size: 10px; }
   .next-match-top { gap: 8px; }
 }
+
+/* v2.8.29 — fixed bottom navigation and post-match emotions */
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: clip;
+}
+
+.app {
+  min-height: 100dvh;
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+}
+
+/* Rendered through a portal directly in body. This avoids Telegram Desktop
+   treating it as a child of the scrolling Mini App page. */
+.bottom-nav {
+  position: fixed !important;
+  z-index: 9999 !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: 0 !important;
+  width: min(820px, 100vw);
+  transform: translate3d(-50%, 0, 0);
+  -webkit-transform: translate3d(-50%, 0, 0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  contain: layout paint style;
+  isolation: isolate;
+}
+
+.match-emotion-block {
+  border-color: rgba(90, 141, 255, 0.22);
+}
+
+.match-emotion-block .match-inline-head {
+  background: linear-gradient(90deg, rgba(90, 141, 255, 0.09), transparent);
+}
+
+.match-emotion-content {
+  display: grid;
+  gap: 12px;
+}
+
+.emotion-result-head {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.emotion-result-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  font-size: 22px;
+  background: rgba(90, 141, 255, 0.15);
+}
+
+.match-emotion-content.exact .emotion-result-icon { background: rgba(244, 191, 54, 0.17); }
+.match-emotion-content.outcome .emotion-result-icon { background: rgba(22, 199, 132, 0.17); }
+.match-emotion-content.miss .emotion-result-icon { background: rgba(255, 104, 114, 0.15); }
+
+.emotion-result-head strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.emotion-result-head p,
+.emotion-rank-note,
+.emotion-share-message {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.emotion-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.emotion-metrics > div {
+  min-width: 0;
+  padding: 10px 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.045);
+  text-align: center;
+}
+
+.emotion-metrics span,
+.emotion-metrics b {
+  display: block;
+}
+
+.emotion-metrics span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.emotion-metrics b {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emotion-rank-note.up { color: #8ff0c3; }
+.emotion-rank-note.down { color: #ffadb3; }
+
+.emotion-achievements {
+  display: grid;
+  gap: 7px;
+}
+
+.emotion-achievements > div {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 13px;
+  background: rgba(244, 191, 54, 0.08);
+  border: 1px solid rgba(244, 191, 54, 0.16);
+}
+
+.emotion-achievements span {
+  grid-row: 1 / span 2;
+  font-size: 17px;
+}
+
+.emotion-achievements strong,
+.emotion-achievements small {
+  min-width: 0;
+}
+
+.emotion-achievements strong { font-size: 12px; }
+.emotion-achievements small { color: var(--muted); font-size: 10px; line-height: 1.25; }
+
+.emotion-share-card {
+  position: relative;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 18px;
+  color: #f7fbff;
+  border: 1px solid rgba(150, 190, 255, 0.28);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(90, 141, 255, 0.32), transparent 48%),
+    linear-gradient(135deg, #18336c, #0c172e 70%);
+}
+
+.emotion-share-card::after {
+  position: absolute;
+  right: -24px;
+  bottom: -36px;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  background: rgba(244, 191, 54, 0.15);
+  content: '';
+}
+
+.emotion-share-card > * { position: relative; z-index: 1; }
+.emotion-share-card > span { display: block; color: #a9c4ff; font-size: 9px; font-weight: 900; letter-spacing: .08em; }
+.emotion-share-card > strong { display: block; margin-top: 7px; font-size: 16px; line-height: 1.15; }
+.emotion-share-card > div { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; }
+.emotion-share-card b { font-size: 26px; line-height: 1; }
+.emotion-share-card i { color: #d9e7ff; font-size: 11px; font-style: normal; }
+.emotion-share-card p { margin: 8px 0 0; color: #bcd2ff; font-size: 11px; font-weight: 700; }
+
+.emotion-share-button {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(90,141,255,.48);
+  border-radius: 14px;
+  color: #eaf2ff;
+  background: rgba(90,141,255,.16);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.emotion-share-button:disabled { opacity: .62; }
+.emotion-share-button .svg-icon { width: 17px; height: 17px; }
+.emotion-share-message { margin-top: -5px; text-align: center; }
+
+.app.theme-light .match-emotion-block { border-color: rgba(37, 99, 235, 0.18); }
+.app.theme-light .match-emotion-block .match-inline-head { background: linear-gradient(90deg, rgba(37, 99, 235, 0.06), transparent); }
+.app.theme-light .emotion-metrics > div { border-color: rgba(15,23,42,.08); background: rgba(15,23,42,.035); }
+.app.theme-light .emotion-result-head p,
+.app.theme-light .emotion-rank-note,
+.app.theme-light .emotion-share-message { color: rgba(15,23,42,.58); }
+.app.theme-light .emotion-share-button { color: #1e3a8a; background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.22); }
+
+@media (max-width: 390px) {
+  .emotion-metrics { gap: 6px; }
+  .emotion-metrics > div { padding: 9px 4px; }
+  .emotion-metrics b { font-size: 11px; }
+}

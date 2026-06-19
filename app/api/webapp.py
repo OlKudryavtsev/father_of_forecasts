@@ -42,7 +42,7 @@ from app.models import (
     WorldCupFact,
 )
 from app.runtime import TOURNAMENT_CODE
-from app.services.matches import apply_match_result_from_admin, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
+from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
@@ -3692,6 +3692,65 @@ def _build_group_standings(db: Session) -> list[dict]:
         )
 
     return result
+
+
+@router.get("/matches/{match_id}/emotion")
+def get_match_emotion(
+    match_id: int,
+    league_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the current user's post-match recap for one selected league."""
+    match = (
+        db.query(Match)
+        .filter(Match.id == match_id, Match.tournament_code == TOURNAMENT_CODE)
+        .first()
+    )
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден")
+    if not match.is_finished or match.score_home is None or match.score_away is None:
+        raise HTTPException(status_code=400, detail="Итог станет доступен после завершения матча")
+
+    try:
+        league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    membership = (
+        db.query(LeagueMember)
+        .filter(
+            LeagueMember.league_id == league.id,
+            LeagueMember.user_id == current_user.id,
+            LeagueMember.status == "active",
+        )
+        .first()
+    )
+    scoring_start = league_scoring_start_at(league)
+    is_eligible = bool(
+        membership
+        and membership.joined_at
+        and membership.joined_at <= match.starts_at
+        and (scoring_start is None or match.starts_at >= scoring_start)
+    )
+
+    if not is_eligible:
+        return {
+            "eligible": False,
+            "league": _serialize_league(league, current_user),
+            "message": "Этот матч не входит в зачет выбранной лиги для вашего участия.",
+        }
+
+    try:
+        emotion = build_match_emotion_payload(db, current_user, match, league)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {
+        "eligible": True,
+        "league": _serialize_league(league, current_user),
+        "emotion": emotion,
+    }
 
 
 @router.get("/match-center")

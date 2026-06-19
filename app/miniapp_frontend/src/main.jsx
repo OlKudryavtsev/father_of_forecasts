@@ -1,10 +1,11 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.28';
+const APP_VERSION = '2.8.29';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -55,6 +56,25 @@ function openExternalUrl(url) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+
+
+function BottomNavigation({ tab, onChange }) {
+  const navigation = (
+    <nav className="bottom-nav" aria-label="Основное меню">
+      {TABS.map((item) => (
+        <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => onChange(item.id)}>
+          <Icon name={item.icon} />
+          <small>{item.label}</small>
+        </button>
+      ))}
+    </nav>
+  );
+
+  // Telegram Desktop/WebView can place fixed children of a scrolling app shell
+  // into that shell's coordinate system. Rendering in document.body keeps the
+  // menu attached to the viewport on desktop, iOS and Android alike.
+  return typeof document === 'undefined' ? navigation : createPortal(navigation, document.body);
+}
 
 
 function TeamFlag({ code, emoji, name = '', size = 'normal' }) {
@@ -186,6 +206,17 @@ function Icon({ name, className = '' }) {
     return (
       <svg {...common}>
         <path d="M12 3 20 6v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6l8-3Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'share') {
+    return (
+      <svg {...common}>
+        <circle cx="18" cy="5" r="2.5" />
+        <circle cx="6" cy="12" r="2.5" />
+        <circle cx="18" cy="19" r="2.5" />
+        <path d="m8.2 10.8 7.5-4.4M8.2 13.2l7.5 4.4" />
       </svg>
     );
   }
@@ -428,6 +459,11 @@ function pluralRu(value, one, few, many) {
   if (last === 1) return one;
   if ([2, 3, 4].includes(last)) return few;
   return many;
+}
+
+function pointsLabel(value) {
+  const points = Number(value) || 0;
+  return `${points} ${pluralRu(points, 'очко', 'очка', 'очков')}`;
 }
 
 function getTelegramPhotoUrl() {
@@ -935,7 +971,7 @@ function Header({ dashboard, onRules, onAdmin }) {
         <div className="league-status">
           <span className="status-section live-countdown">{stageText}</span>
           <span className="divider" />
-          <span className="points">{dashboard?.points ?? 0} очков</span>
+          <span className="points">{pointsLabel(dashboard?.points ?? 0)}</span>
           <span className="muted">#{dashboard?.rank || '—'}</span>
         </div>
       </div>
@@ -1284,7 +1320,281 @@ function MatchParticipantsInline({ match, leagueId = null }) {
   );
 }
 
-function MatchCard({ match, onPredict, onForecast, showDistribution = true, leagueId = null }) {
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+async function shareMatchEmotionCard({ match, emotion, leagueName }) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1350;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Не удалось подготовить карточку');
+
+  const background = ctx.createLinearGradient(0, 0, 1080, 1350);
+  background.addColorStop(0, '#12244c');
+  background.addColorStop(0.48, '#0d1830');
+  background.addColorStop(1, '#080d19');
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const glow = ctx.createRadialGradient(120, 70, 20, 120, 70, 650);
+  glow.addColorStop(0, 'rgba(90,141,255,.38)');
+  glow.addColorStop(1, 'rgba(90,141,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(255,255,255,.08)';
+  drawRoundedRect(ctx, 56, 56, 968, 1238, 44);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.16)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#a9c4ff';
+  ctx.font = '700 28px system-ui, sans-serif';
+  ctx.fillText('ОТЕЦ ПРОГНОЗОВ', 104, 126);
+  ctx.fillStyle = '#f6f8ff';
+  ctx.font = '800 42px system-ui, sans-serif';
+  ctx.fillText('Твой итог матча', 104, 184);
+
+  ctx.fillStyle = '#95a4bf';
+  ctx.font = '600 26px system-ui, sans-serif';
+  ctx.fillText(`Лига «${leagueName || 'Моя лига'}»`, 104, 228);
+
+  ctx.fillStyle = 'rgba(255,255,255,.07)';
+  drawRoundedRect(ctx, 104, 284, 872, 256, 30);
+  ctx.fill();
+  ctx.fillStyle = '#f6f8ff';
+  ctx.font = '800 37px system-ui, sans-serif';
+  const teams = `${match.home_team} — ${match.away_team}`;
+  const teamLines = wrapCanvasText(ctx, teams, 800).slice(0, 2);
+  teamLines.forEach((line, index) => ctx.fillText(line, 140, 350 + index * 48));
+  ctx.fillStyle = '#a9c4ff';
+  ctx.font = '900 76px system-ui, sans-serif';
+  ctx.fillText(emotion.actual_score || '—', 140, 490);
+  ctx.fillStyle = '#aebbd1';
+  ctx.font = '600 24px system-ui, sans-serif';
+  ctx.fillText('Итоговый счет', 315, 480);
+
+  const accent = emotion.result_type === 'exact' ? '#f4bf36'
+    : emotion.result_type === 'outcome' ? '#16c784'
+      : emotion.result_type === 'miss' ? '#ff6872' : '#5a8dff';
+  ctx.fillStyle = accent;
+  drawRoundedRect(ctx, 104, 580, 872, 164, 28);
+  ctx.fill();
+  ctx.fillStyle = '#08101e';
+  ctx.font = '800 31px system-ui, sans-serif';
+  ctx.fillText(emotion.title || 'Твой итог', 140, 644);
+  ctx.font = '700 25px system-ui, sans-serif';
+  const recapLines = wrapCanvasText(ctx, emotion.text || '', 784).slice(0, 2);
+  recapLines.forEach((line, index) => ctx.fillText(line, 140, 690 + index * 32));
+
+  const tiles = [
+    ['Очки', `+${pointsLabel(emotion.points || 0)}`],
+    ['Место', emotion.rank_after ? `#${emotion.rank_after}` : '—'],
+    ['Серия', emotion.streak ? `${emotion.streak} 🔥` : '—'],
+  ];
+  tiles.forEach(([label, value], index) => {
+    const x = 104 + index * 292;
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    drawRoundedRect(ctx, x, 794, 264, 164, 26);
+    ctx.fill();
+    ctx.fillStyle = '#96a2bc';
+    ctx.font = '700 22px system-ui, sans-serif';
+    ctx.fillText(label, x + 28, 844);
+    ctx.fillStyle = '#f6f8ff';
+    ctx.font = '800 34px system-ui, sans-serif';
+    ctx.fillText(value, x + 28, 904);
+  });
+
+  const achievements = emotion.achievements || [];
+  if (achievements.length) {
+    ctx.fillStyle = '#f6f8ff';
+    ctx.font = '800 30px system-ui, sans-serif';
+    ctx.fillText('Достижения матча', 104, 1030);
+    ctx.font = '700 25px system-ui, sans-serif';
+    achievements.slice(0, 3).forEach((achievement, index) => {
+      ctx.fillStyle = '#d7e3fb';
+      ctx.fillText(`${achievement.icon} ${achievement.title}`, 104, 1082 + index * 46);
+    });
+  }
+
+  ctx.fillStyle = '#7f90ad';
+  ctx.font = '600 22px system-ui, sans-serif';
+  ctx.fillText('Прогнозы. Эмоции. Репутация.', 104, 1242);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Не удалось сформировать изображение');
+  const filename = `otets-prognozov-${match.id}.png`;
+  const file = new File([blob], filename, { type: 'image/png' });
+
+  let canShareFile = false;
+  try {
+    canShareFile = Boolean(
+      navigator.share
+      && (!navigator.canShare || navigator.canShare({ files: [file] }))
+    );
+  } catch (_) {
+    canShareFile = false;
+  }
+
+  if (canShareFile) {
+    await navigator.share({
+      title: 'Мой итог матча · Отец прогнозов',
+      text: `${match.home_team} — ${match.away_team}: ${emotion.actual_score}. ${emotion.title}`,
+      files: [file],
+    });
+    return 'shared';
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return 'downloaded';
+}
+
+function MatchEmotionInline({ match, leagueId = null, leagueName = '' }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareMessage, setShareMessage] = useState('');
+
+  async function load() {
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (leagueId) params.set('league_id', String(leagueId));
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      setData(await api(`/api/webapp/matches/${match.id}/emotion${suffix}`));
+      setLoaded(true);
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function share() {
+    if (!data?.emotion) return;
+    setSharing(true);
+    setShareMessage('');
+    try {
+      const action = await shareMatchEmotionCard({
+        match,
+        emotion: data.emotion,
+        leagueName: data.league?.name || leagueName,
+      });
+      setShareMessage(action === 'downloaded' ? 'Карточка сохранена' : 'Карточка отправлена');
+    } catch (err) {
+      if (err?.name !== 'AbortError') setShareMessage(err?.message || 'Не удалось поделиться карточкой');
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  const emotion = data?.emotion;
+  const meta = !loaded ? 'открыть' : data?.eligible === false ? 'вне зачета' : emotion?.points ? `+${pointsLabel(emotion.points)}` : emotion?.title || 'итог';
+
+  return (
+    <MatchInlineSection
+      title="Твой итог"
+      meta={meta}
+      iconName="fire"
+      className="match-emotion-block"
+      onOpen={() => { if (!loaded && !error) load(); }}
+    >
+      {!loaded && !error && <LoadingCard text="Собираю твой итог..." />}
+      {error && <div className="inline-error"><span>{error.message}</span><button type="button" onClick={load}>Повторить</button></div>}
+      {loaded && data?.eligible === false && <p className="participants-note">{data.message}</p>}
+      {loaded && emotion && (
+        <div className={`match-emotion-content ${emotion.result_type}`}>
+          <div className="emotion-result-head">
+            <span className="emotion-result-icon">
+              {emotion.result_type === 'exact' ? '🎯' : emotion.result_type === 'outcome' ? '🔵' : emotion.result_type === 'miss' ? '😬' : '⏱️'}
+            </span>
+            <div>
+              <strong>{emotion.title}</strong>
+              <p>{emotion.text}</p>
+            </div>
+          </div>
+
+          <div className="emotion-metrics">
+            <div><span>Очки</span><b>+{pointsLabel(emotion.points)}</b></div>
+            <div><span>Место</span><b>{emotion.rank_after ? `#${emotion.rank_after}` : '—'}</b></div>
+            <div><span>Серия</span><b>{emotion.streak ? `${emotion.streak} 🔥` : '—'}</b></div>
+          </div>
+
+          {emotion.rank_after && (
+            <p className={`emotion-rank-note ${emotion.rank_delta > 0 ? 'up' : emotion.rank_delta < 0 ? 'down' : ''}`}>
+              {emotion.rank_delta > 0
+                ? `📈 Подъем на ${emotion.rank_delta} ${pluralRu(emotion.rank_delta, 'позицию', 'позиции', 'позиций')} · теперь #${emotion.rank_after} из ${emotion.participants_count}`
+                : emotion.rank_delta < 0
+                  ? `↘️ Сейчас #${emotion.rank_after} из ${emotion.participants_count}. Следующий матч — шанс на камбэк.`
+                  : `🏆 #${emotion.rank_after} из ${emotion.participants_count} · всего ${pointsLabel(emotion.league_points)}`}
+            </p>
+          )}
+
+          {emotion.achievements?.length > 0 && (
+            <div className="emotion-achievements">
+              {emotion.achievements.map((achievement) => (
+                <div key={achievement.code}>
+                  <span>{achievement.icon}</span>
+                  <strong>{achievement.title}</strong>
+                  <small>{achievement.description}</small>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <section className="emotion-share-card" aria-label="Карточка результата для шаринга">
+            <span>ОТЕЦ ПРОГНОЗОВ · {data.league?.name || leagueName || 'ЛИГА'}</span>
+            <strong>{match.home_team} — {match.away_team}</strong>
+            <div><b>{emotion.actual_score}</b><i>Твой прогноз: {emotion.prediction_score || '—'}</i></div>
+            <p>{emotion.title} · +{pointsLabel(emotion.points)}</p>
+          </section>
+
+          <button type="button" className="emotion-share-button" onClick={share} disabled={sharing}>
+            <Icon name="share" />
+            {sharing ? 'Готовлю карточку…' : (typeof navigator !== 'undefined' && navigator.share ? 'Поделиться карточкой' : 'Скачать карточку')}
+          </button>
+          {shareMessage && <p className="emotion-share-message">{shareMessage}</p>}
+        </div>
+      )}
+    </MatchInlineSection>
+  );
+}
+
+
+function MatchCard({ match, onPredict, onForecast, showDistribution = true, leagueId = null, leagueName = '' }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
   const activeVideos = visibleVideosForMatch(match);
@@ -1339,6 +1649,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true, leag
 
       <MatchVideoBlock match={match} />
       <MatchParticipantsInline match={match} leagueId={leagueId} />
+      {match.is_finished && <MatchEmotionInline match={match} leagueId={leagueId} leagueName={leagueName} />}
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}
     </article>
@@ -1449,6 +1760,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
 
   const grouped = useMemo(() => groupMatchesByDay(data?.matches || []), [data]);
   const selectedStanding = group ? data?.standings?.[0] : null;
+  const leagueName = activeLeagueLabel(leagues, activeLeagueId);
 
   if (error) return <ErrorCard error={error} onRetry={load} />;
 
@@ -1490,7 +1802,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
                   <span>{formatDayTitle(matches[0]?.starts_at)}</span>
                   <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
                 </div>
-                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} leagueId={activeLeagueId} />)}
+                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} leagueId={activeLeagueId} leagueName={leagueName} />)}
               </section>
             ))}
           </>
@@ -2006,7 +2318,7 @@ function OtherFantasyTeams({ onInfo }) {
             <article key={entry.user.id} className="other-team-card">
               <button type="button" onClick={() => setOpenUserId(isOpen ? null : entry.user.id)}>
                 <strong>{entry.user.display_name}{entry.user.is_current_user ? ' · это вы' : ''}</strong>
-                <span>{team?.formation || '—'} · {team?.points || 0} очков</span>
+                <span>{team?.formation || '—'} · {pointsLabel(team?.points || 0)}</span>
                 <b>{isOpen ? '−' : '+'}</b>
               </button>
               {isOpen && (
@@ -2918,7 +3230,7 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
                 </small>
               </div>
               <div className="rating-points-pill">
-                {row.display_points} очков
+                {pointsLabel(row.display_points)}
               </div>
             </div>
 
@@ -3299,15 +3611,6 @@ function AdminPanel() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [videos, setVideos] = useState([]);
-  const [videoType, setVideoType] = useState('live');
-  const [videoTitle, setVideoTitle] = useState('');
-  const [videoUrl, setVideoUrl] = useState('');
-  const [videoPriority, setVideoPriority] = useState('100');
-  const [videoActive, setVideoActive] = useState(true);
-  const [syncLookbackDays, setSyncLookbackDays] = useState('5');
-  const [syncLookaheadDays, setSyncLookaheadDays] = useState('7');
-  const [syncMinConfidence, setSyncMinConfidence] = useState('85');
 
   async function load() {
     setError(null);
@@ -3324,23 +3627,6 @@ function AdminPanel() {
 
   useEffect(() => { load(); }, []);
 
-  async function loadVideos(matchId = selectedMatchId) {
-    if (!matchId) {
-      setVideos([]);
-      return;
-    }
-
-    try {
-      const result = await api(`/api/webapp/admin/matches/${matchId}/videos`);
-      setVideos(result.videos || []);
-    } catch (err) {
-      setError(err);
-    }
-  }
-
-  useEffect(() => {
-    if (selectedMatchId) loadVideos(selectedMatchId);
-  }, [selectedMatchId]);
 
   const matches = data?.matches || [];
   const selectedMatch = matches.find((match) => String(match.id) === String(selectedMatchId));
@@ -3392,75 +3678,6 @@ function AdminPanel() {
     return api('/api/webapp/admin/push/test', { method: 'POST' });
   }
 
-  async function syncMatchTvVideos() {
-    const result = await api('/api/webapp/admin/match-videos/sync-matchtv', {
-      method: 'POST',
-      body: JSON.stringify({
-        lookback_days: Number(syncLookbackDays || 3),
-        lookahead_days: Number(syncLookaheadDays || 2),
-        activate_min_confidence: Number(syncMinConfidence || 85),
-      }),
-    });
-    await loadVideos(selectedMatchId);
-    return result;
-  }
-
-  function resetVideoForm() {
-    setVideoTitle('');
-    setVideoUrl('');
-    setVideoType('live');
-    setVideoPriority('100');
-    setVideoActive(true);
-  }
-
-  async function addMatchVideo() {
-    if (!selectedMatchId) throw new Error('Выберите матч.');
-    if (!videoTitle.trim()) throw new Error('Укажите название видео.');
-    if (!videoUrl.trim()) throw new Error('Укажите ссылку на видео.');
-
-    const result = await api(`/api/webapp/admin/matches/${selectedMatchId}/videos`, {
-      method: 'POST',
-      body: JSON.stringify({
-        video_type: videoType,
-        title: videoTitle.trim(),
-        url: videoUrl.trim(),
-        source: 'matchtv',
-        is_active: videoActive,
-        priority: Number(videoPriority || 100),
-        discovery_status: 'manual',
-        confidence: 100,
-      }),
-    });
-
-    resetVideoForm();
-    await loadVideos(selectedMatchId);
-    return result;
-  }
-
-  async function toggleMatchVideo(video) {
-    const result = await api(`/api/webapp/admin/match-videos/${video.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        video_type: video.video_type || 'other',
-        title: video.title || 'Видео',
-        url: video.url,
-        source: video.source || 'matchtv',
-        is_active: !video.is_active,
-        priority: Number(video.priority || 100),
-        discovery_status: video.is_active ? 'hidden' : (video.discovery_status === 'hidden' ? 'verified' : (video.discovery_status || 'manual')),
-        confidence: Number(video.confidence || 100),
-      }),
-    });
-
-    await loadVideos(selectedMatchId);
-    return result;
-  }
-
-  async function deleteMatchVideo(video) {
-    const result = await api(`/api/webapp/admin/match-videos/${video.id}`, { method: 'DELETE' });
-    await loadVideos(selectedMatchId);
-    return result;
-  }
 
   async function toggleGlobalSetting(key, checked) {
     const result = await api(`/api/webapp/admin/settings/${key}`, {
@@ -3503,56 +3720,6 @@ function AdminPanel() {
           ))}
         </select>
         {selectedMatch && <p className="muted small">{formatDateTime(selectedMatch.starts_at)} · {selectedMatch.status_short || 'статус не задан'} · fixture {selectedMatch.external_fixture_id || '—'}</p>}
-      </section>
-
-      <section className="card admin-card video-admin-card">
-        <div className="admin-card-head">
-          <h2>Видео матча</h2>
-          <span>{videos.length || 0}</span>
-        </div>
-        <p className="muted small">Добавь официальную ссылку Match TV вручную или запусти автопоиск по ближайшим матчам. Автопоиск связывает только официальные страницы Match TV и оставляет спорные находки на проверку.</p>
-
-        <div className="video-sync-panel">
-          <div className="video-sync-fields">
-            <label>Назад, дней<input type="number" min="0" max="30" value={syncLookbackDays} onChange={(event) => setSyncLookbackDays(event.target.value)} /></label>
-            <label>Вперед, дней<input type="number" min="0" max="30" value={syncLookaheadDays} onChange={(event) => setSyncLookaheadDays(event.target.value)} /></label>
-            <label>Автопоказ от %<input type="number" min="0" max="100" value={syncMinConfidence} onChange={(event) => setSyncMinConfidence(event.target.value)} /></label>
-          </div>
-          <button type="button" disabled={busy} onClick={() => runAction(syncMatchTvVideos)}>Найти видео Match TV</button>
-        </div>
-
-        <div className="video-admin-form">
-          <select value={videoType} onChange={(event) => setVideoType(event.target.value)}>
-            {VIDEO_TYPES.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
-          </select>
-          <input value={videoTitle} onChange={(event) => setVideoTitle(event.target.value)} placeholder="Название: Смотреть трансляцию" />
-          <input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://matchtv.ru/..." />
-          <div className="video-admin-inline">
-            <input type="number" min="0" max="10000" value={videoPriority} onChange={(event) => setVideoPriority(event.target.value)} placeholder="Порядок" />
-            <label className="video-active-toggle">
-              <input type="checkbox" checked={videoActive} onChange={(event) => setVideoActive(event.target.checked)} />
-              <span>Показывать</span>
-            </label>
-          </div>
-          <button className="primary full" disabled={busy} onClick={() => runAction(addMatchVideo)}>Добавить видео</button>
-        </div>
-
-        <div className="video-admin-list">
-          {videos.length === 0 && <p className="muted small">Для выбранного матча видео пока не добавлено.</p>}
-          {videos.map((video) => (
-            <div className={`video-admin-item ${video.is_active ? '' : 'is-disabled'}`} key={video.id}>
-              <div>
-                <strong>{video.title}</strong>
-                <small>{videoTypeLabel(video.video_type)} · {video.source || 'matchtv'} · {video.discovery_status || 'manual'} · {video.confidence || 0}% · порядок {video.priority || 100}</small>
-              </div>
-              <div className="video-admin-actions">
-                <button type="button" onClick={() => openExternalUrl(video.url)}>Открыть</button>
-                <button type="button" disabled={busy} onClick={() => runAction(() => toggleMatchVideo(video))}>{video.is_active ? 'Скрыть' : 'Показать'}</button>
-                <button type="button" disabled={busy} onClick={() => runAction(() => deleteMatchVideo(video))}>Удалить</button>
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="card admin-card">
@@ -3771,13 +3938,13 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
         <PwaAccessCard />
       </CollapsibleProfileSection>
 
-      <CollapsibleProfileSection title="Откуда очки" meta={`${summary.points || 0} очков`}>
+      <CollapsibleProfileSection title="Откуда очки" meta={pointsLabel(summary.points || 0)}>
         <div className="points-breakdown">
           {pointsBreakdown.map((item) => (
             <div key={item.key} className="points-row">
               <i><Icon name={item.icon} /></i>
               <span>{item.title}</span>
-              <b>{item.points} очков</b>
+              <b>{pointsLabel(item.points)}</b>
               <em style={{ width: `${Math.min(100, Math.max(4, item.points || 0))}%` }} />
             </div>
           ))}
@@ -4154,14 +4321,7 @@ function App() {
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
       {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 
-      <nav className="bottom-nav">
-        {TABS.map((item) => (
-          <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>
-            <Icon name={item.icon} />
-            <small>{item.label}</small>
-          </button>
-        ))}
-      </nav>
+      <BottomNavigation tab={tab} onChange={setTab} />
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}

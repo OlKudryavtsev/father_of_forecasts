@@ -1028,8 +1028,33 @@ def _user_success_streak_for_league(db, user: User, league: League, match: Match
     return streak
 
 
-def build_personal_match_emotion_text(db, user: User, match: Match, league: League) -> str:
-    """Create an emotional, personal post-match summary for a league."""
+def _plural_ru(value: int, one: str, few: str, many: str) -> str:
+    """Return a Russian plural form for small notification fragments."""
+    number = abs(int(value or 0))
+    if 11 <= number % 100 <= 14:
+        return many
+    if number % 10 == 1:
+        return one
+    if number % 10 in {2, 3, 4}:
+        return few
+    return many
+
+
+def _format_points(value: int) -> str:
+    points = int(value or 0)
+    return f"{points} {_plural_ru(points, 'очко', 'очка', 'очков')}"
+
+
+def build_match_emotion_payload(db, user: User, match: Match, league: League) -> dict:
+    """Build a reusable post-match recap for Telegram and the Mini App.
+
+    The calculation intentionally reconstructs the standings immediately before
+    kickoff from stored predictions. That keeps the position delta available
+    for historical finished matches too, without a separate leaderboard table.
+    """
+    if not match.is_finished or match.score_home is None or match.score_away is None:
+        raise ValueError("Эмоции доступны только после завершения матча")
+
     prediction = (
         db.query(Prediction)
         .filter(Prediction.user_id == user.id, Prediction.match_id == match.id)
@@ -1039,38 +1064,121 @@ def build_personal_match_emotion_text(db, user: User, match: Match, league: Leag
     current_rank, before_rank, current_points, participants_count = _league_rank_snapshots_for_match(db, league, match)
     rank_after = current_rank.get(user.id)
     rank_before = before_rank.get(user.id)
-    league_points = current_points.get(user.id, 0)
+    rank_delta = (rank_before - rank_after) if rank_before and rank_after else 0
+    league_points = int(current_points.get(user.id, 0) or 0)
 
-    lines = ["✨ Твой итог"]
-    if not prediction:
-        lines.append("Прогноза на этот матч не было — в этот раз без очков, но следующий свисток уже близко.")
-    else:
+    result_type = "no_prediction"
+    result_title = "В этот раз без ставки"
+    result_text = "Прогноза на матч не было — следующий свисток уже близко."
+    prediction_score = None
+    points = 0
+    score_points = 0
+
+    if prediction:
+        prediction_score = f"{prediction.pred_home}:{prediction.pred_away}"
         points = _prediction_total_points(prediction, match)
         score_points = int(prediction.score_points or 0)
-        prediction_label = f"{prediction.pred_home}:{prediction.pred_away}"
-        if score_points == 3:
-            lines.append(f"🎯 Точный счет {prediction_label}! +{points} очк. Это попадание уровня футбольного оракула.")
-        elif score_points == 1:
-            lines.append(f"🔵 Исход {prediction_label} угадан. +{points} очк. Скромно, но в таблице все помнят.")
-        elif points > 0:
-            lines.append(f"➕ Прогноз {prediction_label}: +{points} очк. Дополнительный футбольный бонус сработал.")
-        else:
-            lines.append(f"😬 Прогноз {prediction_label}: без очков. Футбол снова выбрал свой сценарий.")
 
-    if rank_after:
-        if rank_before and rank_after < rank_before:
-            lines.append(f"📈 В лиге ты поднялся с #{rank_before} на #{rank_after} из {participants_count}.")
-        elif rank_before and rank_after > rank_before:
-            lines.append(f"↘️ В лиге сейчас #{rank_after} из {participants_count}; впереди есть повод для камбэка.")
+        if score_points == 3:
+            result_type = "exact"
+            result_title = "Точный счет!"
+            result_text = f"Твой прогноз {prediction_score} попал в цель. +{_format_points(points)}."
+        elif score_points == 1:
+            result_type = "outcome"
+            result_title = "Исход угадан"
+            result_text = f"Прогноз {prediction_score} принес +{_format_points(points)}."
+        elif points > 0:
+            result_type = "bonus"
+            result_title = "Футбольный бонус"
+            result_text = f"Прогноз {prediction_score} дал +{_format_points(points)} за дополнительный исход."
         else:
-            lines.append(f"🏆 В лиге сейчас #{rank_after} из {participants_count} · {league_points} очк.")
+            result_type = "miss"
+            result_title = "Футбол выбрал свой сценарий"
+            result_text = f"Твой прогноз {prediction_score} не принес очков. Реванш уже впереди."
 
     streak = _user_success_streak_for_league(db, user, league, match)
-    if streak >= 2:
-        lines.append(f"🔥 Серия: {streak} удачных прогнозов подряд.")
+    achievements: list[dict] = []
+    if result_type == "exact":
+        achievements.append({
+            "code": "exact_hit",
+            "icon": "🎯",
+            "title": "Снайпер матча",
+            "description": "Точный счет угадан.",
+        })
+    if streak >= 3:
+        achievements.append({
+            "code": "hot_streak",
+            "icon": "🔥",
+            "title": "Серия огня",
+            "description": f"{streak} {_plural_ru(streak, 'удачный прогноз', 'удачных прогноза', 'удачных прогнозов')} подряд.",
+        })
+    if rank_delta >= 2:
+        achievements.append({
+            "code": "climber",
+            "icon": "📈",
+            "title": "Рывок вверх",
+            "description": f"Подъем на {rank_delta} {_plural_ru(rank_delta, 'позицию', 'позиции', 'позиций')}.",
+        })
+    if rank_after == 1 and rank_before != 1:
+        achievements.append({
+            "code": "leader",
+            "icon": "👑",
+            "title": "Новый лидер",
+            "description": "Ты вышел на первое место в лиге.",
+        })
+
+    return {
+        "result_type": result_type,
+        "title": result_title,
+        "text": result_text,
+        "prediction_score": prediction_score,
+        "actual_score": f"{match.score_home}:{match.score_away}",
+        "points": int(points or 0),
+        "score_points": score_points,
+        "rank_before": rank_before,
+        "rank_after": rank_after,
+        "rank_delta": int(rank_delta or 0),
+        "league_points": league_points,
+        "participants_count": participants_count,
+        "streak": int(streak or 0),
+        "achievements": achievements,
+    }
+
+
+def build_personal_match_emotion_text(db, user: User, match: Match, league: League) -> str:
+    """Create a friendly, personal post-match summary for a league."""
+    recap = build_match_emotion_payload(db, user, match, league)
+    lines = [f"✨ Твой итог · {recap['title']}", recap["text"]]
+
+    if recap["rank_after"]:
+        if recap["rank_delta"] > 0:
+            lines.append(
+                f"📈 В лиге ты поднялся с #{recap['rank_before']} на #{recap['rank_after']} "
+                f"из {recap['participants_count']}."
+            )
+        elif recap["rank_delta"] < 0:
+            lines.append(
+                f"↘️ Сейчас ты #{recap['rank_after']} из {recap['participants_count']}. "
+                "Впереди есть повод для камбэка."
+            )
+        else:
+            lines.append(
+                f"🏆 В лиге сейчас #{recap['rank_after']} из {recap['participants_count']} · "
+                f"{_format_points(recap['league_points'])}."
+            )
+
+    if recap["streak"] >= 2:
+        lines.append(
+            f"🔥 Серия: {recap['streak']} "
+            f"{_plural_ru(recap['streak'], 'удачный прогноз', 'удачных прогноза', 'удачных прогнозов')} подряд."
+        )
+
+    if recap["achievements"]:
+        lines.append("\n" + " · ".join(
+            f"{item['icon']} {item['title']}" for item in recap["achievements"]
+        ))
 
     return "\n".join(lines)
-
 
 def build_private_match_finished_league_text(db, user: User, match: Match, league: League) -> str:
     """Render league-level result text plus the recipient's personal emotion."""
