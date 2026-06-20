@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
 import os
@@ -1709,12 +1709,167 @@ def _top_scorer_photo(db: Session | None, player_name: str | None) -> str | None
     return player.photo if player else None
 
 
+def _prediction_status_stage_label(match: Match) -> str:
+    """Return the human-readable stage used in a tournament-prediction status."""
+    if str(match.stage or "").lower() == "group":
+        return "групповой этап"
+
+    raw = f"{match.match_round or ''} {match.api_league_round or ''} {match.stage or ''}".lower()
+    if "round of 16" in raw or "1/8" in raw:
+        return "1/8 финала"
+    if "quarter" in raw or "1/4" in raw:
+        return "1/4 финала"
+    if "semi" in raw or "1/2" in raw:
+        return "1/2 финала"
+    if "third" in raw or "3rd" in raw or "3 место" in raw:
+        return "матч за 3-е место"
+    if "final" in raw:
+        return "финал"
+    return "плей-офф"
+
+
+def _prediction_team_context(db: Session) -> dict[str, dict]:
+    """Index tournament teams once for preview-card links and life-cycle statuses."""
+    context: dict[str, dict] = {}
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+    for match in matches:
+        for side, raw_name, api_name, team_id in (
+            ("home", match.home_team, match.home_team_api_name, match.home_external_team_id),
+            ("away", match.away_team, match.away_team_api_name, match.away_external_team_id),
+        ):
+            name = get_team_name_ru(raw_name)
+            if not name or name == "TBD":
+                continue
+            row = context.setdefault(name, {
+                "team_id": team_id,
+                "api_name": api_name or raw_name,
+                "matches": [],
+            })
+            if team_id and not row.get("team_id"):
+                row["team_id"] = team_id
+            row["matches"].append((match, side))
+    return context
+
+
+def _team_lost_match(match: Match, side: str) -> bool:
+    """Check defeat using provider winner data first, then the finished score."""
+    winner = str(match.winner_side or "").lower().strip()
+    if winner in {"home", "away"}:
+        return winner != side
+    if match.score_home is None or match.score_away is None:
+        return False
+    home, away = int(match.score_home), int(match.score_away)
+    if home == away:
+        return False
+    return (home < away) if side == "home" else (away < home)
+
+
+def _prediction_team_status(
+    team_name: str,
+    context: dict[str, dict],
+    standings_by_group: dict[str, dict],
+) -> dict:
+    """Build a compact, factual current status for an selected tournament team."""
+    record = context.get(get_team_name_ru(team_name))
+    if not record:
+        return {"label": "Статус уточняется", "tone": "muted"}
+
+    entries = list(record.get("matches") or [])
+    now = datetime.now(timezone.utc)
+    pending = [(match, side) for match, side in entries if not bool(match.is_finished)]
+    if pending:
+        live_codes = {"1H", "HT", "2H", "ET", "BT", "P", "LIVE", "INT"}
+        is_live = any(
+            str(match.status_short or "").upper() in live_codes
+            or (_ensure_utc(match.starts_at) <= now <= _ensure_utc(match.starts_at) + timedelta(hours=4))
+            for match, _ in pending
+        )
+        return {"label": "В игре" if is_live else "Участвует", "tone": "active"}
+
+    group_entries = [(match, side) for match, side in entries if str(match.stage or "").lower() == "group"]
+    if group_entries:
+        group_code = next((str(match.group_code or "").strip() for match, _ in group_entries if match.group_code), "")
+        group_finished = bool(group_entries) and all(bool(match.is_finished) for match, _ in group_entries)
+        if group_finished and group_code:
+            standing = standings_by_group.get(group_code, {}).get(get_team_name_ru(team_name))
+            rank = int(standing.get("rank") or 0) if standing else 0
+            if rank >= 4:
+                return {"label": "Вылетела · групповой этап", "tone": "eliminated"}
+            if rank:
+                return {"label": "Вышла из группы", "tone": "active"}
+
+    finished = [(match, side) for match, side in entries if bool(match.is_finished)]
+    finished.sort(key=lambda item: _ensure_utc(item[0].starts_at), reverse=True)
+    for match, side in finished:
+        if str(match.stage or "").lower() == "group":
+            continue
+        stage = _prediction_status_stage_label(match)
+        if _team_lost_match(match, side):
+            return {"label": f"Вылетела · {stage}", "tone": "eliminated"}
+        if stage == "финал":
+            return {"label": "Победитель турнира", "tone": "winner"}
+        if stage == "матч за 3-е место":
+            return {"label": "3-е место турнира", "tone": "winner"}
+        return {"label": "Продолжает путь", "tone": "active"}
+
+    return {"label": "Участвует", "tone": "active"}
+
+
+def _find_prediction_scorer(db: Session, player_name: str | None) -> dict | None:
+    """Resolve a saved scorer name to a cached API-Football player without forcing an API call."""
+    name = str(player_name or "").strip()
+    if not name:
+        return None
+
+    def normalize(value: str | None) -> str:
+        return re.sub(r"[^a-zа-я0-9]+", " ", str(value or "").casefold()).strip()
+
+    needle = normalize(name)
+    scorer_rows = get_top_scorers(db, refresh=False, limit=50).get("items") or []
+    for row in scorer_rows:
+        if normalize(row.get("name")) == needle:
+            return row
+
+    fantasy_rows = (
+        db.query(FantasyPlayer)
+        .filter(FantasyPlayer.tournament_code == TOURNAMENT_CODE)
+        .order_by(FantasyPlayer.is_active.desc())
+        .all()
+    )
+    for player in fantasy_rows:
+        if normalize(player.player_name) == needle:
+            return {
+                "player_id": player.external_player_id,
+                "name": player.player_name,
+                "photo": player.photo or "",
+                "team_id": player.external_team_id,
+                "team": player.team_display_name,
+                "team_api_name": player.team_name,
+                "team_flag": player.team_flag or get_team_flag(player.team_display_name, player.team_name),
+                "team_flag_code": get_team_flag_code(player.team_display_name, player.team_name),
+            }
+
+    # A small tolerance for saved "name + surname" versus provider punctuation.
+    needle_parts = set(needle.split())
+    if needle_parts:
+        for row in scorer_rows:
+            candidate_parts = set(normalize(row.get("name")).split())
+            if needle_parts.issubset(candidate_parts) or candidate_parts.issubset(needle_parts):
+                return row
+    return None
+
+
 def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db: Session | None = None) -> dict | None:
-    """Serialize a tournament prediction."""
+    """Serialize a tournament prediction with stable profile links and live statuses."""
     if not prediction:
         return None
 
-    return {
+    payload = {
         "champion": prediction.champion,
         "runner_up": prediction.runner_up,
         "third_place": prediction.third_place,
@@ -1732,8 +1887,29 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db
         "top_scorer_points": prediction.top_scorer_points or 0,
         "points": prediction.points or 0,
     }
+    if db is None:
+        return payload
 
+    context = _prediction_team_context(db)
+    standings = _build_group_standings(db)
+    standings_by_group = {
+        item.get("group_code"): {row.get("team"): row for row in item.get("rows") or []}
+        for item in standings
+    }
+    for key in ("champion", "runner_up", "third_place"):
+        name = payload.get(key) or ""
+        reference = context.get(get_team_name_ru(name)) or {}
+        payload[f"{key}_team_id"] = reference.get("team_id")
+        payload[f"{key}_status"] = _prediction_team_status(name, context, standings_by_group)
 
+    scorer = _find_prediction_scorer(db, prediction.top_scorer)
+    payload["top_scorer_player_id"] = scorer.get("player_id") if scorer else None
+    payload["top_scorer_team_id"] = scorer.get("team_id") if scorer else None
+    scorer_team_name = (scorer or {}).get("team") or ""
+    payload["top_scorer_status"] = _prediction_team_status(scorer_team_name, context, standings_by_group) if scorer_team_name else {"label": "Статус уточняется", "tone": "muted"}
+    if scorer and not payload.get("top_scorer_photo"):
+        payload["top_scorer_photo"] = scorer.get("photo") or None
+    return payload
 
 
 def _favorite_score(predictions: list[Prediction]) -> str | None:

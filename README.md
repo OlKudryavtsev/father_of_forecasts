@@ -1241,3 +1241,8 @@ scripts/data/
 ## v2.8.34 — Tournament UX refinements
 
 См. `RELEASE_V2_8_34_TOURNAMENT_UX_REFINEMENTS.md`.
+
+## v2.8.35 — Tournament prediction status and compact groups
+
+- Компактный формат выбранной группы и статусы турнирных прогнозов.
+- Флаг сборной рядом с ФИО бомбардира и кликабельные турнирные карточки.

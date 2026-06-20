@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.34';
+const APP_VERSION = '2.8.35';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1044,6 +1044,22 @@ function TournamentCardPreview({ item, prediction }) {
   );
 }
 
+function tournamentPredictionItemStatus(item, prediction) {
+  if (!prediction) return null;
+  return item.key === 'top_scorer'
+    ? prediction.top_scorer_status
+    : prediction[`${item.key}_status`];
+}
+
+function tournamentPredictionItemTarget(item, prediction) {
+  if (!prediction || !item?.value) return null;
+  if (item.key === 'top_scorer') {
+    return prediction.top_scorer_player_id ? { type: 'player', id: prediction.top_scorer_player_id } : null;
+  }
+  const id = prediction[`${item.key}_team_id`];
+  return id ? { type: 'team', id } : null;
+}
+
 function NextMatchHero({ match, onPredict, onShowPredictions }) {
   const [nowTick, setNowTick] = useState(Date.now());
 
@@ -1103,7 +1119,16 @@ function NextMatchHero({ match, onPredict, onShowPredictions }) {
   );
 }
 
-function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournamentParticipants, setTab, onNextMatchPredict }) {
+function HomeHero({
+  dashboard,
+  tournamentPrediction,
+  onTournamentPick,
+  onTournamentParticipants,
+  onOpenTournamentTeam,
+  onOpenTournamentPlayer,
+  setTab,
+  onNextMatchPredict,
+}) {
   const [tournamentOpen, setTournamentOpen] = useState(true);
   const missing = dashboard?.missing_predictions_count ?? 0;
   const p = tournamentPrediction?.prediction;
@@ -1114,6 +1139,12 @@ function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournam
     { key: 'third_place', label: '3-е место', value: p?.third_place, points: '+5', icon: 'rank' },
     { key: 'top_scorer', label: 'Бомбардир', value: p?.top_scorer, points: '+15', icon: 'ball' },
   ];
+
+  function openTournamentTarget(target) {
+    if (!target) return;
+    if (target.type === 'team') onOpenTournamentTeam?.(target.id);
+    if (target.type === 'player') onOpenTournamentPlayer?.(target.id);
+  }
 
   return (
     <section className="matchcenter-top">
@@ -1151,15 +1182,41 @@ function HomeHero({ dashboard, tournamentPrediction, onTournamentPick, onTournam
         </div>
         {tournamentOpen && (
           <div className="tournament-mini-grid">
-            {items.map((item) => (
-              <button key={item.key} disabled={tournamentClosed} onClick={() => !tournamentClosed && onTournamentPick(item.key)}>
-                <TournamentCardPreview item={item} prediction={p} />
-                <i><Icon name={item.icon} /></i>
-                <span>{item.label}</span>
-                <strong>{item.value || (tournamentClosed ? 'Нет прогноза' : 'Выбрать')}</strong>
-                <small>{tournamentClosed ? 'закрыто' : item.points}</small>
-              </button>
-            ))}
+            {items.map((item) => {
+              const target = tournamentPredictionItemTarget(item, p);
+              const status = tournamentPredictionItemStatus(item, p);
+              const hasSelectedValue = Boolean(item.value);
+              const canEdit = !tournamentClosed;
+              const canOpen = Boolean(target);
+              const disabled = !canOpen && (!canEdit || hasSelectedValue);
+              const helper = hasSelectedValue
+                ? (status?.label || 'Статус уточняется')
+                : (tournamentClosed ? 'Нет прогноза' : item.points);
+
+              return (
+                <article key={item.key} className={`tournament-mini-card ${canOpen ? 'inspectable' : ''} ${status?.tone ? `status-${status.tone}` : ''}`}>
+                  <button
+                    type="button"
+                    className="tournament-mini-card-main"
+                    disabled={disabled}
+                    onClick={() => {
+                      if (canOpen) openTournamentTarget(target);
+                      else if (canEdit) onTournamentPick(item.key);
+                    }}
+                    aria-label={canOpen ? `Открыть информацию: ${item.value}` : `${item.label}: ${item.value || 'выбрать'}`}
+                  >
+                    <TournamentCardPreview item={item} prediction={p} />
+                    <i><Icon name={item.icon} /></i>
+                    <span>{item.label}</span>
+                    <strong>{item.value || (tournamentClosed ? 'Нет прогноза' : 'Выбрать')}</strong>
+                    <small className={`tournament-prediction-status ${status?.tone || ''}`}>{helper}</small>
+                  </button>
+                  {hasSelectedValue && canEdit && (
+                    <button type="button" className="tournament-mini-card-edit" onClick={() => onTournamentPick(item.key)}>Изменить</button>
+                  )}
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
@@ -2053,13 +2110,18 @@ function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
   const canOpenTeam = Boolean(item.team_id && onOpenTeam);
   return <article className="hub-scorer-row">
     <span className="hub-rank">{rank}</span>
-    <button className="hub-player-button" onClick={() => canOpenPlayer && onOpenPlayer?.(item.player_id)} disabled={!canOpenPlayer}>
+    <button className="hub-scorer-photo" onClick={() => canOpenPlayer && onOpenPlayer?.(item.player_id)} disabled={!canOpenPlayer} aria-label={`Открыть профиль ${item.name || 'игрока'}`}>
       {item.photo ? <img src={item.photo} alt="" /> : <span className="hub-player-avatar">{(item.name || '?').slice(0, 1)}</span>}
-      <span><strong>{item.name}</strong><small>{item.appearances ? `${item.appearances} матч.` : 'Турнир'}</small></span>
     </button>
-    <button className="hub-scorer-team" onClick={() => canOpenTeam && onOpenTeam?.(item.team_id)} disabled={!canOpenTeam} aria-label={item.team ? `Открыть сборную ${item.team}` : 'Открыть сборную'} title={item.team || 'Сборная'}>
-      <TeamFlag code={item.team_flag_code} emoji={item.team_flag} name={item.team} size="mini" />
-    </button>
+    <div className="hub-scorer-info">
+      <div className="hub-scorer-name-row">
+        <button className="hub-scorer-name" onClick={() => canOpenPlayer && onOpenPlayer?.(item.player_id)} disabled={!canOpenPlayer}>{item.name}</button>
+        <button className="hub-scorer-team-inline" onClick={() => canOpenTeam && onOpenTeam?.(item.team_id)} disabled={!canOpenTeam} aria-label={item.team ? `Открыть сборную ${item.team}` : 'Открыть сборную'} title={item.team || 'Сборная'}>
+          <TeamFlag code={item.team_flag_code} emoji={item.team_flag} name={item.team} size="mini" />
+        </button>
+      </div>
+      <small>{item.appearances ? `${item.appearances} матч.` : 'Турнир'}</small>
+    </div>
     <b>{item.goals || 0}</b>
   </article>;
 }
@@ -2130,10 +2192,10 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
   </div>;
 }
 
-function GroupTable({ group, onTeam }) {
+function GroupTable({ group, onTeam, compact = false }) {
   if (!group) return null;
   return (
-    <section className={`group-table-card group-color group-${group.group_code}`}>
+    <section className={`group-table-card group-color group-${group.group_code} ${compact ? 'group-table-card-compact' : ''}`}>
       <div className="group-header">
         <div className="group-letter">{group.group_code}</div>
         <div>
@@ -2215,7 +2277,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
         <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}><Icon name="check" /><span>Результаты</span></button>
         {(data?.groups || []).map((item) => <button key={item.group_code} className={`group-color group-${item.group_code} ${group === item.group_code ? 'active group' : ''}`} onClick={() => { setGroup(item.group_code); setScope('all'); }}><b>{item.group_code}</b><span>группа</span></button>)}
       </div>
-      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
+      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} compact />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
     </>}
     </section>
     {detailsMatch && <MatchDetailsModal match={detailsMatch} onClose={() => setDetailsMatch(null)} onPredict={onPredict} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
@@ -4627,6 +4689,9 @@ function App() {
   const [tournamentPickField, setTournamentPickField] = useState(null);
   const [tournamentPredictionsOpen, setTournamentPredictionsOpen] = useState(false);
   const [tournamentPrediction, setTournamentPrediction] = useState(null);
+  const [homeTournamentTeamId, setHomeTournamentTeamId] = useState(null);
+  const [homeTournamentPlayerId, setHomeTournamentPlayerId] = useState(null);
+  const [homeTournamentMatch, setHomeTournamentMatch] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
   const hasBrowserSession = Boolean(getWebSessionToken());
@@ -4718,6 +4783,8 @@ function App() {
             tournamentPrediction={tournamentPrediction}
             onTournamentPick={setTournamentPickField}
             onTournamentParticipants={() => setTournamentPredictionsOpen(true)}
+            onOpenTournamentTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }}
+            onOpenTournamentPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }}
             setTab={setTab}
             onNextMatchPredict={setPredictionMatch}
           />
@@ -4737,6 +4804,9 @@ function App() {
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
       {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} leagueId={activeLeagueId} leagueName={activeLeagueName} />}
+      {homeTournamentMatch && <MatchDetailsModal match={homeTournamentMatch} onClose={() => setHomeTournamentMatch(null)} onPredict={setPredictionMatch} onOpenTeam={(id) => { setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }} onOpenPlayer={(id) => { setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }} />}
+      {homeTournamentTeamId && <TeamProfileModal teamId={homeTournamentTeamId} onClose={() => setHomeTournamentTeamId(null)} onOpenMatch={(match) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(match); }} onOpenPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentPlayerId(id); }} />}
+      {homeTournamentPlayerId && <PlayerProfileModal playerId={homeTournamentPlayerId} onClose={() => setHomeTournamentPlayerId(null)} onOpenTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentTeamId(id); }} onOpenMatch={(match) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(match); }} />}
       {tournamentPickField && (tournamentPrediction?.can_submit || !tournamentPrediction?.is_closed) && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
