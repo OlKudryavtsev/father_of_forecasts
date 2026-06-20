@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.40';
+const APP_VERSION = '2.8.42';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -3673,11 +3673,13 @@ function participantPointsLabel(value) {
 function ParticipantPredictionsModal({ participant, leagueId = null, leagueName = '', onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [resultFilter, setResultFilter] = useState(null);
 
   useEffect(() => {
     let active = true;
     setData(null);
     setError(null);
+    setResultFilter(null);
     const params = new URLSearchParams();
     if (leagueId) params.set('league_id', String(leagueId));
     const suffix = params.toString() ? `?${params.toString()}` : '';
@@ -3700,6 +3702,14 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
   const rows = data?.rows || [];
   const summary = data?.summary || {};
   const displayName = data?.participant?.name || participant.name;
+  const visibleRows = resultFilter
+    ? rows.filter((item) => participantPredictionClass(item.result_type) === resultFilter)
+    : rows;
+  const activeFilterLabel = resultFilter === 'exact' ? 'точным счётом' : 'угаданным исходом';
+
+  const toggleResultFilter = (filter) => {
+    setResultFilter((current) => (current === filter ? null : filter));
+  };
 
   return (
     <div
@@ -3726,16 +3736,37 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
           <>
             <div className="participant-predictions-summary">
               <div><b>{pointsLabel(summary.match_points || 0)}</b><span>за матчи</span></div>
-              <div><b>{summary.exact_scores || 0}</b><span>точных</span></div>
-              <div><b>{summary.outcomes || 0}</b><span>исходов</span></div>
+              <button
+                type="button"
+                className={`participant-predictions-summary-filter exact ${resultFilter === 'exact' ? 'active' : ''}`}
+                aria-pressed={resultFilter === 'exact'}
+                title={resultFilter === 'exact' ? 'Показать все прогнозы' : 'Показать только точные счета'}
+                onClick={() => toggleResultFilter('exact')}
+              >
+                <b>{summary.exact_scores || 0}</b><span>точных</span>
+              </button>
+              <button
+                type="button"
+                className={`participant-predictions-summary-filter outcome ${resultFilter === 'outcome' ? 'active' : ''}`}
+                aria-pressed={resultFilter === 'outcome'}
+                title={resultFilter === 'outcome' ? 'Показать все прогнозы' : 'Показать только угаданные исходы'}
+                onClick={() => toggleResultFilter('outcome')}
+              >
+                <b>{summary.outcomes || 0}</b><span>исходов</span>
+              </button>
               <div><b>{summary.matches_count || 0}</b><span>матчей</span></div>
             </div>
 
             {rows.length === 0 ? (
               <DetailEmpty title="Завершенных матчей пока нет" text="Когда в лиге появятся сыгранные матчи, здесь будет история прогнозов участника." />
+            ) : visibleRows.length === 0 ? (
+              <DetailEmpty
+                title={`Нет прогнозов с ${activeFilterLabel}`}
+                text="Нажмите на выделенную плашку еще раз, чтобы показать всю историю."
+              />
             ) : (
               <div className="participant-predictions-list">
-                {rows.map((item) => {
+                {visibleRows.map((item) => {
                   const hasPrediction = item.prediction_home !== null && item.prediction_home !== undefined;
                   const resultClass = participantPredictionClass(item.result_type);
                   const predictionText = hasPrediction ? `${item.prediction_home}:${item.prediction_away}` : '—';
