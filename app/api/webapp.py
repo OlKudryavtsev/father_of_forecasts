@@ -32,6 +32,7 @@ from app.models import (
     HistoricalArchiveCard,
     League,
     LeagueMember,
+    LeagueActivityEvent,
     Match,
     MatchVideo,
     Prediction,
@@ -731,6 +732,47 @@ def _absolute_app_url(request: Request, token: str | None = None) -> str:
 
 
 
+def _serialize_league_activity(event: LeagueActivityEvent) -> dict:
+    """Serialize a compact participant action for the selected league feed."""
+    payload = event.payload if isinstance(event.payload, dict) else {}
+    actor = event.actor
+    actor_name = actor.display_name if actor else "Участник"
+    action_type = event.action_type
+
+    if action_type == "league_created":
+        title = "Создал лигу"
+        detail = payload.get("league_name") or "Новая лига"
+        icon = "🏁"
+    elif action_type == "member_joined":
+        title = "Вступил в лигу"
+        detail = payload.get("league_name") or "Лига"
+        icon = "👋"
+    elif action_type in {"match_prediction_created", "match_prediction_updated"}:
+        title = "Сделал прогноз" if action_type.endswith("created") else "Изменил прогноз"
+        match_label = payload.get("match_label") or "Матч"
+        score = payload.get("prediction")
+        detail = f"{match_label}{f' · {score}' if score else ''}"
+        icon = "🎯"
+    elif action_type in {"tournament_prediction_created", "tournament_prediction_updated"}:
+        title = "Заполнил прогноз на турнир" if action_type.endswith("created") else "Изменил прогноз на турнир"
+        detail = f"🏆 {payload.get('champion') or 'Выбор команд'} · ⚽ {payload.get('top_scorer') or 'Бомбардир'}"
+        icon = "🏆"
+    else:
+        title = "Действие в лиге"
+        detail = ""
+        icon = "•"
+
+    return {
+        "id": event.id,
+        "type": action_type,
+        "icon": icon,
+        "actor_name": actor_name,
+        "title": title,
+        "detail": detail,
+        "created_at": _ensure_utc(event.created_at).isoformat() if event.created_at else None,
+    }
+
+
 def _serialize_league_member(member: LeagueMember, league: League) -> dict:
     user = member.user
     is_owner = bool(user and league.owner_user_id == user.id)
@@ -764,6 +806,38 @@ def update_league_settings_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "league": _serialize_league(league, current_user)}
+
+
+@router.get("/leagues/{league_id}/activity")
+def get_league_activity_endpoint(
+    league_id: int,
+    limit: int = Query(default=30, ge=1, le=60),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a recent participant-only activity feed for the selected league.
+
+    Activity records are created per league, so actions from a different private
+    league can never leak into this feed.
+    """
+    try:
+        league = require_user_league(db, current_user, league_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    events = (
+        db.query(LeagueActivityEvent)
+        .join(User, User.id == LeagueActivityEvent.actor_user_id)
+        .filter(LeagueActivityEvent.league_id == league.id)
+        .order_by(LeagueActivityEvent.created_at.desc(), LeagueActivityEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "ok": True,
+        "league": _serialize_league(league, current_user),
+        "events": [_serialize_league_activity(event) for event in events],
+    }
 
 
 @router.get("/leagues/{league_id}/members")

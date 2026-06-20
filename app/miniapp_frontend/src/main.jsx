@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.36';
+const APP_VERSION = '2.8.37';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -3746,6 +3746,17 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
 
 
 
+function formatLeagueActivityTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (diffMinutes < 1) return 'только что';
+  if (diffMinutes < 60) return `${diffMinutes} мин назад`;
+  if (diffMinutes < 24 * 60) return `${Math.floor(diffMinutes / 60)} ч назад`;
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
 function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesChanged }) {
   const leagues = leaguesData?.leagues || [];
   const activeLeague = leagues.find((league) => Number(league.id) === Number(activeLeagueId));
@@ -3760,6 +3771,33 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberActionBusy, setMemberActionBusy] = useState('');
   const [leagueChatIds, setLeagueChatIds] = useState({});
+  const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [activityData, setActivityData] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState(null);
+
+  async function loadLeagueActivity(leagueId = activeLeagueId) {
+    if (!leagueId) {
+      setActivityData([]);
+      return;
+    }
+    setActivityLoading(true);
+    setActivityError(null);
+    try {
+      const result = await api(`/api/webapp/leagues/${leagueId}/activity?limit=30`);
+      setActivityData(result.events || []);
+    } catch (err) {
+      setActivityData([]);
+      setActivityError(err);
+    } finally {
+      setActivityLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLeagueActivity(activeLeagueId);
+  }, [activeLeagueId]);
 
   async function createLeague(event) {
     event.preventDefault();
@@ -3773,6 +3811,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       });
       setName('');
       setDescription('');
+      setCreateOpen(false);
       await onLeaguesChanged?.();
       onLeagueChange?.(result.league.id);
       setManagedLeagueId(result.league.id);
@@ -3795,6 +3834,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
         body: JSON.stringify({ invite_code: inviteCode }),
       });
       setInviteCode('');
+      setJoinOpen(false);
       await onLeaguesChanged?.();
       onLeagueChange?.(result.league.id);
       setMessage(`Вы вступили в лигу «${result.league.name}»`);
@@ -3806,19 +3846,17 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   }
 
   async function copyInvite(value) {
-    if (!value) return;
     try {
-      await navigator.clipboard.writeText(value);
-      setMessage('Ссылка/код скопированы');
-    } catch (err) {
-      setMessage(value);
+      await navigator.clipboard?.writeText(value);
+      setMessage('Приглашение скопировано');
+    } catch {
+      setMessage(`Код приглашения: ${value}`);
     }
   }
 
   async function loadMembers(leagueId = managedLeagueId) {
     if (!leagueId) return null;
     setMembersLoading(true);
-    setError(null);
     try {
       const result = await api(`/api/webapp/leagues/${leagueId}/members`);
       setMembersData(result);
@@ -3849,7 +3887,6 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     const busyKey = `${leagueId}:${member.user_id}:${role}`;
     setMemberActionBusy(busyKey);
     setError(null);
-    setMessage('');
     try {
       await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}`, {
         method: 'PATCH',
@@ -3857,7 +3894,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       });
       await loadMembers(leagueId);
       await onLeaguesChanged?.();
-      setMessage(role === 'admin' ? 'Участник назначен администратором' : 'Права администратора сняты');
+      await loadLeagueActivity(leagueId);
     } catch (err) {
       setError(err);
     } finally {
@@ -3867,17 +3904,14 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
 
   async function removeMember(leagueId, member) {
     if (!leagueId || !member) return;
-    const nameText = member.display_name || member.username || 'участника';
-    if (!window.confirm(`Исключить ${nameText} из лиги?`)) return;
+    if (!window.confirm(`Исключить «${member.display_name || member.username || 'участника'}» из лиги?`)) return;
     const busyKey = `${leagueId}:${member.user_id}:remove`;
     setMemberActionBusy(busyKey);
     setError(null);
-    setMessage('');
     try {
       await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}`, { method: 'DELETE' });
       await loadMembers(leagueId);
       await onLeaguesChanged?.();
-      setMessage('Участник исключен из лиги');
     } catch (err) {
       setError(err);
     } finally {
@@ -4003,13 +4037,8 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     <main className="screen-content leagues-screen">
       <div className="section-label">Лиги</div>
 
-      <section className="league-active-card">
-        <div>
-          <span className="muted small">Активная лига</span>
-          <h2>{activeLeague?.name || 'Не выбрана'}</h2>
-          <p>Рейтинг, матч-центр и прогнозы участников показываются по выбранной лиге.{activeLeague?.scoring_start_at ? ` Счет с ${formatDateTime(activeLeague.scoring_start_at)}.` : ''}</p>
-        </div>
-        <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} label="Переключить" />
+      <section className="league-active-compact" aria-label="Выбранная лига">
+        <strong>{activeLeague?.name || 'Не выбрана'}</strong>
       </section>
 
       {message && <div className="success-card">{message}</div>}
@@ -4051,25 +4080,61 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
         )}
       </section>
 
-      <section className="league-form-card">
-        <div className="subsection-title">
-          <h2>Создать лигу</h2>
-        </div>
-        <form onSubmit={createLeague} className="league-form">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Название лиги" maxLength={80} />
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Описание, необязательно" maxLength={500} rows={3} />
-          <button type="submit" disabled={busy || name.trim().length < 2}>{busy ? 'Сохраняю…' : 'Создать'}</button>
-        </form>
+      <section className={`league-form-card collapsible ${createOpen ? 'open' : ''}`}>
+        <button type="button" className="league-form-toggle" onClick={() => setCreateOpen((value) => !value)} aria-expanded={createOpen}>
+          <span><b>Создать лигу</b><small>Новая таблица и приглашение для друзей</small></span>
+          <span className="collapse-chevron">{createOpen ? '−' : '+'}</span>
+        </button>
+        {createOpen && (
+          <form onSubmit={createLeague} className="league-form">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Название лиги" maxLength={80} autoFocus />
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Описание, необязательно" maxLength={500} rows={3} />
+            <button type="submit" disabled={busy || name.trim().length < 2}>{busy ? 'Сохраняю…' : 'Создать'}</button>
+          </form>
+        )}
       </section>
 
-      <section className="league-form-card">
+      <section className={`league-form-card collapsible ${joinOpen ? 'open' : ''}`}>
+        <button type="button" className="league-form-toggle" onClick={() => setJoinOpen((value) => !value)} aria-expanded={joinOpen}>
+          <span><b>Вступить по коду</b><small>Подключиться к лиге друзей</small></span>
+          <span className="collapse-chevron">{joinOpen ? '−' : '+'}</span>
+        </button>
+        {joinOpen && (
+          <form onSubmit={joinLeague} className="league-form league-join-form">
+            <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} placeholder="Код приглашения" autoFocus />
+            <button type="submit" disabled={busy || inviteCode.trim().length < 3}>{busy ? 'Проверяю…' : 'Вступить'}</button>
+          </form>
+        )}
+      </section>
+
+      <section className="league-activity-card">
         <div className="subsection-title">
-          <h2>Вступить по коду</h2>
+          <div>
+            <h2>История действий</h2>
+            <p className="muted small">{activeLeague?.name || 'Выбранная лига'}</p>
+          </div>
+          <button type="button" className="secondary small" onClick={() => loadLeagueActivity()} disabled={activityLoading}>Обновить</button>
         </div>
-        <form onSubmit={joinLeague} className="league-form league-join-form">
-          <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} placeholder="Код приглашения" />
-          <button type="submit" disabled={busy || inviteCode.trim().length < 3}>{busy ? 'Проверяю…' : 'Вступить'}</button>
-        </form>
+        {activityLoading && <p className="muted small">Загружаю действия участников…</p>}
+        {!activityLoading && activityError && <ErrorCard error={activityError} onRetry={() => loadLeagueActivity()} />}
+        {!activityLoading && !activityError && activityData.length === 0 && (
+          <EmptyState iconName="clock" title="Пока тихо" text="Здесь будут появляться прогнозы, вступления в лигу и другие действия ее участников." />
+        )}
+        {!activityLoading && !activityError && activityData.length > 0 && (
+          <div className="league-activity-list">
+            {activityData.map((entry) => (
+              <article key={entry.id} className="league-activity-row">
+                <span className="league-activity-icon" aria-hidden="true">{entry.icon || '•'}</span>
+                <div className="league-activity-body">
+                  <strong>{entry.actor_name}</strong>
+                  <span>{entry.title}</span>
+                  {entry.detail && <small>{entry.detail}</small>}
+                </div>
+                <time>{formatLeagueActivityTime(entry.created_at)}</time>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );

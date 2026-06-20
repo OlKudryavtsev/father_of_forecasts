@@ -7,6 +7,7 @@ import secrets
 import string
 
 from app.models import League, LeagueMember, User
+from app.services.league_activity import record_league_activity
 from app.services.tournament import get_tournament_starts_at
 
 DEFAULT_LEAGUE_NAME = "Отец прогнозов"
@@ -135,13 +136,28 @@ def approve_user(db, user: User, approved_by: User | None = None) -> list[str]:
     joined_leagues: list[str] = []
 
     invite_league = get_league_by_invite_code(db, user.pending_invite_code)
+    was_active_member = False
     if invite_league:
+        existing_member = get_league_member(db, invite_league, user)
+        was_active_member = bool(existing_member and existing_member.status == "active")
         ensure_user_in_league(db, user, invite_league, role="admin" if user.is_admin else "member")
         joined_leagues.append(invite_league.name)
 
     user.pending_invite_code = None
     db.commit()
     db.refresh(user)
+
+    if invite_league and not was_active_member:
+        try:
+            record_league_activity(
+                db,
+                league=invite_league,
+                actor=user,
+                action_type="member_joined",
+                payload={"league_name": invite_league.name},
+            )
+        except Exception:
+            db.rollback()
     return joined_leagues
 
 
@@ -440,6 +456,18 @@ def create_user_league(db, owner: User, name: str, description: str | None = Non
     ensure_user_in_league(db, owner, league, role="owner")
     db.commit()
     db.refresh(league)
+
+    try:
+        record_league_activity(
+            db,
+            league=league,
+            actor=owner,
+            action_type="league_created",
+            payload={"league_name": league.name},
+        )
+    except Exception:
+        # Activity is supplementary. The league itself has already been saved.
+        db.rollback()
     return league
 
 
@@ -448,7 +476,26 @@ def join_league_by_invite_code(db, user: User, invite_code: str | None) -> Leagu
     league = get_league_by_invite_code(db, invite_code)
     if not league:
         raise ValueError("Лига с таким кодом не найдена")
+
+    previous = (
+        db.query(LeagueMember)
+        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user.id)
+        .first()
+    )
+    was_active = bool(previous and previous.status == "active")
     ensure_user_in_league(db, user, league, role="member")
     db.commit()
     db.refresh(league)
+
+    if not was_active:
+        try:
+            record_league_activity(
+                db,
+                league=league,
+                actor=user,
+                action_type="member_joined",
+                payload={"league_name": league.name},
+            )
+        except Exception:
+            db.rollback()
     return league

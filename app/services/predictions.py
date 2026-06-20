@@ -4,6 +4,7 @@
 from app.formatters.matches import format_datetime, format_match_label
 from app.formatters.predictions import format_advancement_prediction
 from app.runtime import Match, Prediction, User, datetime, timezone
+from app.services.league_activity import record_user_league_activity
 
 def parse_advancement_choice(choice: str | None):
     """Provide bot helper logic for parse_advancement_choice."""
@@ -104,6 +105,21 @@ def save_prediction(
 
     if is_playoff_match(match):
         text += f"\n{format_advancement_prediction(prediction, match)}"
+
+    try:
+        record_user_league_activity(
+            db,
+            actor=user,
+            action_type="match_prediction_updated" if existing_prediction else "match_prediction_created",
+            payload={
+                "match_id": match.id,
+                "match_label": format_match_label(match, include_id=False),
+                "prediction": f"{pred_home}:{pred_away}",
+            },
+        )
+    except Exception:
+        # Prediction is already committed; a feed outage must not break it.
+        db.rollback()
 
     return True, text
 

@@ -11,6 +11,7 @@ from app.runtime import (
     timezone,
 )
 from app.services.notifications import notify_admins, notify_group_tournament_prediction_saved
+from app.services.league_activity import record_user_league_activity
 
 def get_tournament_starts_at():
     """Provide bot helper logic for get_tournament_starts_at."""
@@ -100,6 +101,15 @@ def save_tournament_prediction(
         existing_prediction.points = 0
 
         db.commit()
+        try:
+            record_user_league_activity(
+                db,
+                actor=user,
+                action_type="tournament_prediction_updated",
+                payload={"champion": champion, "runner_up": runner_up, "third_place": third_place, "top_scorer": top_scorer},
+            )
+        except Exception:
+            db.rollback()
 
         return (
             True,
@@ -121,6 +131,15 @@ def save_tournament_prediction(
 
     db.add(prediction)
     db.commit()
+    try:
+        record_user_league_activity(
+            db,
+            actor=user,
+            action_type="tournament_prediction_created",
+            payload={"champion": champion, "runner_up": runner_up, "third_place": third_place, "top_scorer": top_scorer},
+        )
+    except Exception:
+        db.rollback()
 
     return (
         True,

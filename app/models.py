@@ -78,6 +78,28 @@ class LeagueMember(Base):
     )
 
 
+class LeagueActivityEvent(Base):
+    """Feed item describing an action of a participant inside a league.
+
+    An event is written per league, rather than globally per user. This keeps
+    the activity feed correctly scoped when a participant belongs to several
+    private leagues at the same time.
+    """
+
+    __tablename__ = "league_activity_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    action_type = Column(String, nullable=False, index=True)
+    event_key = Column(String, nullable=False, unique=True, index=True)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    league = relationship("League")
+    actor = relationship("User", foreign_keys=[actor_user_id])
+
+
 class WebSession(Base):
     __tablename__ = "web_sessions"
 
