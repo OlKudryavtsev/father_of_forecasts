@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.39';
+const APP_VERSION = '2.8.40';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2051,7 +2051,7 @@ function TeamProfileModal({ teamId, onClose, onOpenMatch, onOpenPlayer }) {
         <button className="modal-close" onClick={onClose}>×</button>
         <header className="hub-team-hero">
           <TeamFlag code={team.flag_code} emoji={team.flag} name={team.name} />
-          <div><p className="muted small">{team.group_code ? `Группа ${team.group_code}` : 'Сборная'}</p><h2>{team.name}</h2><span>{standing ? `${standing.rank}-е место · ${standing.points} ${pointsLabel(standing.points)}` : 'Турнирная статистика'}</span></div>
+          <div><p className="muted small">{team.group_code ? `Группа ${team.group_code}` : 'Сборная'}</p><h2>{team.name}</h2><span>{standing ? `${standing.rank}-е место · ${pointsLabel(standing.points)}` : 'Турнирная статистика'}</span></div>
         </header>
         <nav className="match-details-tabs hub-tabs">{tabs.map(([id, label]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{label}</button>)}</nav>
         <div className="hub-modal-body">{body}</div>
@@ -3738,23 +3738,24 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
                 {rows.map((item) => {
                   const hasPrediction = item.prediction_home !== null && item.prediction_home !== undefined;
                   const resultClass = participantPredictionClass(item.result_type);
+                  const predictionText = hasPrediction ? `${item.prediction_home}:${item.prediction_away}` : '—';
+                  const points = Number(item.points || 0);
                   return (
-                    <article className={`participant-prediction-row ${resultClass}`} key={item.match_id}>
-                      <div className="participant-prediction-topline">
-                        <span>{compactDate(item.starts_at)}</span>
-                        <em className={`participant-prediction-status ${resultClass}`}>{item.result_label}</em>
-                        <b className={`participant-prediction-points ${Number(item.points || 0) > 0 ? 'positive' : Number(item.points || 0) < 0 ? 'negative' : ''}`}>{participantPointsLabel(item.points)} {pointsLabel(Math.abs(Number(item.points || 0))).replace(/^\d+\s*/, '')}</b>
+                    <article className={`participant-prediction-row compact ${resultClass}`} key={item.match_id}>
+                      <div className="participant-prediction-inline-main">
+                        <div className="participant-prediction-inline-match">
+                          <span className="participant-prediction-inline-team home"><b>{item.home_team}</b><TeamFlag code={item.home_flag_code} emoji={item.home_flag} name={item.home_team} size="mini" /></span>
+                          <strong className="participant-prediction-actual">{item.actual_home}:{item.actual_away}</strong>
+                          <span className="participant-prediction-inline-team away"><TeamFlag code={item.away_flag_code} emoji={item.away_flag} name={item.away_team} size="mini" /><b>{item.away_team}</b></span>
+                        </div>
+                        <div className="participant-prediction-inline-result">
+                          <span className={`participant-prediction-status ${resultClass}`} title={item.result_label}>{item.result_label}</span>
+                          <span className="participant-prediction-inline-forecast">Прогноз <b>{predictionText}</b></span>
+                          <b className={`participant-prediction-points ${points > 0 ? 'positive' : points < 0 ? 'negative' : ''}`}>{participantPointsLabel(points)} {pointsLabel(Math.abs(points)).replace(/^\d+\s*/, '')}</b>
+                          {item.advancement_points ? <small className="participant-prediction-advancement">проход {item.advancement_points > 0 ? '+' : ''}{item.advancement_points}</small> : null}
+                        </div>
                       </div>
-                      <div className="participant-prediction-match">
-                        <span className="participant-prediction-team home"><TeamFlag code={item.home_flag_code} emoji={item.home_flag} name={item.home_team} size="mini" /><b>{item.home_team}</b></span>
-                        <strong>{item.actual_home}:{item.actual_away}</strong>
-                        <span className="participant-prediction-team away"><b>{item.away_team}</b><TeamFlag code={item.away_flag_code} emoji={item.away_flag} name={item.away_team} size="mini" /></span>
-                      </div>
-                      <div className="participant-prediction-bottomline">
-                        <span>Прогноз</span>
-                        <b>{hasPrediction ? `${item.prediction_home}:${item.prediction_away}` : '—'}</b>
-                        {item.advancement_points ? <small>Проход: {item.advancement_points > 0 ? '+' : ''}{item.advancement_points}</small> : null}
-                      </div>
+                      <small className="participant-prediction-date">{compactDate(item.starts_at)}</small>
                     </article>
                   );
                 })}
