@@ -3772,18 +3772,21 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
                   const predictionText = hasPrediction ? `${item.prediction_home}:${item.prediction_away}` : '—';
                   const points = Number(item.points || 0);
                   return (
-                    <article className={`participant-prediction-row compact ${resultClass}`} key={item.match_id}>
+                    <article className={`participant-prediction-row matchup ${resultClass}`} key={item.match_id}>
                       <small className="participant-prediction-date">{compactDate(item.starts_at)}</small>
-                      <div className="participant-prediction-content">
-                        <div className="participant-prediction-inline-match">
-                          <span className="participant-prediction-inline-team home"><b>{item.home_team}</b><TeamFlag code={item.home_flag_code} emoji={item.home_flag} name={item.home_team} size="mini" /></span>
-                          <strong className="participant-prediction-actual">{item.actual_home}:{item.actual_away}</strong>
-                          <span className="participant-prediction-inline-team away"><TeamFlag code={item.away_flag_code} emoji={item.away_flag} name={item.away_team} size="mini" /><b>{item.away_team}</b></span>
-                        </div>
-                        <div className="participant-prediction-inline-result">
-                          <span className={`participant-prediction-status ${resultClass}`} title={item.result_label}>{item.result_label}</span>
-                          <span className="participant-prediction-inline-forecast">Прогноз <b>{predictionText}</b></span>
-                        </div>
+                      <div className="participant-prediction-team-stack home" title={item.home_team}>
+                        <TeamFlag code={item.home_flag_code} emoji={item.home_flag} name={item.home_team} size="mini" />
+                        <b>{item.home_team}</b>
+                      </div>
+                      <div className="participant-prediction-score-stack">
+                        <strong className="participant-prediction-actual">{item.actual_home}:{item.actual_away}</strong>
+                        <span className={`participant-prediction-forecast ${resultClass}`} title={item.result_label}>
+                          {predictionText}
+                        </span>
+                      </div>
+                      <div className="participant-prediction-team-stack away" title={item.away_team}>
+                        <TeamFlag code={item.away_flag_code} emoji={item.away_flag} name={item.away_team} size="mini" />
+                        <b>{item.away_team}</b>
                       </div>
                       <div className="participant-prediction-points-panel">
                         <b className={`participant-prediction-points ${points > 0 ? 'positive' : points < 0 ? 'negative' : ''}`}>
