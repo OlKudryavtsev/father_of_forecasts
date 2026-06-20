@@ -191,6 +191,21 @@ class MatchDetailsCache(Base):
     match = relationship("Match")
 
 
+class TournamentDataCache(Base):
+    """Shared API-Football cache for tournament-level Mini App data."""
+    __tablename__ = "tournament_data_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cache_key = Column(String, nullable=False, unique=True, index=True)
+    payload = Column(JSON, nullable=True)
+    sync_status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class MatchVideo(Base):
     __tablename__ = "match_videos"
 

@@ -130,6 +130,29 @@ class ApiFootballClient:
 
         return payload.get("response", [])
 
+    def get_world_cup_top_scorers(self, season: int = 2026) -> list[dict]:
+        """Return World Cup player goal leaders for the selected season."""
+        payload = self.get(
+            "/players/topscorers",
+            params={
+                "league": 1,
+                "season": season,
+            },
+        )
+        return payload.get("response", [])
+
+    def get_player_by_id(self, player_id: int | str, season: int = 2026) -> dict | None:
+        """Return a player profile/stat row when provider coverage allows it."""
+        payload = self.get(
+            "/players",
+            params={
+                "id": player_id,
+                "season": season,
+            },
+        )
+        response = payload.get("response", [])
+        return response[0] if response else None
+
     def get_world_cup_standings(self, season: int = 2026) -> list[dict]:
         payload = self.get(
             "/standings",

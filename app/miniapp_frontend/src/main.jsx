@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.31';
+const APP_VERSION = '2.8.32';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1640,7 +1640,7 @@ function DetailEmpty({ title, text }) {
   );
 }
 
-function MatchDetailsModal({ match, onClose, onPredict }) {
+function MatchDetailsModal({ match, onClose, onPredict, onOpenTeam, onOpenPlayer }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -1711,10 +1711,10 @@ function MatchDetailsModal({ match, onClose, onPredict }) {
             <div className="details-section-title"><span>⚽</span><strong>Голы</strong></div>
             <div className="details-goals-grid">
               <div className="details-goal-column home">
-                {homeScorers.map((item) => <p key={`${item.team}-${item.player}`}><b>{item.player}</b><span>{item.minutes.join(', ')}</span></p>)}
+                {homeScorers.map((item) => <button className="details-goal-player" key={`${item.team}-${item.player}`} onClick={() => item.player_id && onOpenPlayer?.(item.player_id)} disabled={!item.player_id}><b>{item.player}</b><span>{item.minutes.join(', ')}</span></button>)}
               </div>
               <div className="details-goal-column away">
-                {awayScorers.map((item) => <p key={`${item.team}-${item.player}`}><b>{item.player}</b><span>{item.minutes.join(', ')}</span></p>)}
+                {awayScorers.map((item) => <button className="details-goal-player" key={`${item.team}-${item.player}`} onClick={() => item.player_id && onOpenPlayer?.(item.player_id)} disabled={!item.player_id}><b>{item.player}</b><span>{item.minutes.join(', ')}</span></button>)}
               </div>
             </div>
           </section>
@@ -1757,9 +1757,8 @@ function MatchDetailsModal({ match, onClose, onPredict }) {
       <div className="match-scorers-list">
         {scorers.map((scorer) => (
           <article className={`match-scorer-row ${scorer.side || ''}`} key={`${scorer.team}-${scorer.player}`}>
-            {scorer.photo ? <img src={scorer.photo} alt="" /> : <span className="scorer-avatar">{(scorer.player || '?').slice(0, 1)}</span>}
-            <div><strong>{scorer.player}</strong><small>{scorer.team} · {scorer.minutes.join(', ')}</small></div>
-            <b>{scorer.goals}</b>
+            <button className="match-scorer-click" onClick={() => scorer.player_id && onOpenPlayer?.(scorer.player_id)} disabled={!scorer.player_id}>{scorer.photo ? <img src={scorer.photo} alt="" /> : <span className="scorer-avatar">{(scorer.player || '?').slice(0, 1)}</span>}<div><strong>{scorer.player}</strong><small>{scorer.minutes.join(', ')}</small></div></button>
+            <button className="match-scorer-team-link" onClick={() => scorer.team_id && onOpenTeam?.(scorer.team_id)} disabled={!scorer.team_id}>{scorer.team}</button><b>{scorer.goals}</b>
           </article>
         ))}
       </div>
@@ -1816,12 +1815,12 @@ function MatchDetailsModal({ match, onClose, onPredict }) {
       <section className="modal-card match-details-modal" role="dialog" aria-modal="true" aria-label="Детали матча">
         <button className="modal-close" onClick={onClose}>×</button>
         <header className="match-details-hero">
-          <div className="detail-team"><TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} name={currentMatch.home_team} /><strong>{currentMatch.home_team}</strong></div>
+          <button className="detail-team detail-team-button" onClick={() => currentMatch.home_team_id && onOpenTeam?.(currentMatch.home_team_id)} disabled={!currentMatch.home_team_id}><TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} name={currentMatch.home_team} /><strong>{currentMatch.home_team}</strong></button>
           <div className="detail-score">
             <b>{detailScore}</b>
             <span>{detailStatusLabel(details, currentMatch)}</span>
           </div>
-          <div className="detail-team"><TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} name={currentMatch.away_team} /><strong>{currentMatch.away_team}</strong></div>
+          <button className="detail-team detail-team-button" onClick={() => currentMatch.away_team_id && onOpenTeam?.(currentMatch.away_team_id)} disabled={!currentMatch.away_team_id}><TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} name={currentMatch.away_team} /><strong>{currentMatch.away_team}</strong></button>
         </header>
         <p className="match-details-date">{formatDateTime(currentMatch.starts_at)}{details.last_synced_at ? ' · данные обновлены' : ''}</p>
 
@@ -1935,7 +1934,158 @@ function groupMatchesByDay(matches) {
   return [...map.entries()];
 }
 
-function GroupTable({ group }) {
+function TeamProfileModal({ teamId, onClose, onOpenMatch, onOpenPlayer }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('matches');
+
+  useEffect(() => {
+    let active = true;
+    setData(null); setError(null);
+    api(`/api/webapp/tournament/teams/${teamId}`)
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, [teamId]);
+
+  if (error) return <div className="modal-backdrop"><section className="modal-card hub-modal"><button className="modal-close" onClick={onClose}>×</button><ErrorCard error={error} onRetry={() => window.location.reload()} /></section></div>;
+  if (!data) return <div className="modal-backdrop"><section className="modal-card hub-modal"><button className="modal-close" onClick={onClose}>×</button><LoadingCard text="Открываю профиль сборной..." /></section></div>;
+
+  const team = data.team || {};
+  const stats = team.stats || {};
+  const standing = team.standing;
+  const tabs = [['matches', 'Матчи'], ['scorers', 'Бомбардиры'], ['stats', 'Статистика']];
+
+  const body = activeTab === 'matches' ? (
+    <div className="hub-match-list">
+      {(data.matches || []).map((match) => (
+        <button className="hub-team-match" key={match.id} onClick={() => onOpenMatch?.(match)}>
+          <span className="hub-match-date">{formatDayTitle(match.starts_at)}</span>
+          <span className="hub-match-line">
+            <span><TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" /> {match.home_team}</span>
+            <b>{match.is_finished ? formatActualScore(match) : formatDateTime(match.starts_at).split(', ')[1] || '—'}</b>
+            <span>{match.away_team} <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" /></span>
+          </span>
+          <small>{match.is_finished ? 'Открыть детали матча' : 'Скоро матч'}</small>
+        </button>
+      ))}
+    </div>
+  ) : activeTab === 'scorers' ? (
+    (data.scorers || []).length ? <div className="hub-scorers-list">{data.scorers.map((player, index) => <TournamentScorerRow key={player.player_id || player.name} item={player} rank={index + 1} onOpenPlayer={onOpenPlayer} />)}</div> : <DetailEmpty title="Голов пока нет" text="Бомбардиры сборной появятся после первых матчей." />
+  ) : (
+    <div className="team-stats-grid">
+      <div><b>{stats.played || 0}</b><span>матчей</span></div>
+      <div><b>{stats.wins || 0}</b><span>побед</span></div>
+      <div><b>{stats.draws || 0}</b><span>ничьих</span></div>
+      <div><b>{stats.losses || 0}</b><span>поражений</span></div>
+      <div><b>{stats.goals_for || 0}:{stats.goals_against || 0}</b><span>мячи</span></div>
+      <div><b>{standing?.points ?? 0}</b><span>очков в группе</span></div>
+    </div>
+  );
+
+  return (
+    <div className="modal-backdrop hub-backdrop">
+      <section className="modal-card hub-modal team-profile-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <header className="hub-team-hero">
+          <TeamFlag code={team.flag_code} emoji={team.flag} name={team.name} />
+          <div><p className="muted small">{team.group_code ? `Группа ${team.group_code}` : 'Сборная'}</p><h2>{team.name}</h2><span>{standing ? `${standing.rank}-е место · ${standing.points} ${pointsLabel(standing.points)}` : 'Турнирная статистика'}</span></div>
+        </header>
+        <nav className="match-details-tabs hub-tabs">{tabs.map(([id, label]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{label}</button>)}</nav>
+        <div className="hub-modal-body">{body}</div>
+      </section>
+    </div>
+  );
+}
+
+function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let active = true;
+    setData(null); setError(null);
+    api(`/api/webapp/tournament/players/${playerId}`)
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, [playerId]);
+  if (error) return <div className="modal-backdrop"><section className="modal-card hub-modal"><button className="modal-close" onClick={onClose}>×</button><ErrorCard error={error} onRetry={() => window.location.reload()} /></section></div>;
+  if (!data) return <div className="modal-backdrop"><section className="modal-card hub-modal"><button className="modal-close" onClick={onClose}>×</button><LoadingCard text="Открываю профиль игрока..." /></section></div>;
+  const player = data.player || {};
+  return (
+    <div className="modal-backdrop hub-backdrop">
+      <section className="modal-card hub-modal player-profile-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <header className="player-profile-hero">
+          {player.photo ? <img src={player.photo} alt="" /> : <span>{(player.name || '?').slice(0, 1)}</span>}
+          <div><p className="muted small">{player.nationality || 'Игрок сборной'}</p><h2>{player.name}</h2>{player.team_id ? <button className="profile-team-link" onClick={() => onOpenTeam?.(player.team_id)}><TeamFlag code={player.team_flag_code} emoji={player.team_flag} name={player.team} size="mini" /> {player.team}</button> : <span>{player.team}</span>}</div>
+        </header>
+        <div className="player-stat-strip">
+          <div><b>{player.goals || 0}</b><span>голы</span></div><div><b>{player.assists || 0}</b><span>ассисты</span></div><div><b>{player.appearances || 0}</b><span>матчи</span></div><div><b>{player.minutes || 0}</b><span>минуты</span></div>
+        </div>
+        <h3 className="hub-subtitle">Матчи турнира</h3>
+        {(data.matches || []).length ? (
+          <div className="hub-match-list">
+            {data.matches.map((match) => (
+              <button className="hub-team-match" key={match.match_id} onClick={() => onOpenMatch?.({ id: match.match_id, ...match })}>
+                <span className="hub-match-line">
+                  <span><TeamFlag code={match.home_flag_code} name={match.home_team} size="mini" /> {match.home_team}</span>
+                  <b>{match.is_finished ? `${match.score_home}:${match.score_away}` : '—'}</b>
+                  <span>{match.away_team} <TeamFlag code={match.away_flag_code} name={match.away_team} size="mini" /></span>
+                </span>
+                <small>{match.goals ? `⚽ ${match.goals}` : ''}{match.assists ? ` · 🅰 ${match.assists}` : ''}{match.minutes ? ` · ${match.minutes} мин` : ''}</small>
+              </button>
+            ))}
+          </div>
+        ) : <DetailEmpty title="Матчевая статистика еще не синхронизирована" text="Она появится после обновления деталей матчей." />}
+      </section>
+    </div>
+  );
+}
+
+function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
+  const canOpenPlayer = Boolean(item.player_id);
+  return <article className="hub-scorer-row">
+    <span className="hub-rank">{rank}</span>
+    <button className="hub-player-button" onClick={() => canOpenPlayer && onOpenPlayer?.(item.player_id)} disabled={!canOpenPlayer}>
+      {item.photo ? <img src={item.photo} alt="" /> : <span className="hub-player-avatar">{(item.name || '?').slice(0, 1)}</span>}
+      <span><strong>{item.name}</strong><small>{item.appearances ? `${item.appearances} матч.` : 'Турнир'}</small></span>
+    </button>
+    <button className="hub-scorer-team" onClick={() => item.team_id && onOpenTeam?.(item.team_id)} disabled={!item.team_id || !onOpenTeam}><TeamFlag code={item.team_flag_code} emoji={item.team_flag} name={item.team} size="mini" /><small>{item.team}</small></button>
+    <b>{item.goals || 0}</b><span className="hub-goal-label">гол</span>
+  </article>;
+}
+
+function TournamentHub({ initialMode = 'tournament', onOpenMatch, onOpenTeam, onOpenPlayer }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [selectedGroup, setSelectedGroup] = useState('A');
+  const [mode, setMode] = useState(initialMode);
+  useEffect(() => {
+    let active = true;
+    api('/api/webapp/tournament/overview').then((result) => {
+      if (!active) return;
+      setData(result);
+      const first = result.groups?.[0]?.group_code;
+      if (!(result.groups || []).some((group) => group.group_code === selectedGroup) && first) setSelectedGroup(first);
+    }).catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, []);
+  if (error) return <ErrorCard error={error} onRetry={() => window.location.reload()} />;
+  if (!data) return <LoadingCard text="Загружаю турнирный центр..." />;
+  const group = (data.groups || []).find((item) => item.group_code === selectedGroup) || data.groups?.[0];
+  const scorers = data.top_scorers?.items || [];
+  return <div className="tournament-hub">
+    <div className="hub-switcher"><button className={mode === 'tournament' ? 'active' : ''} onClick={() => setMode('tournament')}>Турнир</button><button className={mode === 'scorers' ? 'active' : ''} onClick={() => setMode('scorers')}>Бомбардиры</button></div>
+    {mode === 'tournament' ? <>
+      <div className="group-tab-strip">{(data.groups || []).map((item) => <button key={item.group_code} className={selectedGroup === item.group_code ? 'active' : ''} onClick={() => setSelectedGroup(item.group_code)}>Группа {item.group_code}</button>)}</div>
+      <GroupTable group={group} onTeam={onOpenTeam} />
+      <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button onClick={() => setMode('scorers')}>Все →</button></header><div className="hub-scorers-list compact">{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
+    </> : <section className="hub-scorers-card"><header><div><span className="section-label">Чемпионат мира 2026</span><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />) : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
+  </div>;
+}
+
+function GroupTable({ group, onTeam }) {
   if (!group) return null;
   return (
     <section className={`group-table-card group-color group-${group.group_code}`}>
@@ -1947,27 +2097,14 @@ function GroupTable({ group }) {
         </div>
       </div>
       <div className="standings-table">
-        <div className="standings-row headings">
-          <span>#</span><span>Сборная</span><span>И</span><span>В</span><span>Н</span><span>П</span><span>М</span><span>±</span><span>О</span>
-        </div>
+        <div className="standings-row headings"><span>#</span><span>Сборная</span><span>И</span><span>В</span><span>Н</span><span>П</span><span>М</span><span>±</span><span>О</span></div>
         {group.rows.map((row) => (
-          <div key={row.team} className={`standings-row zone-${row.qualification_zone}`}>
-            <span className="rank-cell">{row.rank}</span>
-            <span className="team-name">{row.flag} {row.team}</span>
-            <span>{row.played}</span>
-            <span>{row.wins}</span>
-            <span>{row.draws}</span>
-            <span>{row.losses}</span>
-            <span>{row.goals_for}:{row.goals_against}</span>
-            <span>{row.goal_difference}</span>
-            <strong>{row.points}</strong>
-          </div>
+          <button key={row.team} className={`standings-row zone-${row.qualification_zone} ${row.team_id ? 'clickable' : ''}`} onClick={() => row.team_id && onTeam?.(row.team_id)} disabled={!row.team_id}>
+            <span className="rank-cell">{row.rank}</span><span className="team-name"><TeamFlag code={row.flag_code} emoji={row.flag} name={row.team} size="mini" /> {row.team}</span><span>{row.played}</span><span>{row.wins}</span><span>{row.draws}</span><span>{row.losses}</span><span>{row.goals_for}:{row.goals_against}</span><span>{row.goal_difference}</span><strong>{row.points}</strong>
+          </button>
         ))}
       </div>
-      <div className="legend muted small">
-        <span><i className="legend-direct" /> 1–2 · 1/8</span>
-        <span><i className="legend-playoff" /> 3 · плей-офф</span>
-      </div>
+      <div className="legend muted small"><span><i className="legend-direct" /> 1–2 · 1/8</span><span><i className="legend-playoff" /> 3 · плей-офф</span></div>
     </section>
   );
 }
@@ -1997,82 +2134,48 @@ function activeLeagueLabel(leagues = [], activeLeagueId) {
 function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLeagueChange }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
+  const [centerMode, setCenterMode] = useState('matches');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [detailsMatch, setDetailsMatch] = useState(null);
+  const [teamId, setTeamId] = useState(null);
+  const [playerId, setPlayerId] = useState(null);
   async function load() {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ scope });
       if (group) params.set('group_code', group);
       if (activeLeagueId) params.set('league_id', String(activeLeagueId));
       setData(await api(`/api/webapp/match-center?${params.toString()}`));
-    } catch (err) {
-      setError(err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err); } finally { setLoading(false); }
   }
-
   useEffect(() => { load(); }, [scope, group, activeLeagueId]);
-
   const grouped = useMemo(() => groupMatchesByDay(data?.matches || []), [data]);
   const selectedStanding = group ? data?.standings?.[0] : null;
   const leagueName = activeLeagueLabel(leagues, activeLeagueId);
-
+  const openMatch = (match) => { setTeamId(null); setPlayerId(null); setDetailsMatch(match); };
+  const openTeam = (id) => { if (!id) return; setDetailsMatch(null); setPlayerId(null); setTeamId(id); };
+  const openPlayer = (id) => { if (!id) return; setDetailsMatch(null); setTeamId(null); setPlayerId(id); };
   if (error) return <ErrorCard error={error} onRetry={load} />;
-
-  return (
-    <main className="screen-content">
-      <div className="section-label">Матч-центр</div>
-      <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
-
+  return <main className="screen-content">
+    <div className="section-label">Матч-центр</div>
+    <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
+    <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => setCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => setCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => setCenterMode('scorers')}>Бомбардиры</button></div>
+    {centerMode !== 'matches' ? <TournamentHub initialMode={centerMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
       <div className="filter-strip modern-filters">
-        <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}>
-          <Icon name="star" />
-          <span>Все</span>
-        </button>
-        <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}>
-          <Icon name="ball" />
-          <span>Будущие</span>
-        </button>
-        <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}>
-          <Icon name="check" />
-          <span>Результаты</span>
-        </button>
-        {(data?.groups || []).map((item) => (
-          <button key={item.group_code} className={`group-color group-${item.group_code} ${group === item.group_code ? 'active group' : ''}`} onClick={() => { setGroup(item.group_code); setScope('all'); }}>
-            <b>{item.group_code}</b>
-            <span>группа</span>
-          </button>
-        ))}
+        <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}><Icon name="star" /><span>Все</span></button>
+        <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}><Icon name="ball" /><span>Будущие</span></button>
+        <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}><Icon name="check" /><span>Результаты</span></button>
+        {(data?.groups || []).map((item) => <button key={item.group_code} className={`group-color group-${item.group_code} ${group === item.group_code ? 'active group' : ''}`} onClick={() => { setGroup(item.group_code); setScope('all'); }}><b>{item.group_code}</b><span>группа</span></button>)}
       </div>
-
-      <div className="match-center-results">
-        {loading && !data ? <LoadingCard /> : (
-          <>
-            {selectedStanding && <GroupTable group={selectedStanding} />}
-            {loading && <LoadingCard text="Обновляю список..." />}
-            {!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}
-            {!loading && grouped.map(([day, matches]) => (
-              <section key={day} className="match-day">
-                <div className="day-heading">
-                  <span>{formatDayTitle(matches[0]?.starts_at)}</span>
-                  <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
-                </div>
-                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={setDetailsMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}
-              </section>
-            ))}
-          </>
-        )}
-      </div>
-      {detailsMatch && <MatchDetailsModal match={detailsMatch} onClose={() => setDetailsMatch(null)} onPredict={onPredict} />}
-    </main>
-  );
+      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
+    </>}
+    {detailsMatch && <MatchDetailsModal match={detailsMatch} onClose={() => setDetailsMatch(null)} onPredict={onPredict} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
+    {teamId && <TeamProfileModal teamId={teamId} onClose={() => setTeamId(null)} onOpenMatch={openMatch} onOpenPlayer={openPlayer} />}
+    {playerId && <PlayerProfileModal playerId={playerId} onClose={() => setPlayerId(null)} onOpenTeam={openTeam} onOpenMatch={openMatch} />}
+  </main>;
 }
-
 function EmptyState({ iconName = 'ball', title, text }) {
   return (
     <div className="empty-state">

@@ -140,6 +140,8 @@ def _serialize_event(event: dict[str, Any], home_api_name: str | None, away_api_
         "minute_sort": int((event.get("time") or {}).get("elapsed") or 0),
         "side": side,
         "team": team_name,
+        "team_id": team.get("id"),
+        "player_id": player.get("id"),
         "type": str(event.get("type") or ""),
         "label": _event_type(event),
         "icon": _event_icon(event),
@@ -164,7 +166,9 @@ def _serialize_scorers(events: list[dict[str, Any]], home_api_name: str | None, 
         key = (team, player)
         row = grouped.setdefault(key, {
             "player": player,
+            "player_id": (raw.get("player") or {}).get("id"),
             "team": team,
+            "team_id": (raw.get("team") or {}).get("id"),
             "side": side,
             "goals": 0,
             "minutes": [],
@@ -218,6 +222,7 @@ def _serialize_lineups(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for entry in team_block.get("startXI") or []:
             player = entry.get("player") or {}
             start.append({
+                "id": player.get("id"),
                 "name": player.get("name") or "",
                 "number": player.get("number"),
                 "position": player.get("pos") or "",
@@ -225,6 +230,7 @@ def _serialize_lineups(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for entry in team_block.get("substitutes") or []:
             player = entry.get("player") or {}
             bench.append({
+                "id": player.get("id"),
                 "name": player.get("name") or "",
                 "number": player.get("number"),
                 "position": player.get("pos") or "",

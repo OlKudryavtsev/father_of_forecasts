@@ -108,6 +108,7 @@ from app.services.facts import daily_facts_loop
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.api_football_auto_sync import auto_sync_results_and_fantasy
 from app.services.match_details import sync_active_match_details
+from app.services.tournament_hub import sync_tournament_hub_cache
 from app.db import SessionLocal
 import os
 
@@ -278,6 +279,25 @@ async def match_details_cache_loop():
         await asyncio.sleep(interval_seconds)
 
 
+async def tournament_hub_cache_loop():
+    """Warm shared tournament data (currently the top-scorer table)."""
+    enabled = os.getenv("TOURNAMENT_HUB_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = max(300, int(os.getenv("TOURNAMENT_HUB_AUTOSYNC_INTERVAL_SECONDS", "900")))
+    while True:
+        db = SessionLocal()
+        try:
+            result = sync_tournament_hub_cache(db)
+            print(f"Tournament hub cache sync: {result}")
+        except Exception as error:
+            print(f"Tournament hub cache sync failed: {error}")
+        finally:
+            db.close()
+        await asyncio.sleep(interval_seconds)
+
+
 async def api_football_auto_sync_loop():
     """Periodically update recently finished match results and Fantasy stats."""
     enabled = os.getenv("API_FOOTBALL_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
@@ -310,6 +330,7 @@ async def main():
     asyncio.create_task(matchtv_videos_loop())
     asyncio.create_task(api_football_auto_sync_loop())
     asyncio.create_task(match_details_cache_loop())
+    asyncio.create_task(tournament_hub_cache_loop())
 
     await dp.start_polling(bot)
 

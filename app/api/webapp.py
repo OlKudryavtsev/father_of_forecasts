@@ -49,6 +49,7 @@ from app.services.tournament import get_tournament_starts_at, is_tournament_star
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.match_details import build_match_details_payload, sync_match_details_cache
+from app.services.tournament_hub import find_top_scorer, get_top_scorers, player_match_rows
 from app.services.leagues import (
     create_user_league,
     deactivate_league,
@@ -179,6 +180,8 @@ def _serialize_match(match: Match, user_prediction: Prediction | None = None) ->
         "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
         "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
         "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
+        "home_team_id": match.home_external_team_id,
+        "away_team_id": match.away_external_team_id,
         "stage": match.stage,
         "match_round": match.match_round,
         "group_code": match.group_code,
@@ -3552,13 +3555,15 @@ def get_random_archive_card(
     }
 
 
-def _empty_group_row(team_name: str, api_name: str | None = None) -> dict:
+def _empty_group_row(team_name: str, api_name: str | None = None, team_id: int | None = None) -> dict:
     """Create an empty group standings row for a national team."""
     display_name = get_team_name_ru(team_name)
 
     return {
         "team": display_name,
         "flag": get_team_flag(display_name, api_name),
+        "flag_code": get_team_flag_code(display_name, api_name),
+        "team_id": team_id,
         "played": 0,
         "wins": 0,
         "draws": 0,
@@ -3689,9 +3694,9 @@ def _build_group_standings(db: Session) -> list[dict]:
         if group_code not in groups:
             groups[group_code] = {}
 
-        for team_name, api_name in [
-            (match.home_team, getattr(match, "home_team_api_name", None)),
-            (match.away_team, getattr(match, "away_team_api_name", None)),
+        for team_name, api_name, team_id in [
+            (match.home_team, getattr(match, "home_team_api_name", None), getattr(match, "home_external_team_id", None)),
+            (match.away_team, getattr(match, "away_team_api_name", None), getattr(match, "away_external_team_id", None)),
         ]:
             if not team_name or team_name == "TBD":
                 continue
@@ -3699,7 +3704,7 @@ def _build_group_standings(db: Session) -> list[dict]:
             display_name = get_team_name_ru(team_name)
 
             if display_name not in groups[group_code]:
-                groups[group_code][display_name] = _empty_group_row(team_name, api_name)
+                groups[group_code][display_name] = _empty_group_row(team_name, api_name, team_id)
 
         if bool(match.is_finished):
             home_name = get_team_name_ru(match.home_team)
@@ -3741,6 +3746,109 @@ def _build_group_standings(db: Session) -> list[dict]:
         )
 
     return result
+
+
+@router.get("/tournament/overview")
+def get_tournament_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return tournament-wide navigation data from local standings plus shared cache."""
+    del current_user  # authenticated access is enough; data is public within the app.
+    return {
+        "groups": _build_group_standings(db),
+        "top_scorers": get_top_scorers(db, refresh=True, limit=20),
+    }
+
+
+def _team_profile_matches(db: Session, team_id: int) -> list[Match]:
+    return (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            (Match.home_external_team_id == team_id) | (Match.away_external_team_id == team_id),
+        )
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+
+@router.get("/tournament/teams/{team_id}")
+def get_tournament_team_profile(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a national team profile built from current local tournament data."""
+    matches = _team_profile_matches(db, team_id)
+    if not matches:
+        raise HTTPException(status_code=404, detail="Сборная не найдена в матчах турнира")
+
+    first = matches[0]
+    is_home = int(first.home_external_team_id or 0) == int(team_id)
+    raw_name = first.home_team if is_home else first.away_team
+    api_name = first.home_team_api_name if is_home else first.away_team_api_name
+    team_name = get_team_name_ru(raw_name)
+    group_code = next((item.group_code for item in matches if item.group_code), None)
+
+    standings = _build_group_standings(db)
+    standing_row = None
+    if group_code:
+        group = next((item for item in standings if item["group_code"] == group_code), None)
+        if group:
+            standing_row = next((row for row in group["rows"] if row["team"] == team_name), None)
+
+    finished = [match for match in matches if match.is_finished and match.score_home is not None and match.score_away is not None]
+    wins = draws = losses = goals_for = goals_against = 0
+    for match in finished:
+        home_side = int(match.home_external_team_id or 0) == int(team_id)
+        own, other = (int(match.score_home), int(match.score_away)) if home_side else (int(match.score_away), int(match.score_home))
+        goals_for += own
+        goals_against += other
+        if own > other:
+            wins += 1
+        elif own == other:
+            draws += 1
+        else:
+            losses += 1
+
+    predictions = _prediction_by_match_id(db, current_user, matches)
+    scorers = [item for item in get_top_scorers(db, refresh=True, limit=50)["items"] if int(item.get("team_id") or -1) == int(team_id)]
+
+    return {
+        "team": {
+            "id": team_id,
+            "name": team_name,
+            "api_name": api_name or raw_name,
+            "flag": get_team_flag(team_name, api_name),
+            "flag_code": get_team_flag_code(team_name, api_name),
+            "group_code": group_code,
+            "standing": standing_row,
+            "stats": {
+                "played": len(finished), "wins": wins, "draws": draws, "losses": losses,
+                "goals_for": goals_for, "goals_against": goals_against,
+            },
+        },
+        "matches": [_serialize_match(match, predictions.get(match.id)) for match in matches],
+        "scorers": scorers[:10],
+    }
+
+
+@router.get("/tournament/players/{player_id}")
+def get_tournament_player_profile(
+    player_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return cached player tournament card and already-synced appearances."""
+    del current_user
+    player = find_top_scorer(db, player_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Игрок пока не найден в кэше турнира")
+    return {
+        "player": player,
+        "matches": player_match_rows(db, player_id),
+    }
 
 
 @router.get("/matches/{match_id}/emotion")
