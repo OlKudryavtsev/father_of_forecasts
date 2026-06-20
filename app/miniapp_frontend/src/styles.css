@@ -8180,3 +8180,142 @@ body,
     padding-bottom: calc(24px + env(safe-area-inset-bottom));
   }
 }
+
+
+/* v2.8.34 — tournament in-place navigation and mobile density refinements */
+.match-center-mode-content {
+  min-height: 340px;
+  padding-bottom: calc(var(--bottom-navigation-clearance) + 16px);
+}
+
+/* Keep the selector and league context stable; only this content pane changes
+   when users switch between Matches, Tournament and Scorers. */
+.match-center-mode-content > .tournament-hub,
+.match-center-mode-content > .match-center-results,
+.match-center-mode-content > .filter-strip {
+  animation: match-center-pane-in .16s ease-out;
+}
+
+@keyframes match-center-pane-in {
+  from { opacity: .72; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Prevent scrolling bodies from visually touching the match-details tabs. */
+.match-details-tabs {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  background: #111827;
+}
+.match-details-body {
+  position: relative;
+  z-index: 1;
+  padding-top: 22px;
+}
+.match-event-timeline,
+.match-stats-list {
+  padding-top: 3px;
+}
+.app.theme-light .match-details-tabs { background: #f8fbff; }
+
+/* Multiple compact group tables for the active U.S. matchday. */
+.group-multi-select {
+  position: relative;
+  z-index: 5;
+  border: 1px solid rgba(148,163,184,.16);
+  border-radius: 17px;
+  background: rgba(15,23,42,.32);
+}
+.group-multi-select summary {
+  min-height: 43px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.group-multi-select summary::-webkit-details-marker { display: none; }
+.group-multi-select summary > span { color: var(--muted); font-size: 11px; font-weight: 800; }
+.group-multi-select summary > b { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.group-multi-select summary > i { color: #bfd2ff; font-size: 17px; font-style: normal; transition: transform .16s ease; }
+.group-multi-select[open] summary > i { transform: rotate(180deg); }
+.group-multi-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0 10px 11px;
+}
+.group-multi-options label {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid rgba(148,163,184,.13);
+  border-radius: 11px;
+  background: rgba(255,255,255,.025);
+  cursor: pointer;
+}
+.group-multi-options input { position: absolute; opacity: 0; pointer-events: none; }
+.group-multi-options label:has(input:checked) { border-color: rgba(90,141,255,.42); background: rgba(90,141,255,.12); }
+.group-picker-dot {
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  color: white;
+  background: var(--group-color, #5a8dff);
+  font-size: 10px;
+  font-weight: 900;
+}
+.group-multi-options b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 10px; }
+.group-selection-hint { margin: -5px 2px 0; color: var(--muted); font-size: 10px; line-height: 1.35; }
+.tournament-group-tables { display: grid; gap: 10px; }
+.tournament-hub .group-table-card { margin-bottom: 0; padding: 13px; border-radius: 20px; }
+.tournament-hub .group-header { gap: 10px; margin-bottom: 9px; }
+.tournament-hub .group-letter { width: 42px; height: 42px; border-radius: 13px; font-size: 22px; }
+.tournament-hub .group-header h2 { font-size: 19px; }
+.tournament-hub .group-header p { margin: 2px 0 0; font-size: 10px; line-height: 1.25; }
+.tournament-hub .standings-row { min-height: 36px; padding: 6px 7px; }
+.tournament-hub .standings-row.headings { min-height: 27px; padding-top: 4px; padding-bottom: 4px; }
+.tournament-hub .legend { margin-top: 8px; gap: 11px; font-size: 10px; }
+.tournament-hub .legend i { width: 9px; height: 9px; margin-right: 4px; }
+
+/* A flag is the most useful team marker in a narrow scorer row. */
+.hub-scorer-row { grid-template-columns: 24px minmax(0, 1fr) 30px 28px; }
+.hub-scorer-team { width: 30px; min-height: 30px; display: grid; place-items: center; border-radius: 10px; background: rgba(90,141,255,.10); }
+.hub-scorer-team .flag,
+.hub-scorer-team .flag img { width: 24px; height: 17px; }
+
+.app.theme-light .group-multi-select { background: rgba(255,255,255,.72); border-color: rgba(15,23,42,.10); }
+.app.theme-light .group-multi-options label { background: rgba(15,23,42,.025); border-color: rgba(15,23,42,.08); }
+.app.theme-light .group-multi-options label:has(input:checked) { background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.25); }
+
+@media (max-width: 520px) {
+  .match-center-mode-content { min-height: 310px; padding-bottom: calc(var(--bottom-navigation-clearance) + 8px); }
+  .match-details-body { padding-top: 19px; }
+  .group-multi-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .group-multi-options label { min-height: 34px; }
+  .tournament-hub .group-table-card { padding: 10px; border-radius: 18px; }
+  .tournament-hub .group-header { grid-template-columns: 38px minmax(0, 1fr); gap: 8px; margin-bottom: 7px; }
+  .tournament-hub .group-letter { width: 38px; height: 38px; border-radius: 11px; font-size: 19px; }
+  .tournament-hub .group-header h2 { font-size: 17px; }
+  .tournament-hub .group-header p { font-size: 9px; }
+  .tournament-hub .standings-row { grid-template-columns: 20px minmax(74px, 1fr) 19px 19px 19px 19px 34px 23px 24px; gap: 2px; min-height: 31px; padding: 4px; font-size: 10.5px; }
+  .tournament-hub .standings-row.headings { min-height: 24px; padding-top: 3px; padding-bottom: 3px; font-size: 8px; }
+  .tournament-hub .standings-row.zone-direct::before,
+  .tournament-hub .standings-row.zone-playoff::before { left: 2px; width: 3px; height: 17px; }
+  .tournament-hub .team-name .flag,
+  .tournament-hub .team-name .flag img { width: 18px; height: 13px; }
+  .tournament-hub .legend { gap: 8px; font-size: 9px; }
+  .hub-scorer-row { grid-template-columns: 20px minmax(0, 1fr) 26px 27px; gap: 5px; min-height: 52px; }
+  .hub-scorer-team { width: 26px; min-height: 26px; border-radius: 9px; }
+  .hub-scorer-team .flag,
+  .hub-scorer-team .flag img { width: 22px; height: 16px; }
+}

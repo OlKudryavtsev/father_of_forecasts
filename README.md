@@ -1237,3 +1237,7 @@ scripts/data/
 ## v2.8.31 — Детали матча
 
 См. `RELEASE_V2_8_31_MATCH_DETAILS.md`.
+
+## v2.8.34 — Tournament UX refinements
+
+См. `RELEASE_V2_8_34_TOURNAMENT_UX_REFINEMENTS.md`.

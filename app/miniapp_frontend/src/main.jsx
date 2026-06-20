@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.33';
+const APP_VERSION = '2.8.34';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2050,39 +2050,81 @@ function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
 
 function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
   const canOpenPlayer = Boolean(item.player_id);
+  const canOpenTeam = Boolean(item.team_id && onOpenTeam);
   return <article className="hub-scorer-row">
     <span className="hub-rank">{rank}</span>
     <button className="hub-player-button" onClick={() => canOpenPlayer && onOpenPlayer?.(item.player_id)} disabled={!canOpenPlayer}>
       {item.photo ? <img src={item.photo} alt="" /> : <span className="hub-player-avatar">{(item.name || '?').slice(0, 1)}</span>}
       <span><strong>{item.name}</strong><small>{item.appearances ? `${item.appearances} матч.` : 'Турнир'}</small></span>
     </button>
-    <button className="hub-scorer-team" onClick={() => item.team_id && onOpenTeam?.(item.team_id)} disabled={!item.team_id || !onOpenTeam}><TeamFlag code={item.team_flag_code} emoji={item.team_flag} name={item.team} size="mini" /><small>{item.team}</small></button>
-    <b>{item.goals || 0}</b><span className="hub-goal-label">гол</span>
+    <button className="hub-scorer-team" onClick={() => canOpenTeam && onOpenTeam?.(item.team_id)} disabled={!canOpenTeam} aria-label={item.team ? `Открыть сборную ${item.team}` : 'Открыть сборную'} title={item.team || 'Сборная'}>
+      <TeamFlag code={item.team_flag_code} emoji={item.team_flag} name={item.team} size="mini" />
+    </button>
+    <b>{item.goals || 0}</b>
   </article>;
 }
 
 function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenTeam, onOpenPlayer }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [selectedGroup, setSelectedGroup] = useState('A');
+  const [selectedGroups, setSelectedGroups] = useState([]);
+
   useEffect(() => {
     let active = true;
     api('/api/webapp/tournament/overview').then((result) => {
       if (!active) return;
       setData(result);
-      const first = result.groups?.[0]?.group_code;
-      if (!(result.groups || []).some((group) => group.group_code === selectedGroup) && first) setSelectedGroup(first);
+      const available = (result.groups || []).map((group) => group.group_code);
+      const defaults = (result.default_group_codes || []).filter((code) => available.includes(code));
+      setSelectedGroups((current) => {
+        const validCurrent = current.filter((code) => available.includes(code));
+        if (validCurrent.length) return validCurrent;
+        return defaults.length ? defaults : available.slice(0, 1);
+      });
     }).catch((err) => { if (active) setError(err); });
     return () => { active = false; };
   }, []);
+
+  function toggleGroup(code) {
+    setSelectedGroups((current) => {
+      if (current.includes(code)) {
+        // Keep at least one table visible: this prevents an accidental empty tournament screen.
+        return current.length === 1 ? current : current.filter((item) => item !== code);
+      }
+      return [...current, code].sort();
+    });
+  }
+
   if (error) return <ErrorCard error={error} onRetry={() => window.location.reload()} />;
   if (!data) return <LoadingCard text="Загружаю турнирный центр..." />;
-  const group = (data.groups || []).find((item) => item.group_code === selectedGroup) || data.groups?.[0];
+
+  const groups = data.groups || [];
+  const visibleGroups = groups.filter((item) => selectedGroups.includes(item.group_code));
   const scorers = data.top_scorers?.items || [];
+  const selectedLabel = visibleGroups.length ? visibleGroups.map((item) => item.group_code).join(', ') : 'не выбраны';
+
   return <div className="tournament-hub">
     {mode === 'tournament' ? <>
-      <div className="group-tab-strip">{(data.groups || []).map((item) => <button key={item.group_code} className={selectedGroup === item.group_code ? 'active' : ''} onClick={() => setSelectedGroup(item.group_code)}>Группа {item.group_code}</button>)}</div>
-      <GroupTable group={group} onTeam={onOpenTeam} />
+      <details className="group-multi-select">
+        <summary>
+          <span>Группы</span>
+          <b>{selectedLabel}</b>
+          <i aria-hidden="true">⌄</i>
+        </summary>
+        <div className="group-multi-options">
+          {groups.map((item) => (
+            <label key={item.group_code}>
+              <input type="checkbox" checked={selectedGroups.includes(item.group_code)} onChange={() => toggleGroup(item.group_code)} />
+              <span className={`group-picker-dot group-${item.group_code}`}>{item.group_code}</span>
+              <b>Группа {item.group_code}</b>
+            </label>
+          ))}
+        </div>
+      </details>
+      <p className="group-selection-hint">По умолчанию выбраны группы с матчами текущего игрового дня по времени США.</p>
+      <div className="tournament-group-tables">
+        {visibleGroups.map((group) => <GroupTable key={group.group_code} group={group} onTeam={onOpenTeam} />)}
+      </div>
       <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact">{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
     </> : <section className="hub-scorers-card"><header><div><span className="section-label">Чемпионат мира 2026</span><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />) : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
   </div>;
@@ -2165,6 +2207,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
     <div className="section-label">Матч-центр</div>
     <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
     <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => setCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => setCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => setCenterMode('scorers')}>Бомбардиры</button></div>
+    <section className="match-center-mode-content" aria-live="polite">
     {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={setCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
       <div className="filter-strip modern-filters">
         <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}><Icon name="star" /><span>Все</span></button>
@@ -2174,6 +2217,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
       </div>
       <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
     </>}
+    </section>
     {detailsMatch && <MatchDetailsModal match={detailsMatch} onClose={() => setDetailsMatch(null)} onPredict={onPredict} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
     {teamId && <TeamProfileModal teamId={teamId} onClose={() => setTeamId(null)} onOpenMatch={openMatch} onOpenPlayer={openPlayer} />}
     {playerId && <PlayerProfileModal playerId={playerId} onClose={() => setPlayerId(null)} onOpenTeam={openTeam} onOpenMatch={openMatch} />}

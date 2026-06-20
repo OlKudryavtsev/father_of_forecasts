@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 from collections import Counter
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import json
 import os
 import random
@@ -68,6 +69,7 @@ from app.team_names import get_team_name_ru
 from app.wc2026_sync import get_fixture_score, get_winner_side
 
 router = APIRouter(prefix="/api/webapp", tags=["Telegram Mini App"])
+US_TOURNAMENT_TIMEZONE = ZoneInfo(os.getenv("TOURNAMENT_DAY_TIMEZONE", "America/New_York"))
 
 
 class PredictionPayload(BaseModel):
@@ -3748,6 +3750,44 @@ def _build_group_standings(db: Session) -> list[dict]:
     return result
 
 
+def _default_tournament_group_codes(db: Session) -> list[str]:
+    """Return groups playing on the current U.S. tournament day.
+
+    The World Cup schedule is organized around North American local dates. When
+    there are no matches today, fall back to the nearest upcoming matchday (or
+    the latest completed day once the group stage is over) so the hub is never
+    empty on first open.
+    """
+    rows = (
+        db.query(Match.group_code, Match.starts_at)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.group_code.isnot(None),
+        )
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+    by_day: dict = {}
+    for group_code, starts_at in rows:
+        code = str(group_code or "").strip()
+        if not code or not starts_at:
+            continue
+        day = _ensure_utc(starts_at).astimezone(US_TOURNAMENT_TIMEZONE).date()
+        by_day.setdefault(day, set()).add(code)
+
+    if not by_day:
+        return []
+
+    today = datetime.now(US_TOURNAMENT_TIMEZONE).date()
+    if today in by_day:
+        target_day = today
+    else:
+        upcoming = sorted(day for day in by_day if day > today)
+        target_day = upcoming[0] if upcoming else max(by_day)
+
+    return sorted(by_day.get(target_day, set()))
+
+
 @router.get("/tournament/overview")
 def get_tournament_overview(
     db: Session = Depends(get_db),
@@ -3757,6 +3797,7 @@ def get_tournament_overview(
     del current_user  # authenticated access is enough; data is public within the app.
     return {
         "groups": _build_group_standings(db),
+        "default_group_codes": _default_tournament_group_codes(db),
         "top_scorers": get_top_scorers(db, refresh=True, limit=20),
     }
 
