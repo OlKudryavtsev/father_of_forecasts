@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.35';
+const APP_VERSION = '2.8.36';
 const FANTASY_UI_ENABLED = false;
 
 

@@ -50,7 +50,7 @@ from app.services.tournament import get_tournament_starts_at, is_tournament_star
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.match_details import build_match_details_payload, sync_match_details_cache
-from app.services.tournament_hub import find_top_scorer, get_top_scorers, player_match_rows
+from app.services.tournament_hub import find_top_scorer, get_team_scorers, get_top_scorers, player_match_rows, resolve_player_by_name
 from app.services.leagues import (
     create_user_league,
     deactivate_league,
@@ -1821,47 +1821,8 @@ def _prediction_team_status(
 
 
 def _find_prediction_scorer(db: Session, player_name: str | None) -> dict | None:
-    """Resolve a saved scorer name to a cached API-Football player without forcing an API call."""
-    name = str(player_name or "").strip()
-    if not name:
-        return None
-
-    def normalize(value: str | None) -> str:
-        return re.sub(r"[^a-zа-я0-9]+", " ", str(value or "").casefold()).strip()
-
-    needle = normalize(name)
-    scorer_rows = get_top_scorers(db, refresh=False, limit=50).get("items") or []
-    for row in scorer_rows:
-        if normalize(row.get("name")) == needle:
-            return row
-
-    fantasy_rows = (
-        db.query(FantasyPlayer)
-        .filter(FantasyPlayer.tournament_code == TOURNAMENT_CODE)
-        .order_by(FantasyPlayer.is_active.desc())
-        .all()
-    )
-    for player in fantasy_rows:
-        if normalize(player.player_name) == needle:
-            return {
-                "player_id": player.external_player_id,
-                "name": player.player_name,
-                "photo": player.photo or "",
-                "team_id": player.external_team_id,
-                "team": player.team_display_name,
-                "team_api_name": player.team_name,
-                "team_flag": player.team_flag or get_team_flag(player.team_display_name, player.team_name),
-                "team_flag_code": get_team_flag_code(player.team_display_name, player.team_name),
-            }
-
-    # A small tolerance for saved "name + surname" versus provider punctuation.
-    needle_parts = set(needle.split())
-    if needle_parts:
-        for row in scorer_rows:
-            candidate_parts = set(normalize(row.get("name")).split())
-            if needle_parts.issubset(candidate_parts) or candidate_parts.issubset(needle_parts):
-                return row
-    return None
+    """Resolve a tournament-prediction scorer via cache, Fantasy roster and aliases."""
+    return resolve_player_by_name(db, player_name, refresh=False)
 
 
 def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db: Session | None = None) -> dict | None:
@@ -4030,7 +3991,7 @@ def get_tournament_team_profile(
             losses += 1
 
     predictions = _prediction_by_match_id(db, current_user, matches)
-    scorers = [item for item in get_top_scorers(db, refresh=True, limit=50)["items"] if int(item.get("team_id") or -1) == int(team_id)]
+    scorers = get_team_scorers(db, team_id, refresh=True, limit=50)
 
     return {
         "team": {

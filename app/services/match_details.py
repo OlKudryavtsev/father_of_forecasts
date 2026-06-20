@@ -308,12 +308,15 @@ def sync_match_details_cache(
 
     client = client or ApiFootballClient()
     errors: list[str] = []
+    successful_parts = 0
 
     fixture, error = _safe_response(lambda: client.get_fixture_by_id(match.external_fixture_id))
     if error:
         errors.append(f"fixture: {error}")
-    elif fixture:
-        cache.fixture_payload = fixture
+    else:
+        successful_parts += 1
+        if fixture:
+            cache.fixture_payload = fixture
 
     starts_at = _utc(match.starts_at) or now
     should_load_match_data = bool(match.is_finished or now >= starts_at - timedelta(hours=2))
@@ -322,33 +325,41 @@ def sync_match_details_cache(
         if error:
             errors.append(f"events: {error}")
         else:
+            successful_parts += 1
             cache.events_payload = events or []
 
         statistics, error = _safe_response(lambda: client.get_fixture_statistics(match.external_fixture_id))
         if error:
             errors.append(f"statistics: {error}")
         else:
+            successful_parts += 1
             cache.statistics_payload = statistics or []
 
         lineups, error = _safe_response(lambda: client.get_fixture_lineups(match.external_fixture_id))
         if error:
             errors.append(f"lineups: {error}")
         else:
+            successful_parts += 1
             cache.lineups_payload = lineups or []
 
         players, error = _safe_response(lambda: client.get_fixture_players(match.external_fixture_id))
         if error:
             errors.append(f"players: {error}")
         else:
+            successful_parts += 1
             cache.players_payload = players or []
 
     cache.last_synced_at = now
+    # Events are enough to build scorers. Treat a partly successful response as
+    # fresh so a provider restriction on lineups/statistics does not trigger the
+    # same expensive requests on every profile opening.
+    if successful_parts:
+        cache.last_success_at = now
     if errors:
         cache.last_error = " | ".join(errors)[:2000]
-        cache.sync_status = "partial" if cache.fixture_payload else "error"
+        cache.sync_status = "partial" if successful_parts else "error"
     else:
         cache.last_error = None
-        cache.last_success_at = now
         cache.sync_status = "ready"
     db.commit()
     db.refresh(cache)
