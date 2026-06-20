@@ -1448,19 +1448,20 @@ def get_table(
     league_scoring_start = league_scoring_start_at(active_league)
     rows = build_table_rows(db, league_id=active_league.id)
 
-    users_by_name = {
-        user.display_name: user
-        for user in (
-            db.query(User)
-            .join(LeagueMember, LeagueMember.user_id == User.id)
-            .filter(
-                LeagueMember.league_id == active_league.id,
-                LeagueMember.status == "active",
-                User.access_status == "approved",
-            )
-            .all()
+    league_users = (
+        db.query(User)
+        .join(LeagueMember, LeagueMember.user_id == User.id)
+        .filter(
+            LeagueMember.league_id == active_league.id,
+            LeagueMember.status == "active",
+            User.access_status == "approved",
         )
-    }
+        .all()
+    )
+    # Prefer the immutable ID carried by build_table_rows. Keep the name map as
+    # a compatibility fallback for legacy/custom table row builders.
+    users_by_id = {user.id: user for user in league_users}
+    users_by_name = {user.display_name: user for user in league_users}
 
     total_matches_query = db.query(Match).filter(Match.tournament_code == TOURNAMENT_CODE)
     if league_scoring_start is not None:
@@ -1525,7 +1526,7 @@ def get_table(
     }
 
     for index, row in enumerate(rows, start=1):
-        user = users_by_name.get(row["name"])
+        user = users_by_id.get(row.get("user_id")) or users_by_name.get(row["name"])
         tournament_prediction = None
         fantasy_team = None
         user_predictions_count = row.get("total_predictions", 0)
@@ -1577,6 +1578,9 @@ def get_table(
         successful_predictions = exact_scores + outcomes
 
         row["rank"] = index
+        # Stable identifier used by the Mini App participant-history drawer.
+        # Do not rely on display_name: it may be changed or duplicated.
+        row["user_id"] = user.id if user else None
         row["is_current_user"] = row["name"] == current_user.display_name
         row["is_father"] = False
         row["match_predictions_count"] = user_predictions_count
@@ -1612,6 +1616,141 @@ def get_table(
         "rows": rows,
         "father_row": father_row,
         "match_analytics": _build_league_match_points_analytics(db, active_league),
+    }
+
+
+@router.get("/table/participant/{participant_user_id}/predictions")
+def get_participant_finished_predictions(
+    participant_user_id: int,
+    league_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a participant's finished-match predictions inside the selected league.
+
+    The endpoint deliberately scopes records to the active league period and to
+    matches that started after the participant joined that league. This keeps a
+    private league from exposing results from prior matches or other leagues.
+    Only completed matches are returned, so score predictions are no longer
+    secret at the moment they are shown.
+    """
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    membership = (
+        db.query(LeagueMember)
+        .join(User, User.id == LeagueMember.user_id)
+        .filter(
+            LeagueMember.league_id == active_league.id,
+            LeagueMember.user_id == participant_user_id,
+            LeagueMember.status == "active",
+            User.access_status == "approved",
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Участник не состоит в выбранной лиге")
+
+    participant = db.query(User).filter(User.id == participant_user_id).first()
+    if not participant:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+
+    matches_query = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished == True,
+            Match.score_home.isnot(None),
+            Match.score_away.isnot(None),
+        )
+    )
+    scoring_start = league_scoring_start_at(active_league)
+    if scoring_start is not None:
+        matches_query = matches_query.filter(Match.starts_at >= scoring_start)
+
+    joined_at = _ensure_utc(membership.joined_at) if membership.joined_at else None
+    matches = matches_query.order_by(Match.starts_at.desc()).all()
+    if joined_at is not None:
+        matches = [match for match in matches if _ensure_utc(match.starts_at) >= joined_at]
+
+    predictions_by_match = {}
+    if matches:
+        predictions = (
+            db.query(Prediction)
+            .filter(
+                Prediction.user_id == participant.id,
+                Prediction.match_id.in_([match.id for match in matches]),
+            )
+            .all()
+        )
+        predictions_by_match = {prediction.match_id: prediction for prediction in predictions}
+
+    rows: list[dict] = []
+    exact_count = 0
+    outcome_count = 0
+    total_match_points = 0
+
+    for match in matches:
+        prediction = predictions_by_match.get(match.id)
+        score_points = int(prediction.score_points or 0) if prediction else 0
+        total_points = int(prediction.points or 0) if prediction else 0
+        advancement_points = int(prediction.advancement_points or 0) if prediction else 0
+
+        if prediction is None:
+            result_type = "missing"
+            result_label = "Без прогноза"
+        elif score_points == 3:
+            result_type = "exact"
+            result_label = "Точный счет"
+            exact_count += 1
+        elif score_points == 1:
+            result_type = "outcome"
+            result_label = "Угадан исход"
+            outcome_count += 1
+        else:
+            result_type = "miss"
+            result_label = "Не угадан"
+
+        total_match_points += total_points
+        home_name = get_team_name_ru(match.home_team)
+        away_name = get_team_name_ru(match.away_team)
+        rows.append(
+            {
+                "match_id": match.id,
+                "starts_at": _ensure_utc(match.starts_at).isoformat(),
+                "home_team": home_name,
+                "away_team": away_name,
+                "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
+                "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
+                "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
+                "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
+                "actual_home": match.score_home,
+                "actual_away": match.score_away,
+                "prediction_home": prediction.pred_home if prediction else None,
+                "prediction_away": prediction.pred_away if prediction else None,
+                "result_type": result_type,
+                "result_label": result_label,
+                "score_points": score_points,
+                "advancement_points": advancement_points,
+                "points": total_points,
+            }
+        )
+
+    return {
+        "league": _serialize_league(active_league, current_user),
+        "participant": {
+            "id": participant.id,
+            "name": participant.display_name,
+        },
+        "summary": {
+            "matches_count": len(rows),
+            "exact_scores": exact_count,
+            "outcomes": outcome_count,
+            "match_points": total_match_points,
+        },
+        "rows": rows,
     }
 
 

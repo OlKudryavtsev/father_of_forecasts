@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.38';
+const APP_VERSION = '2.8.39';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -3660,9 +3660,118 @@ function RatingMatchAnalytics({ analytics, leagueName = '' }) {
 }
 
 
+function participantPredictionClass(resultType) {
+  return ['exact', 'outcome', 'miss', 'missing'].includes(resultType) ? resultType : 'miss';
+}
+
+function participantPointsLabel(value) {
+  const points = Number(value || 0);
+  if (points > 0) return `+${points}`;
+  return String(points);
+}
+
+function ParticipantPredictionsModal({ participant, leagueId = null, leagueName = '', onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setError(null);
+    const params = new URLSearchParams();
+    if (leagueId) params.set('league_id', String(leagueId));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+
+    api(`/api/webapp/table/participant/${participant.user_id}/predictions${suffix}`)
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+
+    return () => { active = false; };
+  }, [participant.user_id, leagueId]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  const rows = data?.rows || [];
+  const summary = data?.summary || {};
+  const displayName = data?.participant?.name || participant.name;
+
+  return (
+    <div
+      className="modal-backdrop participant-predictions-backdrop"
+      role="presentation"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}
+    >
+      <section className="modal-card participant-predictions-modal" role="dialog" aria-modal="true" aria-label={`Прогнозы участника ${displayName}`}>
+        <button type="button" className="modal-close" aria-label="Закрыть прогнозы участника" onClick={onClose}>×</button>
+        <header className="participant-predictions-head">
+          <div className="participant-predictions-avatar">{(displayName || '?').slice(0, 1).toUpperCase()}</div>
+          <div>
+            <span>Прогнозы участника</span>
+            <h2>{displayName}</h2>
+            <p>{leagueName ? `Лига «${leagueName}»` : 'Выбранная лига'} · завершенные матчи</p>
+          </div>
+          {participant.rank && <b className="participant-rank-badge">#{participant.rank}</b>}
+        </header>
+
+        {error && <div className="inline-error participant-predictions-error"><span>{error.message}</span></div>}
+        {!error && !data && <LoadingCard text="Загружаю прогнозы..." />}
+
+        {data && (
+          <>
+            <div className="participant-predictions-summary">
+              <div><b>{pointsLabel(summary.match_points || 0)}</b><span>за матчи</span></div>
+              <div><b>{summary.exact_scores || 0}</b><span>точных</span></div>
+              <div><b>{summary.outcomes || 0}</b><span>исходов</span></div>
+              <div><b>{summary.matches_count || 0}</b><span>матчей</span></div>
+            </div>
+
+            {rows.length === 0 ? (
+              <DetailEmpty title="Завершенных матчей пока нет" text="Когда в лиге появятся сыгранные матчи, здесь будет история прогнозов участника." />
+            ) : (
+              <div className="participant-predictions-list">
+                {rows.map((item) => {
+                  const hasPrediction = item.prediction_home !== null && item.prediction_home !== undefined;
+                  const resultClass = participantPredictionClass(item.result_type);
+                  return (
+                    <article className={`participant-prediction-row ${resultClass}`} key={item.match_id}>
+                      <div className="participant-prediction-topline">
+                        <span>{compactDate(item.starts_at)}</span>
+                        <em className={`participant-prediction-status ${resultClass}`}>{item.result_label}</em>
+                        <b className={`participant-prediction-points ${Number(item.points || 0) > 0 ? 'positive' : Number(item.points || 0) < 0 ? 'negative' : ''}`}>{participantPointsLabel(item.points)} {pointsLabel(Math.abs(Number(item.points || 0))).replace(/^\d+\s*/, '')}</b>
+                      </div>
+                      <div className="participant-prediction-match">
+                        <span className="participant-prediction-team home"><TeamFlag code={item.home_flag_code} emoji={item.home_flag} name={item.home_team} size="mini" /><b>{item.home_team}</b></span>
+                        <strong>{item.actual_home}:{item.actual_away}</strong>
+                        <span className="participant-prediction-team away"><b>{item.away_team}</b><TeamFlag code={item.away_flag_code} emoji={item.away_flag} name={item.away_team} size="mini" /></span>
+                      </div>
+                      <div className="participant-prediction-bottomline">
+                        <span>Прогноз</span>
+                        <b>{hasPrediction ? `${item.prediction_home}:${item.prediction_away}` : '—'}</b>
+                        {item.advancement_points ? <small>Проход: {item.advancement_points > 0 ? '+' : ''}{item.advancement_points}</small> : null}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+
 function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedParticipant, setSelectedParticipant] = useState(null);
 
   useEffect(() => {
     setData(null);
@@ -3683,7 +3792,8 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
       ...row,
       display_points: row.points || 0,
     }))
-    .sort((a, b) => (b.display_points - a.display_points) || ((b.exact_scores || 0) - (a.exact_scores || 0)));
+    .sort((a, b) => (b.display_points - a.display_points) || ((b.exact_scores || 0) - (a.exact_scores || 0)))
+    .map((row, index) => ({ ...row, display_rank: index + 1 }));
 
   return (
     <main className="screen-content rating-screen">
@@ -3692,10 +3802,28 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
 
 
       <div className="ranking-list compact-ranking-list">
-        {rows.map((row, index) => (
-          <div key={row.name} className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''} ${row.is_father ? 'father-ranking-row' : ''}`}>
+        {rows.map((row) => {
+          const canOpenParticipant = Boolean(row.user_id) && !row.is_father;
+          const openParticipant = () => {
+            if (canOpenParticipant) setSelectedParticipant({ ...row, rank: row.display_rank });
+          };
+          return (
+          <div
+            key={row.user_id || row.name}
+            className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''} ${row.is_father ? 'father-ranking-row' : ''} ${canOpenParticipant ? 'rating-row-clickable' : ''}`}
+            role={canOpenParticipant ? 'button' : undefined}
+            tabIndex={canOpenParticipant ? 0 : undefined}
+            aria-label={canOpenParticipant ? `Открыть прогнозы участника ${row.name}` : undefined}
+            onClick={openParticipant}
+            onKeyDown={(event) => {
+              if (canOpenParticipant && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                openParticipant();
+              }
+            }}
+          >
             <div className="rating-main-line">
-              <span className="rank">#{index + 1}</span>
+              <span className="rank">#{row.display_rank}</span>
               <div className="rating-player">
                 <strong>{row.name}</strong>
                 <small>
@@ -3732,13 +3860,23 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
               <span>{row.is_father ? 'ИИ-вне конкурса' : `Проход: +${row.advancement_plus || 0} / ${row.advancement_minus || 0}`}</span>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <RatingMatchAnalytics
         analytics={data.match_analytics}
         leagueName={data.league?.name || ''}
       />
+
+      {selectedParticipant && (
+        <ParticipantPredictionsModal
+          participant={selectedParticipant}
+          leagueId={activeLeagueId}
+          leagueName={data.league?.name || ''}
+          onClose={() => setSelectedParticipant(null)}
+        />
+      )}
     </main>
   );
 }

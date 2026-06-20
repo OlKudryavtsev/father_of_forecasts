@@ -167,6 +167,7 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
 
         rows.append(
             {
+                "user_id": user.id,
                 "name": user.display_name,
                 "points": total_points,
                 "match_points": match_points,

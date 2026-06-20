@@ -1245,3 +1245,7 @@ scripts/data/
 
 ## v2.8.36
 Scorer aliases and cached event fallback keep tournament-prediction status and team scorer cards accurate even when the provider leaderboard is incomplete.
+
+## v2.8.39 — Прогнозы участника из рейтинга
+
+Нажатие на участника в рейтинге открывает компактную историю его прогнозов только по завершенным матчам выбранной лиги. Матчи отсортированы от новых к старым; у каждой строки есть итог, прогноз, результат попадания и полученные очки.

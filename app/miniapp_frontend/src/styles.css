@@ -8648,3 +8648,225 @@ body,
   .league-activity-row time { grid-column: 2; margin-top: -2px; }
   .league-activity-icon { width: 32px; height: 32px; }
 }
+
+/* v2.8.39 — participant prediction history from rating */
+.rating-row-clickable {
+  position: relative;
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.rating-row-clickable::after {
+  content: '›';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(183, 207, 255, .72);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.rating-row-clickable:hover,
+.rating-row-clickable:focus-visible {
+  border-color: rgba(90, 141, 255, .42);
+  background: rgba(90, 141, 255, .07);
+  outline: none;
+}
+
+.rating-row-clickable:active { transform: scale(.992); }
+.rating-row-clickable .rating-points-pill { margin-right: 16px; }
+
+.participant-predictions-backdrop {
+  z-index: 10045;
+  align-items: flex-end;
+  padding: 0;
+}
+
+.participant-predictions-modal {
+  width: min(700px, 100%);
+  max-height: min(780px, 92dvh);
+  margin: 0;
+  padding: 0 0 max(16px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  border-radius: 28px 28px 0 0;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(84, 149, 255, .18), transparent 38%),
+    #111827;
+  box-shadow: 0 -22px 54px rgba(0,0,0,.5);
+}
+
+.participant-predictions-modal .modal-close {
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  background: rgba(15,23,42,.85);
+  border: 1px solid rgba(255,255,255,.11);
+}
+
+.participant-predictions-head {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  padding: 22px 64px 14px 18px;
+  border-bottom: 1px solid rgba(148,163,184,.12);
+}
+
+.participant-predictions-avatar {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(126, 176, 255, .35);
+  border-radius: 16px;
+  color: #dbeafe;
+  background: linear-gradient(145deg, rgba(76, 134, 255, .42), rgba(35, 74, 158, .26));
+  font-size: 21px;
+  font-weight: 900;
+}
+
+.participant-predictions-head > div:nth-child(2) { min-width: 0; }
+.participant-predictions-head > div:nth-child(2) > span {
+  display: block;
+  color: #9abcf8;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.participant-predictions-head h2 { margin: 3px 0 0; font-size: 19px; line-height: 1.12; }
+.participant-predictions-head p { margin: 4px 0 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+.participant-rank-badge {
+  display: grid;
+  min-width: 38px;
+  min-height: 32px;
+  place-items: center;
+  border: 1px solid rgba(244, 191, 54, .32);
+  border-radius: 12px;
+  color: #fde68a;
+  background: rgba(244,191,54,.12);
+  font-size: 13px;
+}
+
+.participant-predictions-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(148,163,184,.10);
+}
+
+.participant-predictions-summary > div {
+  min-width: 0;
+  padding: 8px 5px;
+  border-radius: 13px;
+  text-align: center;
+  background: rgba(255,255,255,.045);
+}
+.participant-predictions-summary b { display: block; overflow: hidden; color: #edf4ff; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.participant-predictions-summary span { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; font-weight: 750; }
+
+.participant-predictions-list {
+  display: grid;
+  gap: 8px;
+  max-height: calc(92dvh - 196px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 24px;
+}
+
+.participant-prediction-row {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid rgba(148,163,184,.13);
+  border-left-width: 3px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.participant-prediction-row.exact { border-left-color: #25c58a; background: linear-gradient(90deg, rgba(37,197,138,.10), rgba(255,255,255,.025) 42%); }
+.participant-prediction-row.outcome { border-left-color: #5c96ff; background: linear-gradient(90deg, rgba(92,150,255,.10), rgba(255,255,255,.025) 42%); }
+.participant-prediction-row.miss { border-left-color: #f06b78; background: linear-gradient(90deg, rgba(240,107,120,.09), rgba(255,255,255,.025) 42%); }
+.participant-prediction-row.missing { border-left-color: #7c879b; background: linear-gradient(90deg, rgba(124,135,155,.10), rgba(255,255,255,.025) 42%); }
+
+.participant-prediction-topline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}
+.participant-prediction-topline > span { color: var(--muted); font-size: 10px; font-weight: 750; white-space: nowrap; }
+.participant-prediction-status {
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.participant-prediction-status.exact { color: #87f1c0; background: rgba(37,197,138,.15); }
+.participant-prediction-status.outcome { color: #aecbff; background: rgba(92,150,255,.16); }
+.participant-prediction-status.miss { color: #ffb5be; background: rgba(240,107,120,.14); }
+.participant-prediction-status.missing { color: #c7ceda; background: rgba(124,135,155,.15); }
+.participant-prediction-points { white-space: nowrap; color: #cbd5e1; font-size: 12px; }
+.participant-prediction-points.positive { color: #86efac; }
+.participant-prediction-points.negative { color: #fda4af; }
+
+.participant-prediction-match {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+}
+.participant-prediction-match > strong { color: #f8fafc; font-size: 16px; letter-spacing: .02em; }
+.participant-prediction-team { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.participant-prediction-team.away { justify-content: flex-end; text-align: right; }
+.participant-prediction-team b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.participant-prediction-team .flag { flex: 0 0 auto; }
+
+.participant-prediction-bottomline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148,163,184,.09);
+}
+.participant-prediction-bottomline span { color: var(--muted); font-size: 10px; font-weight: 750; }
+.participant-prediction-bottomline b { color: #f8fafc; font-size: 13px; }
+.participant-prediction-bottomline small { margin-left: auto; color: #cbd5e1; font-size: 10px; }
+
+.app.theme-light .participant-predictions-modal { background: linear-gradient(180deg, #f9fbff, #edf3ff); }
+.app.theme-light .participant-predictions-head { border-color: rgba(15,23,42,.09); }
+.app.theme-light .participant-predictions-head p,
+.app.theme-light .participant-predictions-summary span,
+.app.theme-light .participant-prediction-topline > span,
+.app.theme-light .participant-prediction-bottomline span { color: rgba(15,23,42,.56); }
+.app.theme-light .participant-predictions-summary > div,
+.app.theme-light .participant-prediction-row { border-color: rgba(15,23,42,.09); background-color: rgba(255,255,255,.75); }
+.app.theme-light .participant-prediction-match > strong,
+.app.theme-light .participant-prediction-team b,
+.app.theme-light .participant-prediction-bottomline b,
+.app.theme-light .participant-predictions-summary b { color: #10203c; }
+
+@media (max-width: 390px) {
+  .participant-predictions-head { grid-template-columns: 42px minmax(0, 1fr) auto; padding: 18px 58px 12px 14px; }
+  .participant-predictions-avatar { width: 42px; height: 42px; border-radius: 14px; font-size: 18px; }
+  .participant-predictions-head h2 { font-size: 17px; }
+  .participant-predictions-summary { gap: 5px; padding: 10px 12px; }
+  .participant-predictions-summary > div { padding: 7px 3px; }
+  .participant-predictions-summary b { font-size: 12px; }
+  .participant-predictions-list { padding: 10px 12px 22px; }
+  .participant-prediction-topline { grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px; }
+  .participant-prediction-status { padding: 4px 5px; font-size: 9px; }
+  .participant-prediction-team b { font-size: 11px; }
+}
