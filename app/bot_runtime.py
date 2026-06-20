@@ -107,6 +107,7 @@ from app.jobs.reminders import reminders_enabled, reminders_loop
 from app.services.facts import daily_facts_loop
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.api_football_auto_sync import auto_sync_results_and_fantasy
+from app.services.match_details import sync_active_match_details
 from app.db import SessionLocal
 import os
 
@@ -258,6 +259,25 @@ async def matchtv_videos_loop():
         await asyncio.sleep(interval_seconds)
 
 
+async def match_details_cache_loop():
+    """Warm cached events, lineups and statistics for live/nearby fixtures."""
+    enabled = os.getenv("MATCH_DETAILS_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = max(45, int(os.getenv("MATCH_DETAILS_AUTOSYNC_INTERVAL_SECONDS", "90")))
+    while True:
+        db = SessionLocal()
+        try:
+            result = sync_active_match_details(db)
+            print(f"Match details cache sync: {result}")
+        except Exception as error:
+            print(f"Match details cache sync failed: {error}")
+        finally:
+            db.close()
+        await asyncio.sleep(interval_seconds)
+
+
 async def api_football_auto_sync_loop():
     """Periodically update recently finished match results and Fantasy stats."""
     enabled = os.getenv("API_FOOTBALL_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
@@ -289,6 +309,7 @@ async def main():
 
     asyncio.create_task(matchtv_videos_loop())
     asyncio.create_task(api_football_auto_sync_loop())
+    asyncio.create_task(match_details_cache_loop())
 
     await dp.start_polling(bot)
 

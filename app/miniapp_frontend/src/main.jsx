@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.30';
+const APP_VERSION = '2.8.31';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1622,11 +1622,235 @@ function MatchEmotionInline({ match, leagueId = null, leagueName = '' }) {
 }
 
 
-function MatchCard({ match, onPredict, onForecast, showDistribution = true, leagueId = null, leagueName = '' }) {
+
+function detailStatusLabel(details, match) {
+  const status = String(details?.overview?.status_long || details?.overview?.status_short || '').trim();
+  if (match?.is_finished) return 'Матч завершен';
+  if (status) return status;
+  return formatDateTime(match?.starts_at);
+}
+
+function DetailEmpty({ title, text }) {
+  return (
+    <div className="match-details-empty">
+      <span>⌁</span>
+      <strong>{title}</strong>
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function MatchDetailsModal({ match, onClose, onPredict }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function load({ silent = false } = {}) {
+    if (!silent) setData(null);
+    setError(null);
+    setRefreshing(true);
+    try {
+      setData(await api(`/api/webapp/matches/${match.id}/details`));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setError(null);
+    api(`/api/webapp/matches/${match.id}/details`)
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, [match.id]);
+
+  const currentMatch = data?.match || match;
+  const details = data?.details || {};
+  const locked = currentMatch.is_finished || new Date(currentMatch.starts_at).getTime() <= Date.now();
+  const tabs = [
+    ['overview', 'Обзор'],
+    ['events', 'События'],
+    ['scorers', 'Бомбардиры'],
+    ['stats', 'Статистика'],
+    ['lineups', 'Составы'],
+  ];
+  const homeScorers = (details.scorers || []).filter((item) => item.side === 'home');
+  const awayScorers = (details.scorers || []).filter((item) => item.side === 'away');
+  const detailScore = (details.overview?.score_home !== null && details.overview?.score_home !== undefined
+    && details.overview?.score_away !== null && details.overview?.score_away !== undefined)
+    ? `${details.overview.score_home} : ${details.overview.score_away}`
+    : (currentMatch.is_finished ? formatActualScore(currentMatch) : '— : —');
+
+  function renderOverview() {
+    return (
+      <div className="match-details-content overview">
+        {!details.available && (
+          <div className="match-details-pending">
+            <span>⌁</span>
+            <div>
+              <strong>Детали пока собираются</strong>
+              <p>{details.unavailable_reason || 'Обновляем данные матча из официального провайдера.'}</p>
+            </div>
+            <button type="button" onClick={() => load({ silent: true })} disabled={refreshing}>{refreshing ? 'Обновляю…' : 'Обновить'}</button>
+          </div>
+        )}
+
+        <div className="match-details-facts">
+          {details.overview?.round && <div><span>Турнир</span><b>{details.overview.round}</b></div>}
+          {details.overview?.venue && <div><span>Стадион</span><b>{details.overview.venue}{details.overview?.city ? ` · ${details.overview.city}` : ''}</b></div>}
+          {details.overview?.referee && <div><span>Арбитр</span><b>{details.overview.referee}</b></div>}
+        </div>
+
+        {(homeScorers.length || awayScorers.length) ? (
+          <section className="details-goals-card">
+            <div className="details-section-title"><span>⚽</span><strong>Голы</strong></div>
+            <div className="details-goals-grid">
+              <div className="details-goal-column home">
+                {homeScorers.map((item) => <p key={`${item.team}-${item.player}`}><b>{item.player}</b><span>{item.minutes.join(', ')}</span></p>)}
+              </div>
+              <div className="details-goal-column away">
+                {awayScorers.map((item) => <p key={`${item.team}-${item.player}`}><b>{item.player}</b><span>{item.minutes.join(', ')}</span></p>)}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <DetailEmpty title="Голов пока нет" text={currentMatch.is_finished ? 'Провайдер не передал события матча.' : 'Бомбардиры появятся после первого гола.'} />
+        )}
+
+        {!locked && (
+          <button type="button" className="primary full details-predict-cta" onClick={() => { onPredict?.(currentMatch); onClose?.(); }}>
+            {currentMatch.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function renderEvents() {
+    const events = details.events || [];
+    if (!events.length) return <DetailEmpty title="Событий пока нет" text={currentMatch.is_finished ? 'Провайдер пока не прислал ленту событий.' : 'Голы, карточки и замены появятся здесь во время матча.'} />;
+    return (
+      <div className="match-event-timeline">
+        {events.map((event, index) => (
+          <div className={`match-event-row ${event.side || ''}`} key={`${event.minute}-${event.player}-${index}`}>
+            <time>{event.minute}</time>
+            <span className="event-dot">{event.icon}</span>
+            <div>
+              <strong>{event.player || event.label}</strong>
+              <small>{event.label}{event.assist ? ` · ассист ${event.assist}` : ''}</small>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderScorers() {
+    const scorers = details.scorers || [];
+    if (!scorers.length) return <DetailEmpty title="Бомбардиров пока нет" text="Голы и авторы появятся здесь по мере игры." />;
+    return (
+      <div className="match-scorers-list">
+        {scorers.map((scorer) => (
+          <article className={`match-scorer-row ${scorer.side || ''}`} key={`${scorer.team}-${scorer.player}`}>
+            {scorer.photo ? <img src={scorer.photo} alt="" /> : <span className="scorer-avatar">{(scorer.player || '?').slice(0, 1)}</span>}
+            <div><strong>{scorer.player}</strong><small>{scorer.team} · {scorer.minutes.join(', ')}</small></div>
+            <b>{scorer.goals}</b>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderStats() {
+    const rows = details.statistics || [];
+    if (!rows.length) return <DetailEmpty title="Статистика пока недоступна" text="Появится во время матча или после финального свистка." />;
+    return (
+      <div className="match-stats-list">
+        {rows.map((row) => (
+          <div className="match-stat-row" key={row.key}>
+            <b>{row.home}</b><span>{row.label}</span><b>{row.away}</b>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderLineups() {
+    const lineups = details.lineups || [];
+    if (!lineups.length) return <DetailEmpty title="Составы еще не объявлены" text="Обычно стартовые составы появляются примерно за час до начала матча." />;
+    return (
+      <div className="match-lineups-grid">
+        {lineups.map((lineup) => (
+          <section className="lineup-team-card" key={lineup.team}>
+            <header><strong>{lineup.team}</strong><span>{lineup.formation || '—'}</span></header>
+            {lineup.coach && <p className="lineup-coach">Тренер: {lineup.coach}</p>}
+            <div className="lineup-list">
+              {(lineup.start || []).map((player) => <p key={`${player.number}-${player.name}`}><i>{player.number ?? '—'}</i><span>{player.name}</span><small>{player.position}</small></p>)}
+            </div>
+            {(lineup.bench || []).length > 0 && (
+              <details className="lineup-bench"><summary>Запасные · {lineup.bench.length}</summary><div>{lineup.bench.map((player) => <p key={`${player.number}-${player.name}`}><i>{player.number ?? '—'}</i><span>{player.name}</span></p>)}</div></details>
+            )}
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  const body = error
+    ? <div className="inline-error match-details-error"><span>{error.message}</span><button type="button" onClick={() => load()}>Повторить</button></div>
+    : !data
+      ? <LoadingCard text="Загружаю детали матча..." />
+      : activeTab === 'overview' ? renderOverview()
+        : activeTab === 'events' ? renderEvents()
+          : activeTab === 'scorers' ? renderScorers()
+            : activeTab === 'stats' ? renderStats()
+              : renderLineups();
+
+  return (
+    <div className="modal-backdrop match-details-backdrop" role="presentation">
+      <section className="modal-card match-details-modal" role="dialog" aria-modal="true" aria-label="Детали матча">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <header className="match-details-hero">
+          <div className="detail-team"><TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} name={currentMatch.home_team} /><strong>{currentMatch.home_team}</strong></div>
+          <div className="detail-score">
+            <b>{detailScore}</b>
+            <span>{detailStatusLabel(details, currentMatch)}</span>
+          </div>
+          <div className="detail-team"><TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} name={currentMatch.away_team} /><strong>{currentMatch.away_team}</strong></div>
+        </header>
+        <p className="match-details-date">{formatDateTime(currentMatch.starts_at)}{details.last_synced_at ? ' · данные обновлены' : ''}</p>
+
+        <nav className="match-details-tabs" aria-label="Разделы матча">
+          {tabs.map(([id, label]) => <button type="button" key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{label}</button>)}
+        </nav>
+        <div className="match-details-body">{body}</div>
+      </section>
+    </div>
+  );
+}
+
+function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution = true, leagueId = null, leagueName = '' }) {
   const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
   const activeVideos = visibleVideosForMatch(match);
   const hasVideos = activeVideos.length > 0;
+  const detailTriggerProps = onDetails ? {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': `Открыть детали матча ${match.home_team} — ${match.away_team}`,
+    onClick: () => onDetails(match),
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onDetails(match);
+      }
+    },
+  } : {};
 
   return (
     <article className={`match-card ${hasVideos ? 'has-video' : ''}`}>
@@ -1638,7 +1862,7 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true, leag
         <span className="muted small match-date">{formatDateTime(match.starts_at)}</span>
       </div>
 
-      <div className="match-teams">
+      <div className={`match-teams ${onDetails ? 'match-teams-clickable' : ''}`} {...detailTriggerProps}>
         <div className="team-side">
           <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} />
           <strong>{match.home_team}</strong>
@@ -1669,6 +1893,13 @@ function MatchCard({ match, onPredict, onForecast, showDistribution = true, leag
           <strong>{match.away_team}</strong>
         </div>
       </div>
+
+      {onDetails && (
+        <button type="button" className="match-details-link" onClick={() => onDetails(match)}>
+          <Icon name="more" />
+          Детали матча
+        </button>
+      )}
 
       <div className="match-actions">
         {!locked && <button onClick={() => onPredict(match)}>{match.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}</button>}
@@ -1769,6 +2000,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [detailsMatch, setDetailsMatch] = useState(null);
   async function load() {
     setLoading(true);
     setError(null);
@@ -1830,12 +2062,13 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
                   <span>{formatDayTitle(matches[0]?.starts_at)}</span>
                   <b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b>
                 </div>
-                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} leagueId={activeLeagueId} leagueName={leagueName} />)}
+                {matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={setDetailsMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}
               </section>
             ))}
           </>
         )}
       </div>
+      {detailsMatch && <MatchDetailsModal match={detailsMatch} onClose={() => setDetailsMatch(null)} onPredict={onPredict} />}
     </main>
   );
 }

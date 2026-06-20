@@ -1232,3 +1232,8 @@ scripts/data/
 ## Release v2.8.2 PWA custom icon
 
 См. `RELEASE_V2_8_2_PWA_CUSTOM_ICON.md`.
+
+
+## v2.8.31 — Детали матча
+
+См. `RELEASE_V2_8_31_MATCH_DETAILS.md`.

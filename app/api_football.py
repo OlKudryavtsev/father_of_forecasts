@@ -94,6 +94,26 @@ class ApiFootballClient:
 
         return payload.get("response", [])
 
+    def get_fixture_events(self, fixture_id: int | str) -> list[dict]:
+        """Return goals, cards, substitutions and VAR events for one fixture."""
+        payload = self.get(
+            "/fixtures/events",
+            params={
+                "fixture": fixture_id,
+            },
+        )
+        return payload.get("response", [])
+
+    def get_fixture_players(self, fixture_id: int | str) -> list[dict]:
+        """Return per-player match statistics when API-Football has them."""
+        payload = self.get(
+            "/fixtures/players",
+            params={
+                "fixture": fixture_id,
+            },
+        )
+        return payload.get("response", [])
+
     def get_fixture_head_to_head(
             self,
             home_team_id: int,

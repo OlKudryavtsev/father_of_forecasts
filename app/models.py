@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -167,6 +168,27 @@ class Match(Base):
     status_long = Column(String, nullable=True)
 
     synced_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class MatchDetailsCache(Base):
+    """Single normalized API-Football cache row per match for Mini App details."""
+    __tablename__ = "match_details_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    fixture_payload = Column(JSON, nullable=True)
+    events_payload = Column(JSON, nullable=True)
+    statistics_payload = Column(JSON, nullable=True)
+    lineups_payload = Column(JSON, nullable=True)
+    players_payload = Column(JSON, nullable=True)
+    sync_status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    match = relationship("Match")
 
 
 class MatchVideo(Base):

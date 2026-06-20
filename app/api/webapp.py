@@ -48,6 +48,7 @@ from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
+from app.services.match_details import build_match_details_payload, sync_match_details_cache
 from app.services.leagues import (
     create_user_league,
     deactivate_league,
@@ -1119,6 +1120,54 @@ def get_match(
     return {"match": _serialize_match(match, prediction)}
 
 
+
+
+@router.get("/matches/{match_id}/details")
+def get_match_details(
+    match_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return cached API-Football details for a match.
+
+    The service refreshes the shared backend cache only when it is stale.  The
+    endpoint stays useful for future matches too: it returns local match facts
+    and a clear pending state until lineups/events become available.
+    """
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден")
+
+    prediction = (
+        db.query(Prediction)
+        .filter(Prediction.user_id == current_user.id, Prediction.match_id == match.id)
+        .first()
+    )
+    details = build_match_details_payload(db, match, refresh=True)
+    return {
+        "match": _serialize_match(match, prediction),
+        "details": details,
+    }
+
+
+@router.post("/admin/matches/{match_id}/details/sync")
+def admin_sync_match_details(
+    match_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Force-refresh one cached match details record for troubleshooting."""
+    _require_miniapp_admin(current_user)
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден")
+    cache = sync_match_details_cache(db, match, force=True)
+    return {
+        "ok": bool(cache),
+        "match_id": match.id,
+        "status": getattr(cache, "sync_status", "unavailable") if cache else "unavailable",
+        "last_error": getattr(cache, "last_error", None) if cache else None,
+    }
 
 
 @router.get("/matches/{match_id}/predictions")
