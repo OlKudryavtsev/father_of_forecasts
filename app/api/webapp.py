@@ -748,10 +748,11 @@ def _serialize_league_activity(event: LeagueActivityEvent) -> dict:
         detail = payload.get("league_name") or "Лига"
         icon = "👋"
     elif action_type in {"match_prediction_created", "match_prediction_updated"}:
+        # The activity feed must never disclose a participant's predicted score.
+        # Legacy records may still carry payload["prediction"], so intentionally
+        # ignore it here as well as in newly recorded events.
         title = "Сделал прогноз" if action_type.endswith("created") else "Изменил прогноз"
-        match_label = payload.get("match_label") or "Матч"
-        score = payload.get("prediction")
-        detail = f"{match_label}{f' · {score}' if score else ''}"
+        detail = payload.get("match_label") or "Матч"
         icon = "🎯"
     elif action_type in {"tournament_prediction_created", "tournament_prediction_updated"}:
         title = "Заполнил прогноз на турнир" if action_type.endswith("created") else "Изменил прогноз на турнир"

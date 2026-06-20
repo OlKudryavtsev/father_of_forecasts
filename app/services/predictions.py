@@ -114,7 +114,6 @@ def save_prediction(
             payload={
                 "match_id": match.id,
                 "match_label": format_match_label(match, include_id=False),
-                "prediction": f"{pred_home}:{pred_away}",
             },
         )
     except Exception:
