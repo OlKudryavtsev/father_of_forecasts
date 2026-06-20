@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.32';
+const APP_VERSION = '2.8.33';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1811,9 +1811,14 @@ function MatchDetailsModal({ match, onClose, onPredict, onOpenTeam, onOpenPlayer
               : renderLineups();
 
   return (
-    <div className="modal-backdrop match-details-backdrop" role="presentation">
+    <div
+      className="modal-backdrop match-details-backdrop"
+      role="presentation"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}
+    >
       <section className="modal-card match-details-modal" role="dialog" aria-modal="true" aria-label="Детали матча">
-        <button className="modal-close" onClick={onClose}>×</button>
+        <div className="match-details-drag-handle" aria-hidden="true"><span /></div>
+        <button type="button" className="modal-close" aria-label="Закрыть детали матча" onClick={onClose}>×</button>
         <header className="match-details-hero">
           <button className="detail-team detail-team-button" onClick={() => currentMatch.home_team_id && onOpenTeam?.(currentMatch.home_team_id)} disabled={!currentMatch.home_team_id}><TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} name={currentMatch.home_team} /><strong>{currentMatch.home_team}</strong></button>
           <div className="detail-score">
@@ -2056,11 +2061,10 @@ function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
   </article>;
 }
 
-function TournamentHub({ initialMode = 'tournament', onOpenMatch, onOpenTeam, onOpenPlayer }) {
+function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenTeam, onOpenPlayer }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [selectedGroup, setSelectedGroup] = useState('A');
-  const [mode, setMode] = useState(initialMode);
   useEffect(() => {
     let active = true;
     api('/api/webapp/tournament/overview').then((result) => {
@@ -2076,11 +2080,10 @@ function TournamentHub({ initialMode = 'tournament', onOpenMatch, onOpenTeam, on
   const group = (data.groups || []).find((item) => item.group_code === selectedGroup) || data.groups?.[0];
   const scorers = data.top_scorers?.items || [];
   return <div className="tournament-hub">
-    <div className="hub-switcher"><button className={mode === 'tournament' ? 'active' : ''} onClick={() => setMode('tournament')}>Турнир</button><button className={mode === 'scorers' ? 'active' : ''} onClick={() => setMode('scorers')}>Бомбардиры</button></div>
     {mode === 'tournament' ? <>
       <div className="group-tab-strip">{(data.groups || []).map((item) => <button key={item.group_code} className={selectedGroup === item.group_code ? 'active' : ''} onClick={() => setSelectedGroup(item.group_code)}>Группа {item.group_code}</button>)}</div>
       <GroupTable group={group} onTeam={onOpenTeam} />
-      <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button onClick={() => setMode('scorers')}>Все →</button></header><div className="hub-scorers-list compact">{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
+      <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact">{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
     </> : <section className="hub-scorers-card"><header><div><span className="section-label">Чемпионат мира 2026</span><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />) : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
   </div>;
 }
@@ -2162,7 +2165,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
     <div className="section-label">Матч-центр</div>
     <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
     <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => setCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => setCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => setCenterMode('scorers')}>Бомбардиры</button></div>
-    {centerMode !== 'matches' ? <TournamentHub initialMode={centerMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
+    {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={setCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
       <div className="filter-strip modern-filters">
         <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}><Icon name="star" /><span>Все</span></button>
         <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}><Icon name="ball" /><span>Будущие</span></button>

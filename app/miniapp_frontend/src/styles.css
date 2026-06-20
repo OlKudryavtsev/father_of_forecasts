@@ -8068,3 +8068,115 @@ body,
   .hub-subtitle { margin-left: 13px; }
   .player-profile-modal .hub-match-list { padding: 0 13px 17px; }
 }
+
+
+/* v2.8.33 — mobile overlays, tournament navigation and safe scroll clearance */
+:root {
+  --bottom-navigation-clearance: calc(148px + env(safe-area-inset-bottom));
+}
+
+html,
+body,
+#root {
+  scroll-padding-bottom: var(--bottom-navigation-clearance);
+}
+
+.app {
+  padding-bottom: var(--bottom-navigation-clearance);
+}
+
+/* Every normal screen scrolls above the portal-rendered bottom navigation.
+   This protects long group tables and dynamically expanded cards in Telegram WebView. */
+.screen-content,
+.tournament-hub,
+.match-center-results,
+.leagues-screen {
+  scroll-margin-bottom: var(--bottom-navigation-clearance);
+}
+
+.match-center-results {
+  padding-bottom: 36px;
+}
+
+/* App overlays must always sit over the navigation bar. */
+.modal-backdrop {
+  z-index: 10020;
+}
+
+/* A compact, reachable bottom sheet for match details. */
+.match-details-backdrop {
+  align-items: end;
+  padding: 0;
+}
+
+.match-details-modal {
+  width: min(760px, 100%);
+  height: min(72dvh, 640px);
+  min-height: 0;
+  max-height: calc(100dvh - 12px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 26px 26px 0 0;
+}
+
+.match-details-drag-handle {
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+}
+
+.match-details-drag-handle span {
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .44);
+}
+
+.match-details-modal .modal-close {
+  top: 5px;
+  right: 9px;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.match-details-hero {
+  flex: 0 0 auto;
+  padding-top: 8px;
+}
+
+.match-details-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
+}
+
+/* The upper Match Center selector is the single source of navigation.
+   Keep the old internal switcher hidden in cached legacy layouts. */
+.tournament-hub .hub-switcher {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  :root {
+    --bottom-navigation-clearance: calc(154px + env(safe-area-inset-bottom));
+  }
+
+  .match-details-modal {
+    height: min(72dvh, 600px);
+  }
+
+  .match-details-hero {
+    padding-top: 6px;
+  }
+
+  .match-details-body {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+}

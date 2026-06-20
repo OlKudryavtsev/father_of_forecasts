@@ -1237,8 +1237,3 @@ scripts/data/
 ## v2.8.31 — Детали матча
 
 См. `RELEASE_V2_8_31_MATCH_DETAILS.md`.
-
-
-## v2.8.32 — Сборные и турнир
-
-См. `RELEASE_V2_8_32_TEAMS_AND_TOURNAMENT.md`.
