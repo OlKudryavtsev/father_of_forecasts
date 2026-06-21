@@ -1,11 +1,11 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.47';
+const APP_VERSION = '2.8.48';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1027,22 +1027,70 @@ function PwaAccessCard() {
 }
 
 function HeaderLeagueSelector({ leagues = [], activeLeagueId, onChange }) {
-  if (!leagues.length) return null;
+  const [isOpen, setIsOpen] = useState(false);
+  const selectorRef = useRef(null);
+  const selectedLeague = leagues.find((league) => Number(league.id) === Number(activeLeagueId)) || leagues[0];
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const closeOnOutsideClick = (event) => {
+      if (!selectorRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isOpen]);
+
+  if (!leagues.length || !selectedLeague) return null;
+
+  const selectLeague = (leagueId) => {
+    onChange?.(Number(leagueId));
+    setIsOpen(false);
+  };
 
   return (
-    <label className="header-league-selector" title="Выбранная лига">
+    <div className={`header-league-selector${isOpen ? ' open' : ''}`} ref={selectorRef}>
       <Icon name="team" />
-      <select
-        value={activeLeagueId || leagues[0]?.id || ''}
-        onChange={(event) => onChange?.(Number(event.target.value))}
-        aria-label="Выбранная лига"
+      <button
+        type="button"
+        className="header-league-trigger"
+        onClick={() => setIsOpen((value) => !value)}
+        aria-label={`Выбранная лига: ${selectedLeague.name}`}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
       >
-        {leagues.map((league) => (
-          <option key={league.id} value={league.id}>{league.name}</option>
-        ))}
-      </select>
-      <i className="header-league-chevron" aria-hidden="true">⌄</i>
-    </label>
+        <span className="header-league-name">{selectedLeague.name}</span>
+        <i className="header-league-chevron" aria-hidden="true">⌄</i>
+      </button>
+      {isOpen && (
+        <div className="header-league-menu" role="listbox" aria-label="Выбор лиги">
+          {leagues.map((league) => {
+            const selected = Number(league.id) === Number(selectedLeague.id);
+            return (
+              <button
+                key={league.id}
+                type="button"
+                className={selected ? 'selected' : ''}
+                role="option"
+                aria-selected={selected}
+                onClick={() => selectLeague(league.id)}
+              >
+                <span>{league.name}</span>
+                {selected && <b aria-hidden="true">✓</b>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
