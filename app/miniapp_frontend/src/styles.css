@@ -9572,3 +9572,169 @@ body,
   .live-match-score { min-width: 66px; padding: 6px 7px; }
   .live-match-score b { font-size: 24px; }
 }
+
+/* v2.8.47 — global league switcher and compact scorer labels */
+.predictions-screen .tournament-mini {
+  margin-bottom: 16px;
+}
+
+.tournament-mini.needs-attention {
+  border-color: rgba(255, 104, 114, 0.48);
+  background: linear-gradient(135deg, rgba(255, 104, 114, 0.14), rgba(45, 23, 37, 0.95));
+}
+
+.tournament-mini.needs-attention .tournament-mini-title span {
+  color: #ffd7db;
+}
+
+.tournament-mini-alert {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 104, 114, 0.38);
+  border-radius: 999px;
+  color: #ffb2bb;
+  background: rgba(255, 104, 114, 0.12);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tournament-mini.needs-attention .tournament-mini-actions span.missing {
+  color: #ffd7db;
+  background: rgba(255, 104, 114, 0.14);
+  border: 1px solid rgba(255, 104, 114, 0.30);
+}
+
+.header-league-selector {
+  position: relative;
+  min-width: 0;
+  max-width: 172px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #dce9ff;
+}
+
+.header-league-selector .svg-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--blue);
+}
+
+.header-league-selector select {
+  min-width: 0;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  outline: 0;
+  padding: 0 13px 0 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-league-chevron {
+  position: absolute;
+  top: 49%;
+  right: 0;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.hub-scorer-row,
+.hub-scorer-list-head {
+  grid-template-columns: 20px 38px minmax(0, 1fr) 46px 46px;
+}
+
+.app.theme-light .tournament-mini.needs-attention {
+  border-color: rgba(220, 38, 38, 0.25);
+  background: linear-gradient(135deg, rgba(254, 226, 226, 0.90), #fff);
+}
+
+.app.theme-light .tournament-mini.needs-attention .tournament-mini-title span,
+.app.theme-light .tournament-mini.needs-attention .tournament-mini-actions span.missing {
+  color: #b91c1c;
+}
+
+.app.theme-light .tournament-mini-alert {
+  border-color: rgba(220, 38, 38, 0.22);
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.app.theme-light .header-league-selector {
+  color: #1e3a5f;
+}
+
+@media (max-width: 520px) {
+  .league-status-row {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .header-admin-button {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .header-admin-button .svg-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .league-status-row .league-status {
+    min-width: 0;
+    flex: 1 1 auto;
+    max-width: 100%;
+    gap: 6px;
+    padding: 7px 9px;
+  }
+
+  .header-league-selector {
+    max-width: 92px;
+  }
+
+  .header-league-selector select {
+    font-size: 11px;
+  }
+
+  .league-status .live-countdown {
+    min-width: 0;
+    max-width: 78px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .league-status .divider {
+    flex: 0 0 auto;
+  }
+
+  .hub-scorer-row,
+  .hub-scorer-list-head {
+    grid-template-columns: 20px 34px minmax(0, 1fr) 40px 40px;
+  }
+
+  .tournament-mini-alert {
+    display: none;
+  }
+}

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.46';
+const APP_VERSION = '2.8.47';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1026,7 +1026,27 @@ function PwaAccessCard() {
   );
 }
 
-function Header({ dashboard, onRules, onAdmin }) {
+function HeaderLeagueSelector({ leagues = [], activeLeagueId, onChange }) {
+  if (!leagues.length) return null;
+
+  return (
+    <label className="header-league-selector" title="Выбранная лига">
+      <Icon name="team" />
+      <select
+        value={activeLeagueId || leagues[0]?.id || ''}
+        onChange={(event) => onChange?.(Number(event.target.value))}
+        aria-label="Выбранная лига"
+      >
+        {leagues.map((league) => (
+          <option key={league.id} value={league.id}>{league.name}</option>
+        ))}
+      </select>
+      <i className="header-league-chevron" aria-hidden="true">⌄</i>
+    </label>
+  );
+}
+
+function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onLeagueChange }) {
   const stageText = dashboard?.tournament?.current_stage_label || (dashboard?.tournament?.is_started ? 'Турнир идет' : 'До старта');
 
   return (
@@ -1043,6 +1063,8 @@ function Header({ dashboard, onRules, onAdmin }) {
       <div className="league-status-row">
         {dashboard?.user?.is_admin && <button className="header-admin-button" onClick={onAdmin}><Icon name="shield" /> Админ</button>}
         <div className="league-status">
+          <HeaderLeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
+          {leagues.length > 0 && <span className="divider header-league-divider" />}
           <span className="status-section live-countdown">{stageText}</span>
           <span className="divider" />
           <span className="points">{pointsLabel(dashboard?.points ?? 0)}</span>
@@ -1176,13 +1198,19 @@ function TournamentPredictionSummary({
   // fixtures. It stays collapsed until the user explicitly opens it.
   const [tournamentOpen, setTournamentOpen] = useState(false);
   const p = tournamentPrediction?.prediction;
-  const tournamentClosed = !Boolean(tournamentPrediction?.can_submit || !tournamentPrediction?.is_closed);
+  const canEditTournamentPrediction = Boolean(tournamentPrediction && (tournamentPrediction.can_submit || !tournamentPrediction.is_closed));
+  const tournamentClosed = !canEditTournamentPrediction;
   const items = [
     { key: 'champion', label: 'Победитель', value: p?.champion, points: '+15', icon: 'cup' },
     { key: 'runner_up', label: '2-е место', value: p?.runner_up, points: '+10', icon: 'rank' },
     { key: 'third_place', label: '3-е место', value: p?.third_place, points: '+5', icon: 'rank' },
     { key: 'top_scorer', label: 'Бомбардир', value: p?.top_scorer, points: '+15', icon: 'ball' },
   ];
+  const completedTournamentPicks = items.filter((item) => Boolean(item.value)).length;
+  const tournamentPredictionMissing = completedTournamentPicks < items.length;
+  const tournamentSummaryText = tournamentPredictionMissing
+    ? `${completedTournamentPicks}/${items.length}`
+    : (tournamentClosed ? 'закрыто' : `${completedTournamentPicks}/${items.length}`);
 
   function openTournamentTarget(target) {
     if (!target) return;
@@ -1191,13 +1219,16 @@ function TournamentPredictionSummary({
   }
 
   return (
-    <section className={`tournament-mini ${tournamentOpen ? 'open' : 'closed'}`}>
+    <section className={`tournament-mini ${tournamentOpen ? 'open' : 'closed'} ${tournamentPredictionMissing ? 'needs-attention' : ''}`}>
       <div className="tournament-mini-head">
-        <div className="tournament-mini-title"><span>Прогнозы на турнир</span></div>
+        <div className="tournament-mini-title">
+          <span>Прогнозы на турнир</span>
+          {tournamentPredictionMissing && <small className="tournament-mini-alert">не заполнено</small>}
+        </div>
         <div className="tournament-mini-head-right">
           <div className="tournament-mini-actions">
             <button type="button" onClick={onTournamentParticipants}>Участники</button>
-            <span>{tournamentClosed ? 'закрыто' : (p ? '4/4' : '0/4')}</span>
+            <span className={tournamentPredictionMissing ? 'missing' : ''}>{tournamentSummaryText}</span>
           </div>
         </div>
         <button type="button" className="tournament-mini-toggle" onClick={() => setTournamentOpen((value) => !value)} aria-label={tournamentOpen ? 'Свернуть прогнозы на турнир' : 'Развернуть прогнозы на турнир'}>
@@ -2192,9 +2223,9 @@ function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
 function TournamentScorerHeader({ compact = false }) {
   return <div className={`hub-scorer-list-head ${compact ? 'compact' : ''}`} aria-hidden="true">
     <span>№</span>
-    <span className="hub-scorer-list-head-player">ФИО</span>
-    <span>Голы</span>
-    <span>Передачи</span>
+    <span className="hub-scorer-list-head-player">Игрок</span>
+    <span>Г</span>
+    <span>П</span>
   </div>;
 }
 
@@ -2283,7 +2314,7 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
         {visibleGroups.map((group) => <GroupTable key={group.group_code} group={group} onTeam={onOpenTeam} />)}
       </div>
       <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact"><TournamentScorerHeader compact />{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
-    </> : <section className="hub-scorers-card"><header><div><span className="section-label">Чемпионат мира 2026</span><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? <><TournamentScorerHeader />{scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</> : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
+    </> : <section className="hub-scorers-card"><header><div><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? <><TournamentScorerHeader />{scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</> : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
   </div>;
 }
 
@@ -2311,29 +2342,11 @@ function GroupTable({ group, onTeam, compact = false }) {
   );
 }
 
-function LeagueSelector({ leagues = [], activeLeagueId, onChange, label = 'Лига' }) {
-  if (!leagues.length) return null;
-
-  return (
-    <label className="league-selector-card">
-      <span>{label}</span>
-      <select
-        value={activeLeagueId || leagues[0]?.id || ''}
-        onChange={(event) => onChange(Number(event.target.value))}
-      >
-        {leagues.map((league) => (
-          <option key={league.id} value={league.id}>{league.name}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function activeLeagueLabel(leagues = [], activeLeagueId) {
   return leagues.find((league) => Number(league.id) === Number(activeLeagueId))?.name || 'Отец прогнозов';
 }
 
-function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLeagueChange }) {
+function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [centerMode, setCenterMode] = useState('matches');
@@ -2369,7 +2382,6 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
   if (error) return <ErrorCard error={error} onRetry={load} />;
   return <main className="screen-content">
     <div className="section-label">Матч-центр</div>
-    <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
     <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => changeCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => changeCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => changeCenterMode('scorers')}>Бомбардиры</button></div>
     <section className="match-center-mode-content" aria-live="polite">
     {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={changeCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
@@ -3676,7 +3688,7 @@ function Predictions({ onPredict, onForecast, tournamentPrediction, onTournament
   const visibleMatches = activeSection === 'missing' ? missingMatches : editableMatches;
 
   return (
-    <main className="screen-content">
+    <main className="screen-content predictions-screen">
       <div className="section-label">Мои прогнозы</div>
       <TournamentPredictionSummary
         tournamentPrediction={tournamentPrediction}
@@ -3955,7 +3967,7 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
 }
 
 
-function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
+function Rating({ activeLeagueId }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
@@ -3985,8 +3997,6 @@ function Rating({ leagues = [], activeLeagueId, onLeagueChange }) {
   return (
     <main className="screen-content rating-screen">
       <div className="section-label">Рейтинг участников</div>
-      <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
-
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row) => {
@@ -4383,16 +4393,13 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
           <div className="leagues-list">
             {leagues.map((league) => (
               <article key={league.id} className={`league-row-card ${Number(league.id) === Number(activeLeagueId) ? 'active' : ''}`}>
-                <button type="button" className="league-row-main" onClick={() => {
-                  trackAnalytics('league_open', { screen: 'leagues', properties: { league_id: league.id } });
-                  onLeagueChange?.(league.id);
-                }}>
+                <div className="league-row-main">
                   <div>
                     <strong>{league.name}</strong>
                     <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}{league.scoring_start_at ? ` · счет с ${formatDateTime(league.scoring_start_at)}` : ''}{league.chat_id ? ' · чат подключен' : ''}</small>
                   </div>
                   {Number(league.id) === Number(activeLeagueId) && <span className="active-league-pill">активна</span>}
-                </button>
+                </div>
                 {league.can_manage && league.invite_code && (
                   <div className="invite-tools">
                     <code>{league.invite_code}</code>
@@ -5244,8 +5251,9 @@ function App() {
 
   async function loadDashboard() {
     try {
+      const dashboardQuery = activeLeagueId ? `?league_id=${encodeURIComponent(activeLeagueId)}` : '';
       const [dashboardResult, tournamentPredictionResult] = await Promise.all([
-        api('/api/webapp/dashboard'),
+        api(`/api/webapp/dashboard${dashboardQuery}`),
         api('/api/webapp/tournament-prediction/me').catch(() => null),
       ]);
       setDashboard(dashboardResult);
@@ -5258,7 +5266,7 @@ function App() {
   useEffect(() => {
     if (!isTelegramMode() && !hasBrowserSession) return;
     loadDashboard();
-  }, [refreshKey, hasBrowserSession]);
+  }, [refreshKey, hasBrowserSession, activeLeagueId]);
 
   useEffect(() => {
     if (!dashboard?.live_match) return undefined;
@@ -5322,10 +5330,20 @@ function App() {
   return (
     <div className={`app theme-${appTheme}`}>
       <PwaUpdateBanner updateInfo={updateInfo} />
-      <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} onAdmin={() => {
-        trackAnalytics('admin_open', { screen: 'admin' });
-        setTab('admin');
-      }} />
+      <Header
+        dashboard={dashboard}
+        leagues={leaguesData.leagues || []}
+        activeLeagueId={activeLeagueId}
+        onLeagueChange={(nextLeagueId) => {
+          setActiveLeagueId(nextLeagueId);
+          trackAnalytics('league_selected', { screen: tab, properties: { league_id: Number(nextLeagueId) || 0 } });
+        }}
+        onRules={() => setRulesOpen(true)}
+        onAdmin={() => {
+          trackAnalytics('admin_open', { screen: 'admin' });
+          setTab('admin');
+        }}
+      />
 
       {tab === 'matches' && (
         <>
@@ -5335,7 +5353,7 @@ function App() {
             onNextMatchPredict={setPredictionMatch}
             onOpenLiveMatch={(match) => setHomeTournamentMatch(match)}
           />
-          <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} />
+          <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} />
         </>
       )}
       {FANTASY_UI_ENABLED && tab === 'fantasy' && <Fantasy />}
@@ -5351,7 +5369,7 @@ function App() {
       />}
       {tab === 'resources' && <Resources />}
       {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
-      {tab === 'rating' && <Rating leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} />}
+      {tab === 'rating' && <Rating activeLeagueId={activeLeagueId} />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
       {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 

@@ -90,6 +90,7 @@ ANALYTICS_ALLOWED_EVENTS = {
     "participant_history_open",
     "participant_history_filter",
     "league_open",
+    "league_selected",
     "league_create",
     "league_join",
     "league_activity_open",
@@ -126,6 +127,7 @@ ANALYTICS_EVENT_LABELS = {
     "participant_history_open": "Открыл историю участника",
     "participant_history_filter": "Применил фильтр истории",
     "league_open": "Открыл лигу",
+    "league_selected": "Выбрал лигу",
     "league_create": "Создал лигу",
     "league_join": "Вступил в лигу",
     "league_activity_open": "Открыл историю лиги",
@@ -1459,10 +1461,16 @@ def _live_match_payload(db: Session, current_user: User) -> dict | None:
 
 @router.get("/dashboard")
 def get_dashboard(
+    league_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return compact dashboard data for the Mini App home page."""
+    """Return compact dashboard data for the Mini App home page and selected league."""
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
     nearest_matches = get_nearest_matchday_matches(db, matchdays_count=1)
     predictions_by_match = _prediction_by_match_id(db, current_user, nearest_matches)
 
@@ -1493,7 +1501,7 @@ def get_dashboard(
     tournament_starts_at = get_tournament_starts_at()
     days_until_tournament = max((tournament_starts_at.date() - datetime.now(timezone.utc).date()).days, 0)
 
-    table_rows = build_table_rows(db)
+    table_rows = build_table_rows(db, league_id=active_league.id)
     current_rank = None
     current_points = 0
 
@@ -1511,6 +1519,7 @@ def get_dashboard(
         },
         "rank": current_rank,
         "points": current_points,
+        "league": _serialize_league(active_league, current_user),
         "live_match": _live_match_payload(db, current_user),
         "nearest_matches": [
             _serialize_match(match, predictions_by_match.get(match.id))
