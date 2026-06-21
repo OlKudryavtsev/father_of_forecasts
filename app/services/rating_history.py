@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import os
 
@@ -18,6 +18,10 @@ from app.services.leagues import league_scoring_start_at
 TOURNAMENT_DAY_TIMEZONE = ZoneInfo(os.getenv("TOURNAMENT_DAY_TIMEZONE", "America/New_York"))
 FATHER_USER_ID = "father"
 FATHER_DISPLAY_NAME = "🤖 Отец прогнозов"
+# The matches table keeps the kickoff time but not a dedicated final-whistle
+# timestamp. This estimate places snapshots on the timeline at the expected end
+# of the match, rather than at the start of play or a later sync timestamp.
+MATCH_FINISH_OFFSET = timedelta(hours=2, minutes=10)
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -27,8 +31,9 @@ def _ensure_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _day_key(value: datetime) -> str:
-    return _ensure_utc(value).astimezone(TOURNAMENT_DAY_TIMEZONE).date().isoformat()
+def _match_finished_at(match: Match) -> datetime:
+    """Return a stable completion moment for plotting historical snapshots."""
+    return _ensure_utc(match.starts_at) + MATCH_FINISH_OFFSET
 
 
 def _snapshot_rows(state: dict[int | str, dict]) -> list[dict]:
@@ -47,8 +52,14 @@ def _snapshot_rows(state: dict[int | str, dict]) -> list[dict]:
     return rows
 
 
+def _step_label(value: datetime) -> str:
+    """Compact human-friendly label used by the client timeline."""
+    local = value.astimezone(TOURNAMENT_DAY_TIMEZONE)
+    return local.strftime("%d.%m")
+
+
 def build_rating_history(db: Session, league: League, current_user_id: int | None = None) -> dict:
-    """Build day-by-day rank snapshots for an active league.
+    """Build one leaderboard snapshot after each completed match.
 
     Snapshots are calculated from immutable scored predictions for completed
     matches. No new database table is required: historical rank movement can be
@@ -79,6 +90,8 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
     if scoring_start is not None:
         matches_query = matches_query.filter(Match.starts_at >= scoring_start)
 
+    # A constant completion offset preserves the kickoff order while allowing
+    # the frontend to lay points out according to the estimated final whistle.
     matches = matches_query.order_by(Match.starts_at.asc(), Match.id.asc()).all()
     match_ids = [match.id for match in matches]
 
@@ -96,8 +109,6 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
     }
 
     # The Father is shown in the normal ranking, so preserve it in the race too.
-    # A zero-point Father still provides a stable visual reference until the
-    # first forecasted match finishes.
     state[FATHER_USER_ID] = {
         "user_id": None,
         "race_id": FATHER_USER_ID,
@@ -152,51 +163,39 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
         .count() == 0
     )
 
-    grouped_matches: dict[str, list[Match]] = defaultdict(list)
-    ordered_days: list[str] = []
-    for match in matches:
-        key = _day_key(match.starts_at)
-        if key not in grouped_matches:
-            ordered_days.append(key)
-        grouped_matches[key].append(match)
-
     steps: list[dict] = []
     snapshots_by_id: dict[int | str, list[dict]] = {entry_id: [] for entry_id in state}
-    completed_matches = 0
 
-    for day_index, day in enumerate(ordered_days):
-        day_matches = grouped_matches[day]
-        for match in day_matches:
-            completed_matches += 1
-            for prediction in predictions_by_match.get(match.id, []):
-                row = state.get(prediction.user_id)
-                if not row:
-                    continue
-                points = int(prediction.points or 0)
-                row["points"] += points
-                if int(prediction.score_points or 0) == 3:
-                    row["exact_scores"] += 1
-                elif int(prediction.score_points or 0) == 1:
-                    row["outcomes"] += 1
+    for match_index, match in enumerate(matches):
+        for prediction in predictions_by_match.get(match.id, []):
+            row = state.get(prediction.user_id)
+            if not row:
+                continue
+            points = int(prediction.points or 0)
+            row["points"] += points
+            if int(prediction.score_points or 0) == 3:
+                row["exact_scores"] += 1
+            elif int(prediction.score_points or 0) == 1:
+                row["outcomes"] += 1
 
-            father_prediction = father_predictions.get(match.id)
-            if father_prediction and match.score_home is not None and match.score_away is not None:
-                father_points = score_match_result_points(
-                    father_prediction.pred_home,
-                    father_prediction.pred_away,
-                    match.score_home,
-                    match.score_away,
-                )
-                state[FATHER_USER_ID]["points"] += father_points
-                if father_points == 3:
-                    state[FATHER_USER_ID]["exact_scores"] += 1
-                elif father_points == 1:
-                    state[FATHER_USER_ID]["outcomes"] += 1
+        father_prediction = father_predictions.get(match.id)
+        if father_prediction and match.score_home is not None and match.score_away is not None:
+            father_points = score_match_result_points(
+                father_prediction.pred_home,
+                father_prediction.pred_away,
+                match.score_home,
+                match.score_away,
+            )
+            state[FATHER_USER_ID]["points"] += father_points
+            if father_points == 3:
+                state[FATHER_USER_ID]["exact_scores"] += 1
+            elif father_points == 1:
+                state[FATHER_USER_ID]["outcomes"] += 1
 
         # Tournament-prediction points become relevant only after every match of
         # the tournament is complete. During the live tournament this remains 0,
         # exactly as it does in the current leaderboard.
-        is_final_snapshot = all_tournament_finished and day_index == len(ordered_days) - 1
+        is_final_snapshot = all_tournament_finished and match_index == len(matches) - 1
         ranking_state = {entry_id: dict(row) for entry_id, row in state.items()}
         if is_final_snapshot:
             for user_id, tournament_points in tournament_points_by_user.items():
@@ -209,20 +208,22 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
             for row in ranked_rows
         }
 
-        day_date = datetime.fromisoformat(day).date()
-        last_match = day_matches[-1]
-        step = {
-            "id": day,
-            "date": day,
-            "label": day_date.strftime("%d.%m"),
-            "matches_count": len(day_matches),
-            "completed_matches": completed_matches,
-            "last_match_id": last_match.id,
-            "last_match": f"{last_match.home_team} — {last_match.away_team}",
-            "last_score": f"{last_match.score_home}:{last_match.score_away}",
-            "is_current": day_index == len(ordered_days) - 1,
-        }
-        steps.append(step)
+        finished_at = _match_finished_at(match)
+        steps.append(
+            {
+                "id": f"match-{match.id}",
+                "match_id": match.id,
+                "date": finished_at.astimezone(TOURNAMENT_DAY_TIMEZONE).date().isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "starts_at": _ensure_utc(match.starts_at).isoformat(),
+                "label": _step_label(finished_at),
+                "match_number": match_index + 1,
+                "completed_matches": match_index + 1,
+                "last_match": f"{match.home_team} — {match.away_team}",
+                "last_score": f"{match.score_home}:{match.score_away}",
+                "is_current": match_index == len(matches) - 1,
+            }
+        )
 
         for entry_id, row in by_id.items():
             snapshots_by_id[entry_id].append(

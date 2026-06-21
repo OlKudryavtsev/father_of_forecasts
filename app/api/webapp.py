@@ -2021,7 +2021,7 @@ def get_rating_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return day-by-day leaderboard movement for the selected league."""
+    """Return match-by-match leaderboard movement for the selected league."""
     try:
         active_league = require_user_league(db, current_user, league_id)
     except ValueError as error:
