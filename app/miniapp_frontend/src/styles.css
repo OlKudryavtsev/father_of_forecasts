@@ -9905,3 +9905,43 @@ body,
     max-width: 52px;
   }
 }
+
+
+/* v2.8.49 — reliable league selector popover and My Leagues selection */
+.header-league-menu.floating {
+  position: fixed;
+  z-index: 10050;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(320px, calc(100vh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.league-row-main {
+  cursor: pointer;
+}
+
+.league-row-main:hover,
+.league-row-main:focus-visible {
+  background: rgba(90, 141, 255, 0.08);
+  outline: 0;
+}
+
+.league-row-select-hint {
+  flex: 0 0 auto;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.app.theme-light .league-row-main:hover,
+.app.theme-light .league-row-main:focus-visible {
+  background: rgba(37, 99, 235, 0.07);
+}
+
+@media (max-width: 520px) {
+  .header-league-menu.floating {
+    width: min(300px, calc(100vw - 24px));
+  }
+}

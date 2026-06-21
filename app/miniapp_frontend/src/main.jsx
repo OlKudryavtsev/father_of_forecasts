@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.48';
+const APP_VERSION = '2.8.49';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1028,22 +1028,42 @@ function PwaAccessCard() {
 
 function HeaderLeagueSelector({ leagues = [], activeLeagueId, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const selectorRef = useRef(null);
+  const menuRef = useRef(null);
   const selectedLeague = leagues.find((league) => Number(league.id) === Number(activeLeagueId)) || leagues[0];
+
+  const updateMenuPosition = () => {
+    const rect = selectorRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const menuWidth = Math.min(320, Math.max(230, rect.width + 52));
+    setMenuPosition({
+      top: Math.max(12, rect.bottom + 8),
+      left: Math.max(12, Math.min(rect.left, viewportWidth - menuWidth - 12)),
+    });
+  };
 
   useEffect(() => {
     if (!isOpen) return undefined;
 
+    updateMenuPosition();
     const closeOnOutsideClick = (event) => {
-      if (!selectorRef.current?.contains(event.target)) setIsOpen(false);
+      const insideTrigger = selectorRef.current?.contains(event.target);
+      const insideMenu = menuRef.current?.contains(event.target);
+      if (!insideTrigger && !insideMenu) setIsOpen(false);
     };
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') setIsOpen(false);
     };
 
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
     document.addEventListener('pointerdown', closeOnOutsideClick);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
       document.removeEventListener('pointerdown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
     };
@@ -1055,6 +1075,33 @@ function HeaderLeagueSelector({ leagues = [], activeLeagueId, onChange }) {
     onChange?.(Number(leagueId));
     setIsOpen(false);
   };
+
+  const menu = isOpen ? (
+    <div
+      className="header-league-menu floating"
+      ref={menuRef}
+      role="listbox"
+      aria-label="Выбор лиги"
+      style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
+    >
+      {leagues.map((league) => {
+        const selected = Number(league.id) === Number(selectedLeague.id);
+        return (
+          <button
+            key={league.id}
+            type="button"
+            className={selected ? 'selected' : ''}
+            role="option"
+            aria-selected={selected}
+            onClick={() => selectLeague(league.id)}
+          >
+            <span>{league.name}</span>
+            {selected && <b aria-hidden="true">✓</b>}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
 
   return (
     <div className={`header-league-selector${isOpen ? ' open' : ''}`} ref={selectorRef}>
@@ -1070,26 +1117,7 @@ function HeaderLeagueSelector({ leagues = [], activeLeagueId, onChange }) {
         <span className="header-league-name">{selectedLeague.name}</span>
         <i className="header-league-chevron" aria-hidden="true">⌄</i>
       </button>
-      {isOpen && (
-        <div className="header-league-menu" role="listbox" aria-label="Выбор лиги">
-          {leagues.map((league) => {
-            const selected = Number(league.id) === Number(selectedLeague.id);
-            return (
-              <button
-                key={league.id}
-                type="button"
-                className={selected ? 'selected' : ''}
-                role="option"
-                aria-selected={selected}
-                onClick={() => selectLeague(league.id)}
-              >
-                <span>{league.name}</span>
-                {selected && <b aria-hidden="true">✓</b>}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {typeof document === 'undefined' ? menu : createPortal(menu, document.body)}
     </div>
   );
 }
@@ -4441,13 +4469,22 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
           <div className="leagues-list">
             {leagues.map((league) => (
               <article key={league.id} className={`league-row-card ${Number(league.id) === Number(activeLeagueId) ? 'active' : ''}`}>
-                <div className="league-row-main">
+                <button
+                  type="button"
+                  className="league-row-main"
+                  onClick={() => {
+                    if (Number(league.id) === Number(activeLeagueId)) return;
+                    onLeagueChange?.(league.id);
+                    trackAnalytics('league_selected', { screen: 'leagues', properties: { league_id: Number(league.id) || 0, entry_point: 'my_leagues' } });
+                  }}
+                  aria-pressed={Number(league.id) === Number(activeLeagueId)}
+                >
                   <div>
                     <strong>{league.name}</strong>
                     <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}{league.scoring_start_at ? ` · счет с ${formatDateTime(league.scoring_start_at)}` : ''}{league.chat_id ? ' · чат подключен' : ''}</small>
                   </div>
-                  {Number(league.id) === Number(activeLeagueId) && <span className="active-league-pill">активна</span>}
-                </div>
+                  {Number(league.id) === Number(activeLeagueId) ? <span className="active-league-pill">активна</span> : <span className="league-row-select-hint">Выбрать</span>}
+                </button>
                 {league.can_manage && league.invite_code && (
                   <div className="invite-tools">
                     <code>{league.invite_code}</code>
