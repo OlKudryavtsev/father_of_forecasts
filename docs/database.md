@@ -301,3 +301,8 @@ erDiagram
     quiz_questions ||--o{ group_quiz_game_answers : answered
     users ||--o{ group_quiz_game_answers : gives
 ```
+
+
+## analytics_events
+
+События продуктовой аналитики Mini App. Содержит внутренний `user_id`, технический идентификатор сессии, тип события, экран и короткие allowlist-параметры (например, ID матча или активный фильтр). В таблицу **не** записываются Telegram ID, username, фактические счета/прогнозы и свободный текст.

@@ -516,4 +516,29 @@ CREATE INDEX IF NOT EXISTS ix_group_quiz_game_answers_user_id ON group_quiz_game
 CREATE INDEX IF NOT EXISTS ix_group_quiz_game_answers_telegram_id ON group_quiz_game_answers (telegram_id);
 CREATE INDEX IF NOT EXISTS ix_group_quiz_game_answers_answered_at ON group_quiz_game_answers (answered_at);
 
+
+-- Product analytics for the Mini App (v2.8.44)
+-- Properties are intentionally limited by the application to non-personal values.
+CREATE TABLE IF NOT EXISTS analytics_events (
+    id SERIAL PRIMARY KEY,
+
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    session_id VARCHAR(96) NOT NULL,
+    event_name VARCHAR(64) NOT NULL,
+    screen VARCHAR(64),
+    source VARCHAR(24) NOT NULL DEFAULT 'web',
+    app_version VARCHAR(32),
+    properties JSONB,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_analytics_events_user_id ON analytics_events (user_id);
+CREATE INDEX IF NOT EXISTS ix_analytics_events_session_id ON analytics_events (session_id);
+CREATE INDEX IF NOT EXISTS ix_analytics_events_event_name ON analytics_events (event_name);
+CREATE INDEX IF NOT EXISTS ix_analytics_events_screen ON analytics_events (screen);
+CREATE INDEX IF NOT EXISTS ix_analytics_events_source ON analytics_events (source);
+CREATE INDEX IF NOT EXISTS ix_analytics_events_created_at ON analytics_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_analytics_events_event_created_at ON analytics_events (event_name, created_at DESC);
+
 COMMIT;

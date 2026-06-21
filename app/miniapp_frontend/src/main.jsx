@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.42';
+const APP_VERSION = '2.8.44';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -352,6 +352,52 @@ async function api(path, options = {}) {
   }
 
   return payload;
+}
+
+const ANALYTICS_SESSION_KEY = 'ff-analytics-session';
+const ANALYTICS_SESSION_TTL_MS = 30 * 60 * 1000;
+
+function getAnalyticsSource() {
+  if (isTelegramMode()) return 'telegram';
+  const isStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator?.standalone;
+  return isStandalone ? 'pwa' : 'browser';
+}
+
+function getAnalyticsSessionId() {
+  const now = Date.now();
+  try {
+    const stored = JSON.parse(localStorage.getItem(ANALYTICS_SESSION_KEY) || '{}');
+    if (stored?.id && stored?.lastSeen && now - stored.lastSeen < ANALYTICS_SESSION_TTL_MS) {
+      localStorage.setItem(ANALYTICS_SESSION_KEY, JSON.stringify({ id: stored.id, lastSeen: now }));
+      return stored.id;
+    }
+  } catch {
+    // A broken local value should not prevent the Mini App from working.
+  }
+
+  const id = window.crypto?.randomUUID?.() || `s-${now}-${Math.random().toString(16).slice(2)}`;
+  try {
+    localStorage.setItem(ANALYTICS_SESSION_KEY, JSON.stringify({ id, lastSeen: now }));
+  } catch {
+    // Private browser modes may disallow local storage; keep an in-memory event id instead.
+  }
+  return id;
+}
+
+function trackAnalytics(eventName, { screen = null, properties = {} } = {}) {
+  if (!isTelegramMode() && !getWebSessionToken()) return Promise.resolve();
+
+  return api('/api/webapp/analytics/events', {
+    method: 'POST',
+    body: JSON.stringify({
+      event_name: eventName,
+      screen,
+      session_id: getAnalyticsSessionId(),
+      source: getAnalyticsSource(),
+      app_version: APP_VERSION,
+      properties,
+    }),
+  }).catch(() => null);
 }
 
 function formatDateTime(value) {
@@ -1310,7 +1356,10 @@ function MatchVideoBlock({ match }) {
     <MatchInlineSection title="Видео" meta={meta} iconName="video" className={`match-video-block ${live ? 'has-live' : ''}`}>
       <div className="match-video-list">
         {activeVideos.map((video) => (
-          <button key={video.id || video.url} type="button" onClick={() => openExternalUrl(video.url)}>
+          <button key={video.id || video.url} type="button" onClick={() => {
+            trackAnalytics('video_open', { screen: 'matches', properties: { match_id: match.id, video_id: video.id || 0 } });
+            openExternalUrl(video.url);
+          }}>
             <span>{video.video_type === 'live' ? '🔴' : '▶️'}</span>
             <strong>{videoDisplayTitle(video)}</strong>
             <small>{videoSourceLabel(video.source)}</small>
@@ -2002,6 +2051,7 @@ function TeamProfileModal({ teamId, onClose, onOpenMatch, onOpenPlayer }) {
   const [activeTab, setActiveTab] = useState('matches');
 
   useEffect(() => {
+    if (teamId) trackAnalytics('team_open', { screen: 'matches', properties: { team_id: teamId } });
     let active = true;
     setData(null); setError(null);
     api(`/api/webapp/tournament/teams/${teamId}`)
@@ -2064,6 +2114,7 @@ function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
+    if (playerId) trackAnalytics('player_open', { screen: 'matches', properties: { player_id: playerId } });
     let active = true;
     setData(null); setError(null);
     api(`/api/webapp/tournament/players/${playerId}`)
@@ -2261,16 +2312,23 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, onLe
   const grouped = useMemo(() => groupMatchesByDay(data?.matches || []), [data]);
   const selectedStanding = group ? data?.standings?.[0] : null;
   const leagueName = activeLeagueLabel(leagues, activeLeagueId);
-  const openMatch = (match) => { setTeamId(null); setPlayerId(null); setDetailsMatch(match); };
+  const openMatch = (match) => {
+    trackAnalytics('match_open', { screen: 'matches', properties: { match_id: match?.id || 0, league_id: activeLeagueId || 0, entry_point: 'match_center' } });
+    setTeamId(null); setPlayerId(null); setDetailsMatch(match);
+  };
   const openTeam = (id) => { if (!id) return; setDetailsMatch(null); setPlayerId(null); setTeamId(id); };
   const openPlayer = (id) => { if (!id) return; setDetailsMatch(null); setTeamId(null); setPlayerId(id); };
+  const changeCenterMode = (mode) => {
+    setCenterMode(mode);
+    trackAnalytics('tournament_mode_open', { screen: 'matches', properties: { mode } });
+  };
   if (error) return <ErrorCard error={error} onRetry={load} />;
   return <main className="screen-content">
     <div className="section-label">Матч-центр</div>
     <LeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
-    <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => setCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => setCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => setCenterMode('scorers')}>Бомбардиры</button></div>
+    <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => changeCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => changeCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => changeCenterMode('scorers')}>Бомбардиры</button></div>
     <section className="match-center-mode-content" aria-live="polite">
-    {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={setCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
+    {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={changeCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
       <div className="filter-strip modern-filters">
         <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}><Icon name="star" /><span>Все</span></button>
         <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}><Icon name="ball" /><span>Будущие</span></button>
@@ -2301,6 +2359,15 @@ function ScorePicker({ match, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
+  useEffect(() => {
+    if (match?.id) {
+      trackAnalytics('prediction_open', {
+        screen: 'matches',
+        properties: { match_id: match.id, is_update: Boolean(match.prediction) },
+      });
+    }
+  }, [match?.id]);
+
   if (!match) return null;
 
   async function save() {
@@ -2316,6 +2383,10 @@ function ScorePicker({ match, onClose, onSaved }) {
           advancement_bet_enabled: false,
           predicted_advancing_side: null,
         }),
+      });
+      trackAnalytics('prediction_save', {
+        screen: 'matches',
+        properties: { match_id: match.id, is_update: Boolean(match.prediction) },
       });
       onSaved?.();
       onClose?.();
@@ -2383,6 +2454,13 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    trackAnalytics('tournament_prediction_open', {
+      screen: 'matches',
+      properties: { entry_point: initialField },
+    });
+  }, [initialField]);
+
+  useEffect(() => {
     api('/api/webapp/tournament-teams')
       .then((result) => setTeams(result.teams || []))
       .catch(setError);
@@ -2430,6 +2508,7 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
           top_scorer: currentTopScorer,
         }),
       });
+      trackAnalytics('tournament_prediction_save', { screen: 'matches' });
       onSaved?.();
       onClose?.();
     } catch (err) {
@@ -2622,6 +2701,10 @@ function MatchParticipantsModal({ match, onClose }) {
 function ForecastModal({ match, onClose }) {
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (match?.id) trackAnalytics('forecast_open', { screen: 'matches', properties: { match_id: match.id } });
+  }, [match?.id]);
 
   useEffect(() => {
     let active = true;
@@ -3676,6 +3759,12 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
   const [resultFilter, setResultFilter] = useState(null);
 
   useEffect(() => {
+    if (participant?.user_id) {
+      trackAnalytics('participant_history_open', {
+        screen: 'rating',
+        properties: { participant_id: participant.user_id, league_id: leagueId || 0 },
+      });
+    }
     let active = true;
     setData(null);
     setError(null);
@@ -3708,7 +3797,14 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
   const activeFilterLabel = resultFilter === 'exact' ? 'точным счётом' : 'угаданным исходом';
 
   const toggleResultFilter = (filter) => {
-    setResultFilter((current) => (current === filter ? null : filter));
+    setResultFilter((current) => {
+      const next = current === filter ? null : filter;
+      trackAnalytics('participant_history_filter', {
+        screen: 'rating',
+        properties: { participant_id: participant.user_id, league_id: leagueId || 0, filter: next || 'all' },
+      });
+      return next;
+    });
   };
 
   return (
@@ -3956,6 +4052,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   const [activityError, setActivityError] = useState(null);
 
   async function loadLeagueActivity(leagueId = activeLeagueId) {
+    if (leagueId) trackAnalytics('league_activity_open', { screen: 'leagues', properties: { league_id: leagueId } });
     if (!leagueId) {
       setActivityData([]);
       return;
@@ -3993,6 +4090,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       await onLeaguesChanged?.();
       onLeagueChange?.(result.league.id);
       setManagedLeagueId(result.league.id);
+      trackAnalytics('league_create', { screen: 'leagues', properties: { league_id: result.league.id } });
       setMessage(`Лига «${result.league.name}» создана`);
     } catch (err) {
       setError(err);
@@ -4015,6 +4113,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       setJoinOpen(false);
       await onLeaguesChanged?.();
       onLeagueChange?.(result.league.id);
+      trackAnalytics('league_join', { screen: 'leagues', properties: { league_id: result.league.id } });
       setMessage(`Вы вступили в лигу «${result.league.name}»`);
     } catch (err) {
       setError(err);
@@ -4233,7 +4332,10 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
           <div className="leagues-list">
             {leagues.map((league) => (
               <article key={league.id} className={`league-row-card ${Number(league.id) === Number(activeLeagueId) ? 'active' : ''}`}>
-                <button type="button" className="league-row-main" onClick={() => onLeagueChange?.(league.id)}>
+                <button type="button" className="league-row-main" onClick={() => {
+                  trackAnalytics('league_open', { screen: 'leagues', properties: { league_id: league.id } });
+                  onLeagueChange?.(league.id);
+                }}>
                   <div>
                     <strong>{league.name}</strong>
                     <small>{league.members_count || 0} участник{(league.members_count || 0) === 1 ? '' : 'ов'} · {league.league_type === 'system' ? 'системная' : 'частная'}{league.role ? ` · ${league.role === 'owner' ? 'владелец' : league.role === 'admin' ? 'админ' : 'участник'}` : ''}{league.scoring_start_at ? ` · счет с ${formatDateTime(league.scoring_start_at)}` : ''}{league.chat_id ? ' · чат подключен' : ''}</small>
@@ -4318,7 +4420,122 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   );
 }
 
+function AdminAnalytics() {
+  const [days, setDays] = useState(7);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await api(`/api/webapp/admin/analytics?days=${days}`));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    trackAnalytics('analytics_open', { screen: 'admin', properties: { tab: 'analytics' } });
+  }, []);
+
+  useEffect(() => { load(); }, [days]);
+
+  const summary = data?.summary || {};
+  const screens = data?.screens || [];
+  const events = data?.events || [];
+  const features = data?.features || [];
+  const funnel = data?.funnel || [];
+  const activity = data?.activity || [];
+  const recent = data?.recent || [];
+  const maxScreenEvents = Math.max(1, ...screens.map((item) => item.events || 0));
+  const maxFeatureUsers = Math.max(1, ...features.map((item) => item.users || 0));
+  const maxActivityEvents = Math.max(1, ...activity.map((item) => item.events || 0));
+
+  const formatDay = (value) => {
+    if (!value) return '';
+    const date = new Date(`${value}T12:00:00`);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  };
+
+  return (
+    <section className="admin-analytics" aria-label="Продуктовая аналитика">
+      <section className="card admin-analytics-intro">
+        <div>
+          <div className="section-label">Продуктовая аналитика</div>
+          <h2>Что востребовано в приложении</h2>
+          <p className="muted">Данные собираются только после установки этой версии. В статистику не попадают Telegram ID, username, фактические счета и тексты прогнозов.</p>
+        </div>
+        <div className="admin-analytics-period" role="group" aria-label="Период аналитики">
+          {[7, 30].map((value) => (
+            <button key={value} type="button" className={days === value ? 'active' : ''} onClick={() => setDays(value)}>{value} дней</button>
+          ))}
+        </div>
+      </section>
+
+      {loading && !data && <LoadingCard text="Собираю аналитику..." />}
+      {error && <ErrorCard error={error} onRetry={load} />}
+
+      {data && (
+        <>
+          <section className="admin-analytics-summary-grid">
+            <div><b>{summary.active_users || 0}</b><span>активных пользователей</span></div>
+            <div><b>{summary.app_opens || 0}</b><span>открытий приложения</span></div>
+            <div><b>{summary.predictions_saved || 0}</b><span>сохраненных прогнозов</span></div>
+            <div><b>{summary.prediction_conversion || 0}%</b><span>матч → прогноз</span></div>
+          </section>
+
+          <section className="card admin-analytics-card">
+            <div className="admin-card-head">
+              <div><h2>Воронка прогнозов</h2><p>Уникальные пользователи за выбранный период</p></div>
+            </div>
+            <div className="analytics-funnel">
+              {funnel.map((step) => (
+                <div key={step.label} className="analytics-funnel-row">
+                  <div><strong>{step.label}</strong><small>{step.value || 0} пользователей</small></div>
+                  <div className="analytics-funnel-track"><span style={{ width: `${Math.max(4, step.percent || 0)}%` }} /></div>
+                  <b>{step.percent || 0}%</b>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="card admin-analytics-card">
+            <div className="admin-card-head"><div><h2>Популярные разделы</h2><p>Просмотры экранов и уникальные пользователи</p></div></div>
+            {screens.length ? <div className="analytics-bars">{screens.map((item) => <div key={item.key} className="analytics-bar-row"><div><strong>{item.label}</strong><small>{item.users || 0} польз.</small></div><div className="analytics-bar-track"><span style={{ width: `${Math.max(3, Math.round((item.events || 0) * 100 / maxScreenEvents))}%` }} /></div><b>{item.events || 0}</b></div>)}</div> : <p className="muted">Пока нет просмотров разделов за этот период.</p>}
+          </section>
+
+          <section className="card admin-analytics-card">
+            <div className="admin-card-head"><div><h2>Функции</h2><p>Какими возможностями пользовались чаще</p></div></div>
+            {features.length ? <div className="analytics-bars">{features.map((item) => <div key={item.label} className="analytics-bar-row"><div><strong>{item.label}</strong><small>{item.users || 0} польз.</small></div><div className="analytics-bar-track"><span style={{ width: `${Math.max(3, Math.round((item.users || 0) * 100 / maxFeatureUsers))}%` }} /></div><b>{item.events || 0}</b></div>)}</div> : <p className="muted">Пока нет данных по функциям.</p>}
+          </section>
+
+          <section className="card admin-analytics-card">
+            <div className="admin-card-head"><div><h2>Активность по дням</h2><p>События и активные пользователи</p></div></div>
+            {activity.length ? <div className="analytics-days">{activity.map((item) => <div key={item.date} className="analytics-day"><div className="analytics-day-bar"><span style={{ height: `${Math.max(6, Math.round((item.events || 0) * 100 / maxActivityEvents))}%` }} /></div><strong>{item.events || 0}</strong><small>{formatDay(item.date)}</small></div>)}</div> : <p className="muted">Пока нет активности за выбранный период.</p>}
+          </section>
+
+          <section className="card admin-analytics-card">
+            <div className="admin-card-head"><div><h2>Последние действия</h2><p>Можно увидеть, кто и что открывал</p></div><button className="secondary small" type="button" onClick={load} disabled={loading}>{loading ? 'Обновляю…' : 'Обновить'}</button></div>
+            {recent.length ? <div className="analytics-recent-list">{recent.map((item) => <article key={item.id} className="analytics-recent-row"><div><strong>{item.user_name}</strong><span>{item.label}</span>{item.screen && <small>{item.screen}</small>}</div><time>{formatDateTime(item.created_at)}</time></article>)}</div> : <p className="muted">Пока нет записанных действий.</p>}
+          </section>
+
+          <section className="card admin-analytics-card analytics-events-card">
+            <div className="admin-card-head"><div><h2>Топ действий</h2><p>Сводка событий за период</p></div></div>
+            <div className="analytics-event-chips">{events.map((item) => <div key={item.key}><b>{item.events || 0}</b><span>{item.label}</span><small>{item.users || 0} польз.</small></div>)}</div>
+          </section>
+        </>
+      )}
+    </section>
+  );
+}
+
+
 function AdminPanel() {
+  const [adminSection, setAdminSection] = useState('overview');
   const [data, setData] = useState(null);
   const [selectedMatchId, setSelectedMatchId] = useState('');
   const [scoreHome, setScoreHome] = useState('');
@@ -4416,7 +4633,12 @@ function AdminPanel() {
   return (
     <main className="screen-content admin-screen">
       <div className="section-label">Администрирование</div>
+      <nav className="admin-section-tabs" aria-label="Разделы администрирования">
+        <button type="button" className={adminSection === 'overview' ? 'active' : ''} onClick={() => setAdminSection('overview')}>Управление</button>
+        <button type="button" className={adminSection === 'analytics' ? 'active' : ''} onClick={() => setAdminSection('analytics')}>Аналитика</button>
+      </nav>
 
+      {adminSection === 'analytics' ? <AdminAnalytics /> : <>
       <section className="admin-summary-grid">
         <div><b>{data.summary?.matches_total || 0}</b><span>матчей</span></div>
         <div><b>{data.summary?.finished || 0}</b><span>завершено</span></div>
@@ -4501,6 +4723,7 @@ function AdminPanel() {
 
       {error && <section className="card error-card"><p>{error.message}</p></section>}
       {message && <section className="card admin-result-card"><pre>{message}</pre></section>}
+      </>}
     </main>
   );
 }
@@ -4743,11 +4966,13 @@ function Resources() {
   }, []);
 
   async function loadFact() {
+    trackAnalytics('resource_open', { screen: 'resources', properties: { resource: 'fact' } });
     const result = await api('/api/webapp/facts/random');
     setFact(result.fact?.text || '');
   }
 
   async function loadArchive() {
+    trackAnalytics('resource_open', { screen: 'resources', properties: { resource: 'archive' } });
     const result = await api('/api/webapp/archive/random');
     setArchive(`${result.card?.title || ''}\n${result.card?.text || ''}`);
   }
@@ -4792,12 +5017,20 @@ function Resources() {
       <div className="section-label">Полезные ресурсы</div>
 
       <section className="resource-quick-grid">
-        <button className="resource-quick-card father" onClick={() => setOpenFather(!openFather)}>
+        <button className="resource-quick-card father" onClick={() => {
+          const next = !openFather;
+          setOpenFather(next);
+          if (next) trackAnalytics('resource_open', { screen: 'resources', properties: { resource: 'father_forecast' } });
+        }}>
           <span>🤖</span>
           <strong>Прогноз Отца</strong>
           <small>итоги турнира</small>
         </button>
-        <button className="resource-quick-card scorers" onClick={() => setOpenHelp(!openHelp)}>
+        <button className="resource-quick-card scorers" onClick={() => {
+          const next = !openHelp;
+          setOpenHelp(next);
+          if (next) trackAnalytics('resource_open', { screen: 'resources', properties: { resource: 'scorer_help' } });
+        }}>
           <span>⚽</span>
           <strong>Бомбардиры</strong>
           <small>кого выбрать</small>
@@ -4861,7 +5094,10 @@ function Resources() {
         <h2>Матч-центры и статистика</h2>
         <div className="resource-links-list">
           {links.map((item) => (
-            <button key={item.title} onClick={() => tg?.openLink ? tg.openLink(item.url) : window.open(item.url, '_blank')}>
+            <button key={item.title} onClick={() => {
+              trackAnalytics('resource_open', { screen: 'resources', properties: { resource: 'external_link' } });
+              tg?.openLink ? tg.openLink(item.url) : window.open(item.url, '_blank');
+            }}>
               <span className="resource-link-icon">{item.icon}</span>
               <span className="resource-link-text">
                 <strong>{item.title}</strong>
@@ -4938,6 +5174,18 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
   const hasBrowserSession = Boolean(getWebSessionToken());
+
+  useEffect(() => {
+    if (isTelegramMode() || hasBrowserSession) {
+      trackAnalytics('app_open', { screen: 'matches', properties: { entry_point: 'launch' } });
+    }
+  }, [hasBrowserSession]);
+
+  useEffect(() => {
+    if (isTelegramMode() || hasBrowserSession) {
+      trackAnalytics('screen_view', { screen: tab, properties: { league_id: activeLeagueId || 0 } });
+    }
+  }, [tab, activeLeagueId, hasBrowserSession]);
 
   useEffect(() => {
     localStorage.setItem('ff-app-theme', appTheme);
@@ -5017,7 +5265,10 @@ function App() {
   return (
     <div className={`app theme-${appTheme}`}>
       <PwaUpdateBanner updateInfo={updateInfo} />
-      <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} onAdmin={() => setTab('admin')} />
+      <Header dashboard={dashboard} onRules={() => setRulesOpen(true)} onAdmin={() => {
+        trackAnalytics('admin_open', { screen: 'admin' });
+        setTab('admin');
+      }} />
 
       {tab === 'matches' && (
         <>

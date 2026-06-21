@@ -12,6 +12,9 @@ venv/
 env/
 ENV/
 
+# Node dependencies
+app/miniapp_frontend/node_modules/
+
 # Packaging / build
 build/
 dist/

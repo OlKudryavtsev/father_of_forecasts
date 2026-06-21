@@ -33,6 +33,7 @@ from app.models import (
     League,
     LeagueMember,
     LeagueActivityEvent,
+    AnalyticsEvent,
     Match,
     MatchVideo,
     Prediction,
@@ -71,6 +72,118 @@ from app.wc2026_sync import get_fixture_score, get_winner_side
 
 router = APIRouter(prefix="/api/webapp", tags=["Telegram Mini App"])
 US_TOURNAMENT_TIMEZONE = ZoneInfo(os.getenv("TOURNAMENT_DAY_TIMEZONE", "America/New_York"))
+
+
+# Product analytics is intentionally limited to named interaction events.  This
+# makes reports useful without retaining Telegram IDs, raw prediction content,
+# search text, or arbitrary click labels in the event payload.
+ANALYTICS_ALLOWED_EVENTS = {
+    "app_open",
+    "screen_view",
+    "match_open",
+    "prediction_open",
+    "prediction_save",
+    "forecast_open",
+    "tournament_mode_open",
+    "team_open",
+    "player_open",
+    "participant_history_open",
+    "participant_history_filter",
+    "league_open",
+    "league_create",
+    "league_join",
+    "league_activity_open",
+    "resource_open",
+    "video_open",
+    "tournament_prediction_open",
+    "tournament_prediction_save",
+    "admin_open",
+    "analytics_open",
+}
+
+ANALYTICS_ALLOWED_SCREENS = {
+    "matches", "predictions", "rating", "leagues", "resources", "profile", "admin",
+}
+
+ANALYTICS_ALLOWED_SOURCES = {"telegram", "pwa", "browser"}
+
+ANALYTICS_ALLOWED_PROPERTY_KEYS = {
+    "match_id", "league_id", "participant_id", "team_id", "player_id", "video_id",
+    "filter", "mode", "scope", "group_code", "entry_point", "is_update", "tab",
+    "resource", "result", "section", "destination",
+}
+
+ANALYTICS_EVENT_LABELS = {
+    "app_open": "Открыл приложение",
+    "screen_view": "Открыл раздел",
+    "match_open": "Открыл матч",
+    "prediction_open": "Открыл форму прогноза",
+    "prediction_save": "Сохранил прогноз",
+    "forecast_open": "Открыл прогноз Отца",
+    "tournament_mode_open": "Открыл раздел турнира",
+    "team_open": "Открыл сборную",
+    "player_open": "Открыл игрока",
+    "participant_history_open": "Открыл историю участника",
+    "participant_history_filter": "Применил фильтр истории",
+    "league_open": "Открыл лигу",
+    "league_create": "Создал лигу",
+    "league_join": "Вступил в лигу",
+    "league_activity_open": "Открыл историю лиги",
+    "resource_open": "Открыл ресурс",
+    "video_open": "Открыл видео",
+    "tournament_prediction_open": "Открыл турнирный прогноз",
+    "tournament_prediction_save": "Сохранил турнирный прогноз",
+    "admin_open": "Открыл администрирование",
+    "analytics_open": "Открыл аналитику",
+}
+
+ANALYTICS_SCREEN_LABELS = {
+    "matches": "Матч-центр",
+    "predictions": "Прогнозы",
+    "rating": "Рейтинг",
+    "leagues": "Лиги",
+    "resources": "Ресурсы",
+    "profile": "Профиль",
+    "admin": "Администрирование",
+}
+
+
+def _sanitize_analytics_properties(properties: dict | None) -> dict:
+    """Keep only a small allowlist of non-personal primitive properties."""
+    clean: dict = {}
+    for raw_key, raw_value in (properties or {}).items():
+        key = str(raw_key).strip()
+        if key not in ANALYTICS_ALLOWED_PROPERTY_KEYS:
+            continue
+
+        if isinstance(raw_value, bool):
+            clean[key] = raw_value
+        elif isinstance(raw_value, int) and not isinstance(raw_value, bool):
+            clean[key] = raw_value
+        elif isinstance(raw_value, float):
+            clean[key] = round(raw_value, 4)
+        elif isinstance(raw_value, str):
+            value = raw_value.strip()
+            if value:
+                clean[key] = value[:64]
+
+    return clean
+
+
+def _analytics_event_label(event_name: str, properties: dict | None = None) -> str:
+    """Build a compact admin-readable description without exposing payload data."""
+    label = ANALYTICS_EVENT_LABELS.get(event_name, event_name)
+    properties = properties or {}
+    suffixes = {
+        "filter": {"exact": "Точные счета", "outcome": "Исходы"},
+        "mode": {"tournament": "Турнир", "scorers": "Бомбардиры", "matches": "Матчи"},
+        "resource": {"fact": "Факт о ЧМ", "archive": "Архив Отца", "father_forecast": "Прогноз Отца", "scorer_help": "Подсказка по бомбардирам"},
+    }
+    for key, values in suffixes.items():
+        value = properties.get(key)
+        if value in values:
+            return f"{label}: {values[value]}"
+    return label
 
 
 class PredictionPayload(BaseModel):
@@ -150,6 +263,17 @@ class AdminSettingPayload(BaseModel):
 class PushSubscriptionPayload(BaseModel):
     endpoint: str
     keys: dict[str, str]
+
+
+class AnalyticsEventPayload(BaseModel):
+    """Client-side Mini App event with a restricted, non-personal payload."""
+
+    event_name: str = Field(min_length=2, max_length=64)
+    screen: str | None = Field(default=None, max_length=64)
+    session_id: str = Field(min_length=8, max_length=96)
+    source: str = Field(default="web", max_length=24)
+    app_version: str | None = Field(default=None, max_length=32)
+    properties: dict = Field(default_factory=dict)
 
 
 class FantasyTeamPayload(BaseModel):
@@ -1074,6 +1198,197 @@ def unsubscribe_push(
     return {"ok": True}
 
 
+
+
+@router.post("/analytics/events")
+def create_analytics_event(
+    payload: AnalyticsEventPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Persist one allowlisted Mini App interaction for product analytics."""
+    event_name = payload.event_name.strip().lower()
+    screen = (payload.screen or "").strip().lower() or None
+    source = payload.source.strip().lower() or "web"
+
+    if event_name not in ANALYTICS_ALLOWED_EVENTS:
+        raise HTTPException(status_code=422, detail="Неизвестное событие аналитики")
+    if screen and screen not in ANALYTICS_ALLOWED_SCREENS:
+        raise HTTPException(status_code=422, detail="Неизвестный экран аналитики")
+    if source not in ANALYTICS_ALLOWED_SOURCES:
+        source = "browser"
+
+    event = AnalyticsEvent(
+        user_id=current_user.id,
+        session_id=payload.session_id.strip()[:96],
+        event_name=event_name,
+        screen=screen,
+        source=source,
+        app_version=(payload.app_version or "").strip()[:32] or None,
+        properties=_sanitize_analytics_properties(payload.properties),
+    )
+    db.add(event)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/admin/analytics")
+def get_admin_analytics(
+    days: int = Query(default=7, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return compact, privacy-aware product usage analytics for administrators."""
+    _require_miniapp_admin(current_user)
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    base = db.query(AnalyticsEvent).filter(AnalyticsEvent.created_at >= since)
+
+    def unique_users_for(event_names: list[str]) -> int:
+        return int(
+            db.query(func.count(func.distinct(AnalyticsEvent.user_id)))
+            .filter(AnalyticsEvent.created_at >= since, AnalyticsEvent.event_name.in_(event_names))
+            .scalar() or 0
+        )
+
+    def event_count_for(event_names: list[str]) -> int:
+        return int(
+            db.query(func.count(AnalyticsEvent.id))
+            .filter(AnalyticsEvent.created_at >= since, AnalyticsEvent.event_name.in_(event_names))
+            .scalar() or 0
+        )
+
+    active_users = int(base.with_entities(func.count(func.distinct(AnalyticsEvent.user_id))).scalar() or 0)
+    active_sessions = int(base.with_entities(func.count(func.distinct(AnalyticsEvent.session_id))).scalar() or 0)
+    app_opens = event_count_for(["app_open"])
+    predictions_saved = event_count_for(["prediction_save"])
+    app_open_users = unique_users_for(["app_open"])
+    match_open_users = unique_users_for(["match_open"])
+    prediction_users = unique_users_for(["prediction_save"])
+
+    screen_rows = (
+        db.query(
+            AnalyticsEvent.screen,
+            func.count(AnalyticsEvent.id).label("events"),
+            func.count(func.distinct(AnalyticsEvent.user_id)).label("users"),
+        )
+        .filter(AnalyticsEvent.created_at >= since, AnalyticsEvent.event_name == "screen_view")
+        .group_by(AnalyticsEvent.screen)
+        .order_by(func.count(AnalyticsEvent.id).desc())
+        .all()
+    )
+
+    event_rows = (
+        db.query(
+            AnalyticsEvent.event_name,
+            func.count(AnalyticsEvent.id).label("events"),
+            func.count(func.distinct(AnalyticsEvent.user_id)).label("users"),
+        )
+        .filter(AnalyticsEvent.created_at >= since)
+        .group_by(AnalyticsEvent.event_name)
+        .order_by(func.count(AnalyticsEvent.id).desc())
+        .limit(12)
+        .all()
+    )
+
+    daily_rows = (
+        db.query(
+            func.date(AnalyticsEvent.created_at).label("day"),
+            func.count(AnalyticsEvent.id).label("events"),
+            func.count(func.distinct(AnalyticsEvent.user_id)).label("users"),
+        )
+        .filter(AnalyticsEvent.created_at >= since)
+        .group_by(func.date(AnalyticsEvent.created_at))
+        .order_by(func.date(AnalyticsEvent.created_at).asc())
+        .all()
+    )
+
+    feature_definitions = [
+        ("Матч-центр", ["match_open"]),
+        ("Турнир", ["tournament_mode_open"]),
+        ("Бомбардиры", ["player_open"]),
+        ("Рейтинг", ["participant_history_open"]),
+        ("Лиги", ["league_open", "league_create", "league_join"]),
+        ("Ресурсы", ["resource_open"]),
+        ("Прогноз Отца", ["forecast_open"]),
+    ]
+    features = [
+        {
+            "label": label,
+            "events": event_count_for(event_names),
+            "users": unique_users_for(event_names),
+        }
+        for label, event_names in feature_definitions
+    ]
+    features.sort(key=lambda row: (row["users"], row["events"]), reverse=True)
+
+    recent_rows = (
+        db.query(AnalyticsEvent, User)
+        .outerjoin(User, User.id == AnalyticsEvent.user_id)
+        .filter(AnalyticsEvent.created_at >= since)
+        .order_by(AnalyticsEvent.created_at.desc())
+        .limit(40)
+        .all()
+    )
+
+    def ratio(value: int, base_value: int) -> int:
+        return round(value * 100 / base_value) if base_value else 0
+
+    return {
+        "period_days": days,
+        "since": since.isoformat(),
+        "summary": {
+            "active_users": active_users,
+            "active_sessions": active_sessions,
+            "app_opens": app_opens,
+            "predictions_saved": predictions_saved,
+            "prediction_conversion": ratio(prediction_users, match_open_users),
+        },
+        "funnel": [
+            {"label": "Открыли приложение", "value": app_open_users, "percent": 100 if app_open_users else 0},
+            {"label": "Открыли матч", "value": match_open_users, "percent": ratio(match_open_users, app_open_users)},
+            {"label": "Сохранили прогноз", "value": prediction_users, "percent": ratio(prediction_users, match_open_users)},
+        ],
+        "screens": [
+            {
+                "key": row.screen or "unknown",
+                "label": ANALYTICS_SCREEN_LABELS.get(row.screen or "", "Другой экран"),
+                "events": int(row.events or 0),
+                "users": int(row.users or 0),
+            }
+            for row in screen_rows
+        ],
+        "events": [
+            {
+                "key": row.event_name,
+                "label": ANALYTICS_EVENT_LABELS.get(row.event_name, row.event_name),
+                "events": int(row.events or 0),
+                "users": int(row.users or 0),
+            }
+            for row in event_rows
+        ],
+        "features": features,
+        "activity": [
+            {
+                "date": row.day.isoformat() if row.day else "",
+                "events": int(row.events or 0),
+                "users": int(row.users or 0),
+            }
+            for row in daily_rows
+        ],
+        "recent": [
+            {
+                "id": event.id,
+                "user_name": user.display_name if user else "Пользователь",
+                "event_name": event.event_name,
+                "label": _analytics_event_label(event.event_name, event.properties),
+                "screen": ANALYTICS_SCREEN_LABELS.get(event.screen or "", ""),
+                "created_at": _ensure_utc(event.created_at).isoformat() if event.created_at else None,
+            }
+            for event, user in recent_rows
+        ],
+    }
 
 
 @router.get("/dashboard")

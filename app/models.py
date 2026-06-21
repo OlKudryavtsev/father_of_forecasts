@@ -100,6 +100,31 @@ class LeagueActivityEvent(Base):
     actor = relationship("User", foreign_keys=[actor_user_id])
 
 
+class AnalyticsEvent(Base):
+    """Privacy-aware product analytics event for the Mini App.
+
+    Events deliberately store only the internal user id and a compact allowlisted
+    properties payload. Telegram identifiers, user names, prediction values and
+    free text are not copied into this table.
+    """
+
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    session_id = Column(String(96), nullable=False, index=True)
+    event_name = Column(String(64), nullable=False, index=True)
+    screen = Column(String(64), nullable=True, index=True)
+    source = Column(String(24), nullable=False, default="web", server_default="web", index=True)
+    app_version = Column(String(32), nullable=True)
+    properties = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
 class WebSession(Base):
     __tablename__ = "web_sessions"
 
