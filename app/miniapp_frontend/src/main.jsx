@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.45';
+const APP_VERSION = '2.8.46';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2189,6 +2189,15 @@ function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
   );
 }
 
+function TournamentScorerHeader({ compact = false }) {
+  return <div className={`hub-scorer-list-head ${compact ? 'compact' : ''}`} aria-hidden="true">
+    <span>№</span>
+    <span className="hub-scorer-list-head-player">ФИО</span>
+    <span>Голы</span>
+    <span>Передачи</span>
+  </div>;
+}
+
 function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
   const canOpenPlayer = Boolean(item.player_id);
   const canOpenTeam = Boolean(item.team_id && onOpenTeam);
@@ -2207,8 +2216,8 @@ function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
       </div>
       <small>{appearances ? `${appearances} ${pluralRu(appearances, 'матч', 'матча', 'матчей')}` : 'Матчи уточняются'}</small>
     </div>
-    <div className="hub-scorer-stat goals" title="Голы"><small>Г</small><b>{item.goals || 0}</b></div>
-    <div className="hub-scorer-stat assists" title="Ассисты"><small>А</small><b>{item.assists || 0}</b></div>
+    <div className="hub-scorer-stat goals" title="Голы"><b>{item.goals || 0}</b></div>
+    <div className="hub-scorer-stat assists" title="Ассисты"><b>{item.assists || 0}</b></div>
   </article>;
 }
 
@@ -2273,8 +2282,8 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
       <div className="tournament-group-tables">
         {visibleGroups.map((group) => <GroupTable key={group.group_code} group={group} onTeam={onOpenTeam} />)}
       </div>
-      <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact">{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
-    </> : <section className="hub-scorers-card"><header><div><span className="section-label">Чемпионат мира 2026</span><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />) : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
+      <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact"><TournamentScorerHeader compact />{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
+    </> : <section className="hub-scorers-card"><header><div><span className="section-label">Чемпионат мира 2026</span><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? <><TournamentScorerHeader />{scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</> : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
   </div>;
 }
 
