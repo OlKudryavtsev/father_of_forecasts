@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.49';
+const APP_VERSION = '2.8.50';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -4043,6 +4043,327 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
 }
 
 
+
+const RATING_RACE_COLORS = ['#59a3ff', '#31c791', '#f4bf36', '#a78bfa', '#38bdf8', '#fb7185', '#2dd4bf', '#f97316', '#94a3b8', '#e879f9'];
+
+function raceDateLabel(value) {
+  if (!value) return '';
+  const [year, month, day] = String(value).split('-').map(Number);
+  if (!year || !month || !day) return value;
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(new Date(year, month - 1, day, 12, 0, 0));
+}
+
+function shortRaceName(name, limit = 12) {
+  const value = String(name || 'Участник');
+  return value.length > limit ? `${value.slice(0, Math.max(1, limit - 1))}…` : value;
+}
+
+function RatingRace({ activeLeagueId, onOpenParticipant }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [scope, setScope] = useState('top');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [focusedRaceId, setFocusedRaceId] = useState(null);
+  const [compact, setCompact] = useState(() => window.innerWidth <= 520);
+
+  useEffect(() => {
+    const updateCompact = () => setCompact(window.innerWidth <= 520);
+    window.addEventListener('resize', updateCompact);
+    return () => window.removeEventListener('resize', updateCompact);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setError(null);
+    setStepIndex(0);
+    setIsPlaying(false);
+    setFocusedRaceId(null);
+
+    const params = new URLSearchParams();
+    if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+
+    api(`/api/webapp/rating-history${suffix}`)
+      .then((result) => {
+        if (!active) return;
+        setData(result);
+        const lastIndex = Math.max(0, (result.steps || []).length - 1);
+        setStepIndex(lastIndex);
+        trackAnalytics('rating_race_open', {
+          screen: 'rating',
+          properties: { league_id: activeLeagueId || 0, mode: 'positions' },
+        });
+      })
+      .catch((err) => { if (active) setError(err); });
+
+    return () => { active = false; };
+  }, [activeLeagueId, reloadKey]);
+
+  const steps = data?.steps || [];
+  const participants = data?.participants || [];
+  const safeStepIndex = Math.min(Math.max(0, stepIndex), Math.max(0, steps.length - 1));
+  const currentStep = steps[safeStepIndex];
+  const latestStepIndex = Math.max(0, steps.length - 1);
+  const canPlay = steps.length > 1;
+
+  useEffect(() => {
+    if (!isPlaying || !canPlay) return undefined;
+    const timer = window.setInterval(() => {
+      setStepIndex((current) => {
+        if (current >= latestStepIndex) {
+          window.clearInterval(timer);
+          setIsPlaying(false);
+          return current;
+        }
+        return current + 1;
+      });
+    }, 920);
+    return () => window.clearInterval(timer);
+  }, [isPlaying, canPlay, latestStepIndex]);
+
+  const chart = useMemo(() => {
+    if (!steps.length || !participants.length) {
+      return { selected: [], rankLimit: 1, summaries: [] };
+    }
+
+    const atCurrentStep = (participant) => participant.snapshots?.[safeStepIndex] || participant.snapshots?.[0] || { rank: 1, points: 0 };
+    const atLatestStep = (participant) => participant.snapshots?.[latestStepIndex] || atCurrentStep(participant);
+    const sortedAtLatest = [...participants].sort((a, b) => (
+      atLatestStep(a).rank - atLatestStep(b).rank
+      || a.name.localeCompare(b.name, 'ru')
+    ));
+
+    const currentParticipant = participants.find((participant) => participant.is_current_user);
+    let selected = sortedAtLatest;
+
+    if (scope === 'top') {
+      selected = sortedAtLatest.slice(0, Math.min(10, sortedAtLatest.length));
+    } else if (currentParticipant) {
+      const myRank = atLatestStep(currentParticipant).rank;
+      selected = sortedAtLatest.filter((participant) => {
+        const rank = atLatestStep(participant).rank;
+        return rank >= Math.max(1, myRank - 3) && rank <= myRank + 3;
+      });
+      if (!selected.some((participant) => participant.race_id === currentParticipant.race_id)) {
+        selected = [currentParticipant];
+      }
+    } else {
+      selected = sortedAtLatest.slice(0, Math.min(8, sortedAtLatest.length));
+    }
+
+    const selectedIds = new Set(selected.map((participant) => participant.race_id));
+    const focused = participants.find((participant) => participant.race_id === focusedRaceId);
+    if (focused && !selectedIds.has(focused.race_id)) {
+      selected = [...selected, focused];
+    }
+
+    const maxSelectedRank = Math.max(1, ...selected.flatMap((participant) => (
+      participant.snapshots?.slice(0, safeStepIndex + 1).map((snapshot) => snapshot.rank) || []
+    )));
+    const rankLimit = Math.min(
+      Math.max(scope === 'top' ? 10 : 8, maxSelectedRank),
+      Math.max(1, participants.length),
+    );
+
+    return {
+      selected,
+      rankLimit,
+      summaries: [...selected]
+        .map((participant) => ({ participant, snapshot: atCurrentStep(participant) }))
+        .sort((a, b) => a.snapshot.rank - b.snapshot.rank || a.participant.name.localeCompare(b.participant.name, 'ru')),
+    };
+  }, [participants, steps.length, safeStepIndex, latestStepIndex, scope, focusedRaceId]);
+
+  const startPlayback = () => {
+    if (!canPlay) return;
+    if (safeStepIndex >= latestStepIndex) setStepIndex(0);
+    setIsPlaying((current) => !current);
+    if (!isPlaying) {
+      trackAnalytics('rating_race_play', {
+        screen: 'rating',
+        properties: { league_id: activeLeagueId || 0, scope },
+      });
+    }
+  };
+
+  if (error) {
+    return (
+      <section className="rating-race-card rating-race-error">
+        <div className="rating-race-head">
+          <div className="rating-race-heading"><span className="rating-race-icon"><Icon name="rank" /></span><div><h2>Гонка рейтинга</h2><p>Не удалось загрузить динамику мест.</p></div></div>
+          <button type="button" className="rating-race-retry" onClick={() => setReloadKey((value) => value + 1)}>Повторить</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!data) {
+    return (
+      <section className="rating-race-card rating-race-loading">
+        <div className="rating-race-head">
+          <div className="rating-race-heading"><span className="rating-race-icon"><Icon name="rank" /></span><div><h2>Гонка рейтинга</h2><p>Собираю историю игровых дней…</p></div></div>
+          <span className="rating-race-loading-dot" />
+        </div>
+      </section>
+    );
+  }
+
+  if (!steps.length || !participants.length) {
+    return (
+      <section className="rating-race-card rating-race-empty">
+        <div className="rating-race-head">
+          <div className="rating-race-heading"><span className="rating-race-icon"><Icon name="rank" /></span><div><h2>Гонка рейтинга</h2><p>Здесь появится движение участников после первого завершённого игрового дня.</p></div></div>
+        </div>
+      </section>
+    );
+  }
+
+  const chartWidth = compact ? 360 : 760;
+  const chartHeight = compact ? 300 : 348;
+  const padding = compact
+    ? { left: 30, right: 34, top: 26, bottom: 40 }
+    : { left: 38, right: 118, top: 30, bottom: 48 };
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const xFor = (index) => padding.left + (steps.length <= 1 ? plotWidth / 2 : (index / (steps.length - 1)) * plotWidth);
+  const yFor = (rank) => {
+    const displayRank = Math.min(Math.max(1, rank), chart.rankLimit);
+    return padding.top + ((displayRank - 1) / Math.max(1, chart.rankLimit - 1)) * plotHeight;
+  };
+  const colorFor = (participant) => {
+    if (participant.is_current_user) return '#2ecb91';
+    if (participant.is_father) return '#f4bf36';
+    const stableIndex = Math.max(0, participants.findIndex((item) => item.race_id === participant.race_id));
+    return RATING_RACE_COLORS[stableIndex % RATING_RACE_COLORS.length];
+  };
+  const leader = [...participants]
+    .map((participant) => ({ participant, snapshot: participant.snapshots?.[safeStepIndex] || participant.snapshots?.[0] }))
+    .filter((item) => item.snapshot)
+    .sort((a, b) => a.snapshot.rank - b.snapshot.rank || a.participant.name.localeCompare(b.participant.name, 'ru'))[0];
+
+  return (
+    <section className="rating-race-card">
+      <div className="rating-race-head">
+        <div className="rating-race-heading">
+          <span className="rating-race-icon"><Icon name="rank" /></span>
+          <div>
+            <div className="rating-race-kicker">Динамика мест</div>
+            <h2>Гонка рейтинга</h2>
+            <p>После каждого игрового дня · {data.league?.name || 'выбранная лига'}</p>
+          </div>
+        </div>
+        <div className="rating-race-meta"><b>{steps.length}</b><span>{steps.length === 1 ? 'день' : 'дней'}</span></div>
+      </div>
+
+      <div className="rating-race-toolbar">
+        <div className="rating-race-segmented" role="group" aria-label="Участники на графике">
+          <button type="button" className={scope === 'top' ? 'active' : ''} onClick={() => setScope('top')}>Топ-10</button>
+          <button type="button" className={scope === 'nearby' ? 'active' : ''} onClick={() => setScope('nearby')}>Я рядом</button>
+        </div>
+        <button type="button" className={`rating-race-play ${isPlaying ? 'playing' : ''}`} disabled={!canPlay} onClick={startPlayback}>
+          <span>{isPlaying ? 'Ⅱ' : '▶'}</span>{isPlaying ? 'Пауза' : 'Гонка'}
+        </button>
+      </div>
+
+      <div className="rating-race-step-summary">
+        <div>
+          <span>{raceDateLabel(currentStep?.date)}</span>
+          <b>{currentStep?.matches_count || 0} {currentStep?.matches_count === 1 ? 'матч' : currentStep?.matches_count && currentStep.matches_count < 5 ? 'матча' : 'матчей'}</b>
+        </div>
+        <p>{currentStep?.last_match} <strong>{currentStep?.last_score}</strong></p>
+        {leader && <small>Лидер: <b>{leader.participant.name}</b> · {leader.snapshot.points} {leader.snapshot.points === 1 ? 'очко' : leader.snapshot.points >= 2 && leader.snapshot.points <= 4 ? 'очка' : 'очков'}</small>}
+      </div>
+
+      <div className="rating-race-graph-wrap" aria-label="График изменения позиций участников">
+        <svg className="rating-race-graph" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-labelledby="rating-race-chart-title">
+          <title id="rating-race-chart-title">Изменение мест участников по игровым дням</title>
+          {Array.from({ length: chart.rankLimit }, (_, index) => index + 1).map((rank) => (
+            <g key={`rank-${rank}`}>
+              <line className="rating-race-grid-line" x1={padding.left} x2={chartWidth - padding.right} y1={yFor(rank)} y2={yFor(rank)} />
+              <text className="rating-race-axis-rank" x={padding.left - 7} y={yFor(rank) + 4} textAnchor="end">{rank}</text>
+            </g>
+          ))}
+          {steps.map((step, index) => {
+            const labelInterval = Math.max(1, Math.ceil(steps.length / 5));
+            const showLabel = !compact || steps.length <= 6 || index === 0 || index === safeStepIndex || index === steps.length - 1 || index % labelInterval === 0;
+            return (
+              <g key={step.id}>
+                <line className={`rating-race-day-line ${index === safeStepIndex ? 'active' : ''}`} x1={xFor(index)} x2={xFor(index)} y1={padding.top - 4} y2={chartHeight - padding.bottom + 3} />
+                {showLabel ? <text className={`rating-race-axis-day ${index === safeStepIndex ? 'active' : ''}`} x={xFor(index)} y={chartHeight - 16} textAnchor="middle">{compact ? step.label : raceDateLabel(step.date)}</text> : null}
+              </g>
+            );
+          })}
+          {chart.selected.map((participant, participantIndex) => {
+            const color = colorFor(participant);
+            const snapshots = participant.snapshots.slice(0, safeStepIndex + 1);
+            const path = snapshots.map((snapshot, index) => `${index === 0 ? 'M' : 'L'} ${xFor(index)} ${yFor(snapshot.rank)}`).join(' ');
+            const current = snapshots[snapshots.length - 1];
+            const isFocused = !focusedRaceId || focusedRaceId === participant.race_id || participant.is_current_user;
+            const labelX = compact ? xFor(safeStepIndex) : chartWidth - padding.right + 10;
+            const labelY = yFor(current.rank);
+            return (
+              <g key={participant.race_id} className={`rating-race-line-group ${isFocused ? 'focused' : 'muted'}`} onClick={() => setFocusedRaceId(participant.race_id)}>
+                <path className="rating-race-line-shadow" d={path} stroke={color} />
+                <path className="rating-race-line" d={path} stroke={color} />
+                {snapshots.map((snapshot, index) => (
+                  <circle key={`${participant.race_id}-${index}`} className="rating-race-node" cx={xFor(index)} cy={yFor(snapshot.rank)} r={index === snapshots.length - 1 ? 4.8 : 2.8} fill={color} />
+                ))}
+                {compact ? (
+                  <text className="rating-race-end-rank" x={labelX} y={labelY - 9} textAnchor="middle" fill={color}>#{current.rank}</text>
+                ) : (
+                  <g transform={`translate(${labelX}, ${labelY - 8})`}>
+                    <text className="rating-race-end-name" fill={color}>{shortRaceName(participant.name, 13)}</text>
+                    <text className="rating-race-end-points" y="13">#{current.rank} · {current.points}</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      <div className="rating-race-slider-row">
+        <input
+          type="range"
+          min="0"
+          max={latestStepIndex}
+          value={safeStepIndex}
+          onChange={(event) => { setIsPlaying(false); setStepIndex(Number(event.target.value)); }}
+          aria-label="Выбрать игровой день"
+        />
+        <span>{safeStepIndex + 1}/{steps.length}</span>
+      </div>
+
+      <div className="rating-race-current-list" aria-label="Позиции участников на выбранный день">
+        {chart.summaries.map(({ participant, snapshot }, index) => {
+          const color = colorFor(participant);
+          const isClickable = Boolean(participant.user_id) && !participant.is_father;
+          return (
+            <button
+              type="button"
+              key={participant.race_id}
+              className={`rating-race-current-row ${focusedRaceId === participant.race_id ? 'active' : ''} ${participant.is_current_user ? 'me' : ''}`}
+              onClick={() => {
+                setFocusedRaceId(participant.race_id);
+                if (isClickable) onOpenParticipant?.({ user_id: participant.user_id, name: participant.name, rank: snapshot.rank });
+              }}
+              title={isClickable ? `Открыть прогнозы участника ${participant.name}` : participant.name}
+            >
+              <i style={{ background: color }} />
+              <b>#{snapshot.rank}</b>
+              <span>{participant.name}</span>
+              <strong>{snapshot.points}</strong>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Rating({ activeLeagueId }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -4073,6 +4394,11 @@ function Rating({ activeLeagueId }) {
   return (
     <main className="screen-content rating-screen">
       <div className="section-label">Рейтинг участников</div>
+
+      <RatingRace
+        activeLeagueId={activeLeagueId}
+        onOpenParticipant={(participant) => setSelectedParticipant(participant)}
+      />
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row) => {

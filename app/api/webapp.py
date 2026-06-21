@@ -47,6 +47,7 @@ from app.models import (
 from app.runtime import TOURNAMENT_CODE
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
+from app.services.rating_history import build_rating_history
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.forecast import build_forecast_text
@@ -89,6 +90,8 @@ ANALYTICS_ALLOWED_EVENTS = {
     "player_open",
     "participant_history_open",
     "participant_history_filter",
+    "rating_race_open",
+    "rating_race_play",
     "league_open",
     "league_selected",
     "league_create",
@@ -126,6 +129,8 @@ ANALYTICS_EVENT_LABELS = {
     "player_open": "Открыл игрока",
     "participant_history_open": "Открыл историю участника",
     "participant_history_filter": "Применил фильтр истории",
+    "rating_race_open": "Открыл гонку рейтинга",
+    "rating_race_play": "Запустил гонку рейтинга",
     "league_open": "Открыл лигу",
     "league_selected": "Выбрал лигу",
     "league_create": "Создал лигу",
@@ -2008,6 +2013,23 @@ def get_table(
         "father_row": father_row,
         "match_analytics": _build_league_match_points_analytics(db, active_league),
     }
+
+
+@router.get("/rating-history")
+def get_rating_history(
+    league_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return day-by-day leaderboard movement for the selected league."""
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    history = build_rating_history(db, active_league, current_user_id=current_user.id)
+    history["league"] = _serialize_league(active_league, current_user)
+    return history
 
 
 @router.get("/table/participant/{participant_user_id}/predictions")
