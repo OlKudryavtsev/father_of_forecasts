@@ -1391,6 +1391,72 @@ def get_admin_analytics(
     }
 
 
+LIVE_MATCH_STATUS_CODES = {"1H", "HT", "2H", "ET", "BT", "P", "LIVE", "INT"}
+
+
+def _live_goal_events(details: dict) -> list[dict]:
+    """Keep the compact home card focused on goals and their authors."""
+    events = []
+    for event in details.get("events") or []:
+        if str(event.get("type") or "") != "Goal":
+            continue
+        if "Missed Penalty" in str(event.get("detail") or ""):
+            continue
+        events.append({
+            "minute": event.get("minute") or "",
+            "side": event.get("side") or "",
+            "player": event.get("player") or "",
+            "assist": event.get("assist") or "",
+            "label": event.get("label") or "Гол",
+        })
+    return events
+
+
+def _live_match_payload(db: Session, current_user: User) -> dict | None:
+    """Return one live tournament fixture with fresh cached score and scorers.
+
+    We inspect a small time window and reuse the existing match-details cache.
+    That cache has a one-minute TTL during a live game, so opening the Mini App
+    does not create an uncontrolled stream of provider calls.
+    """
+    now = datetime.now(timezone.utc)
+    candidates = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished.is_(False),
+            Match.external_fixture_id.isnot(None),
+            Match.starts_at <= now,
+            Match.starts_at >= now - timedelta(hours=6),
+        )
+        .order_by(Match.starts_at.asc())
+        .limit(4)
+        .all()
+    )
+    if not candidates:
+        return None
+
+    predictions = _prediction_by_match_id(db, current_user, candidates)
+    for match in candidates:
+        details = build_match_details_payload(db, match, refresh=True)
+        overview = details.get("overview") or {}
+        status_short = str(overview.get("status_short") or match.status_short or "").upper()
+        if status_short not in LIVE_MATCH_STATUS_CODES:
+            continue
+        payload = _serialize_match(match, predictions.get(match.id))
+        payload.update({
+            "is_live": True,
+            "status_short": status_short,
+            "status_long": overview.get("status_long") or match.status_long or "В игре",
+            "elapsed": overview.get("elapsed"),
+            "score_home": overview.get("score_home"),
+            "score_away": overview.get("score_away"),
+            "goal_events": _live_goal_events(details),
+        })
+        return payload
+    return None
+
+
 @router.get("/dashboard")
 def get_dashboard(
     db: Session = Depends(get_db),
@@ -1445,6 +1511,7 @@ def get_dashboard(
         },
         "rank": current_rank,
         "points": current_points,
+        "live_match": _live_match_payload(db, current_user),
         "nearest_matches": [
             _serialize_match(match, predictions_by_match.get(match.id))
             for match in nearest_matches

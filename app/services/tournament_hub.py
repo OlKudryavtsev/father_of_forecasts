@@ -212,31 +212,40 @@ def _fallback_scorers_from_match_cache(db: Session, team_id: int | str | None = 
             if not _event_belongs_to_team(event, match, team_id):
                 continue
             player = event.get("player") or {}
+            assist = event.get("assist") or {}
             team = event.get("team") or {}
-            player_id = player.get("id") or f"{team.get('id')}-{player.get('name')}"
-            row = aggregation.setdefault(player_id, {
-                "player_id": player.get("id"),
-                "name": player.get("name") or "Неизвестный игрок",
-                "firstname": "",
-                "lastname": "",
-                "age": None,
-                "nationality": "",
-                "photo": "",
-                "team_id": team.get("id") or team_id,
-                "team": get_team_name_ru(team.get("name") or ""),
-                "team_api_name": team.get("name") or "",
-                "team_logo": "",
-                "team_flag": get_team_flag(get_team_name_ru(team.get("name") or ""), team.get("name")),
-                "team_flag_code": get_team_flag_code(get_team_name_ru(team.get("name") or ""), team.get("name")),
-                "goals": 0,
-                "assists": 0,
-                "appearances": 0,
-                "minutes": 0,
-                "rating": None,
-                "yellow": 0,
-                "red": 0,
-            })
-            row["goals"] += 1
+
+            def ensure_row(person: dict[str, Any]) -> dict[str, Any]:
+                person_id = person.get("id") or f"{team.get('id')}-{person.get('name')}"
+                return aggregation.setdefault(person_id, {
+                    "player_id": person.get("id"),
+                    "name": person.get("name") or "Неизвестный игрок",
+                    "firstname": "",
+                    "lastname": "",
+                    "age": None,
+                    "nationality": "",
+                    "photo": "",
+                    "team_id": team.get("id") or team_id,
+                    "team": get_team_name_ru(team.get("name") or ""),
+                    "team_api_name": team.get("name") or "",
+                    "team_logo": "",
+                    "team_flag": get_team_flag(get_team_name_ru(team.get("name") or ""), team.get("name")),
+                    "team_flag_code": get_team_flag_code(get_team_name_ru(team.get("name") or ""), team.get("name")),
+                    "goals": 0,
+                    "assists": 0,
+                    "appearances": 0,
+                    "minutes": 0,
+                    "rating": None,
+                    "yellow": 0,
+                    "red": 0,
+                })
+
+            ensure_row(player)["goals"] += 1
+            # API-Football stores the assisting player directly on a goal event.
+            # Preserve it in the local fallback so ordering by assists remains
+            # correct even before the global leaderboard refreshes.
+            if assist.get("id") or assist.get("name"):
+                ensure_row(assist)["assists"] += 1
     result = list(aggregation.values())
     result.sort(key=lambda item: (-int(item["goals"] or 0), -int(item["assists"] or 0), item["name"]))
     return result
@@ -267,6 +276,69 @@ def _item_key(item: dict[str, Any]) -> str:
     if item.get("player_id") not in (None, ""):
         return f"id:{item['player_id']}"
     return f"name:{_canonical_player_name(item.get('name'))}"
+
+
+def _cached_player_appearance_counts(db: Session) -> dict[str, int]:
+    """Count confirmed tournament appearances from cached fixture player statistics.
+
+    The API-Football leaderboard occasionally lags behind completed fixtures or
+    returns zero appearances for a player who is already present in match data.
+    Cached per-fixture statistics are therefore used as a factual correction
+    layer. A player counts as having appeared only when they recorded minutes
+    or another on-pitch statistic, not merely because they were on the bench.
+    """
+    appearances: dict[str, set[int]] = {}
+    rows = (
+        db.query(Match, MatchDetailsCache)
+        .join(MatchDetailsCache, MatchDetailsCache.match_id == Match.id)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .all()
+    )
+    for match, cache in rows:
+        for team_block in (cache.players_payload or []):
+            for item in (team_block.get("players") or []):
+                player = item.get("player") or {}
+                stat = (item.get("statistics") or [{}])[0] or {}
+                games = stat.get("games") or {}
+                goals = stat.get("goals") or {}
+                cards = stat.get("cards") or {}
+                minutes = int(games.get("minutes") or 0)
+                involved = any([
+                    minutes,
+                    int(goals.get("total") or 0),
+                    int(goals.get("assists") or 0),
+                    int(cards.get("yellow") or 0),
+                    int(cards.get("red") or 0),
+                ])
+                if not involved:
+                    continue
+                player_id = player.get("id")
+                name = player.get("name") or ""
+                keys = []
+                if player_id not in (None, ""):
+                    keys.append(f"id:{player_id}")
+                if name:
+                    keys.append(f"name:{_canonical_player_name(name)}")
+                for key in keys:
+                    appearances.setdefault(key, set()).add(int(match.id))
+    return {key: len(match_ids) for key, match_ids in appearances.items()}
+
+
+def _apply_cached_appearance_counts(db: Session, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Raise reported appearance totals to the verified number from match cache."""
+    if not items:
+        return items
+    counts = _cached_player_appearance_counts(db)
+    if not counts:
+        return items
+    for item in items:
+        keys = [_item_key(item)]
+        if item.get("name"):
+            keys.append(f"name:{_canonical_player_name(item.get('name'))}")
+        verified = max((int(counts.get(key) or 0) for key in keys), default=0)
+        if verified:
+            item["appearances"] = max(int(item.get("appearances") or 0), verified)
+    return items
 
 
 def _merge_scorer_rows(*collections: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -397,6 +469,8 @@ def get_top_scorers(db: Session, *, refresh: bool = True, limit: int = 10) -> di
     api_items = list(((cache.payload or {}).get("items") or []) if cache else [])
     local_items = _enrich_from_fantasy(db, _fallback_scorers_from_match_cache(db))
     items = _merge_scorer_rows(api_items, local_items)
+    items = _apply_cached_appearance_counts(db, items)
+    items.sort(key=lambda item: (-int(item.get("goals") or 0), -int(item.get("assists") or 0), item.get("name") or ""))
     source = "api-football+match-events" if api_items and local_items else ("api-football" if api_items else "match-events")
     return {
         "items": items[:max(1, min(limit, 50))],
@@ -532,6 +606,15 @@ def player_match_rows(db: Session, player_id: int | str) -> list[dict[str, Any]]
                 stat = (item.get("statistics") or [{}])[0] or {}
                 games = stat.get("games") or {}
                 goals = stat.get("goals") or {}
+                cards = stat.get("cards") or {}
+                if not any([
+                    int(games.get("minutes") or 0),
+                    int(goals.get("total") or 0),
+                    int(goals.get("assists") or 0),
+                    int(cards.get("yellow") or 0),
+                    int(cards.get("red") or 0),
+                ]):
+                    continue
                 result.append({
                     "match_id": match.id,
                     "home_team": get_team_name_ru(match.home_team),
