@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.51';
+const APP_VERSION = '2.8.52';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -4070,28 +4070,50 @@ function raceMatchesLabel(count) {
   return `${value} ${unit}`;
 }
 
+function raceNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function raceClamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+  const safeMin = raceNumber(min, 0);
+  const safeMax = Math.max(safeMin, raceNumber(max, safeMin));
+  return Math.min(safeMax, Math.max(safeMin, raceNumber(value, safeMin)));
 }
 
 function raceLerp(from, to, progress) {
-  return from + (to - from) * progress;
+  const safeProgress = raceClamp(progress, 0, 1);
+  return raceNumber(from) + (raceNumber(to) - raceNumber(from)) * safeProgress;
+}
+
+function raceSnapshotAt(snapshots, index) {
+  const source = Array.isArray(snapshots) ? snapshots : [];
+  if (!source.length) return { rank: 1, points: 0, exact_scores: 0, outcomes: 0 };
+  const safeIndex = Math.min(source.length - 1, Math.max(0, Math.floor(raceNumber(index, 0))));
+  const snapshot = source[safeIndex] || source[0] || {};
+  return {
+    rank: Math.max(1, raceNumber(snapshot.rank, 1)),
+    points: Math.max(0, raceNumber(snapshot.points, 0)),
+    exact_scores: Math.max(0, raceNumber(snapshot.exact_scores, 0)),
+    outcomes: Math.max(0, raceNumber(snapshot.outcomes, 0)),
+  };
 }
 
 function raceInterpolatedSnapshot(snapshots, progress) {
-  if (!snapshots?.length) return { rank: 1, points: 0, exact_scores: 0, outcomes: 0 };
-  const lastIndex = snapshots.length - 1;
+  const source = Array.isArray(snapshots) ? snapshots : [];
+  if (!source.length) return { rank: 1, points: 0, exact_scores: 0, outcomes: 0 };
+  const lastIndex = source.length - 1;
   const safeProgress = raceClamp(progress, 0, lastIndex);
   const baseIndex = Math.floor(safeProgress);
   const nextIndex = Math.min(lastIndex, baseIndex + 1);
   const fraction = safeProgress - baseIndex;
-  const current = snapshots[baseIndex] || snapshots[0];
-  const next = snapshots[nextIndex] || current;
+  const current = raceSnapshotAt(source, baseIndex);
+  const next = raceSnapshotAt(source, nextIndex);
   return {
-    rank: raceLerp(Number(current.rank || 1), Number(next.rank || current.rank || 1), fraction),
-    points: raceLerp(Number(current.points || 0), Number(next.points || current.points || 0), fraction),
-    exact_scores: raceLerp(Number(current.exact_scores || 0), Number(next.exact_scores || current.exact_scores || 0), fraction),
-    outcomes: raceLerp(Number(current.outcomes || 0), Number(next.outcomes || current.outcomes || 0), fraction),
+    rank: raceLerp(current.rank, next.rank, fraction),
+    points: raceLerp(current.points, next.points, fraction),
+    exact_scores: raceLerp(current.exact_scores, next.exact_scores, fraction),
+    outcomes: raceLerp(current.outcomes, next.outcomes, fraction),
   };
 }
 
@@ -4288,7 +4310,12 @@ function RatingRace({ activeLeagueId }) {
           return raceLerp(xFor(baseIndex), xFor(nextIndex), fraction);
         };
         const rankLimit = Math.max(1, participants.length);
-        const maxPoints = Math.max(1, ...participants.flatMap((participant) => participant.snapshots.map((snapshot) => Number(snapshot.points || 0))));
+        const pointValues = participants.flatMap((participant) => (
+          Array.isArray(participant.snapshots)
+            ? participant.snapshots.map((snapshot) => Math.max(0, raceNumber(snapshot?.points, 0)))
+            : [0]
+        ));
+        const maxPoints = Math.max(1, ...pointValues);
         const yFor = (value) => {
           if (metric === 'rank') {
             const rank = raceClamp(value, 1, rankLimit);
@@ -4297,16 +4324,20 @@ function RatingRace({ activeLeagueId }) {
           const points = raceClamp(value, 0, maxPoints);
           return padding.top + (1 - (points / maxPoints)) * plotHeight;
         };
+        const pointsTickCount = Math.min(5, Math.max(2, Math.floor(maxPoints) + 1));
         const tickValues = metric === 'rank'
           ? Array.from({ length: rankLimit }, (_, index) => index + 1)
-          : [...new Set(Array.from({ length: Math.min(5, maxPoints + 1) }, (_, index, array) => Math.round((maxPoints * index) / Math.max(1, array.length - 1))))].sort((a, b) => a - b);
+          : [...new Set(Array.from(
+            { length: pointsTickCount },
+            (_, index) => Math.round((maxPoints * index) / Math.max(1, pointsTickCount - 1)),
+          ))].sort((a, b) => a - b);
         const visibleParticipants = participants.filter((participant) => visibleRaceIds.has(participant.race_id));
         const currentRows = participants
           .map((participant) => ({
             participant,
-            snapshot: participant.snapshots[selectedStepIndex] || participant.snapshots[0],
+            snapshot: raceSnapshotAt(participant.snapshots, selectedStepIndex),
           }))
-          .sort((a, b) => a.snapshot.rank - b.snapshot.rank || a.participant.name.localeCompare(b.participant.name, 'ru'));
+          .sort((a, b) => a.snapshot.rank - b.snapshot.rank || String(a.participant.name || '').localeCompare(String(b.participant.name || ''), 'ru'));
         const leader = currentRows[0];
         const labelInterval = Math.max(1, Math.ceil(steps.length / (compact ? 4 : 7)));
 
@@ -4356,9 +4387,10 @@ function RatingRace({ activeLeagueId }) {
                     ? '#2ecb91'
                     : (participant.is_father ? '#f4bf36' : RATING_RACE_COLORS[Math.max(0, participants.findIndex((item) => item.race_id === participant.race_id)) % RATING_RACE_COLORS.length]);
                   const completeCount = Math.floor(safePlayhead);
-                  const points = participant.snapshots
-                    .slice(0, completeCount + 1)
-                    .map((snapshot, index) => ({ x: xFor(index), y: yFor(metric === 'rank' ? snapshot.rank : snapshot.points) }));
+                  const points = Array.from({ length: completeCount + 1 }, (_, index) => {
+                    const snapshot = raceSnapshotAt(participant.snapshots, index);
+                    return { x: xFor(index), y: yFor(metric === 'rank' ? snapshot.rank : snapshot.points) };
+                  });
                   const interpolated = raceInterpolatedSnapshot(participant.snapshots, safePlayhead);
                   if (safePlayhead > 0 && safePlayhead < latestStepIndex) {
                     points.push({ x: xForProgress(safePlayhead), y: yFor(metric === 'rank' ? interpolated.rank : interpolated.points) });
