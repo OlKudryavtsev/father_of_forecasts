@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.52';
+const APP_VERSION = '2.8.53';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1351,7 +1351,7 @@ function TournamentPredictionSummary({
   );
 }
 
-function LiveMatchHero({ match, onOpenDetails }) {
+function LiveMatchHero({ match, onOpenDetails, leagueId = null }) {
   if (!match) return null;
   const elapsed = match.elapsed ? `${match.elapsed}'` : (match.status_short === 'HT' ? 'Перерыв' : 'В игре');
   const score = `${match.score_home ?? '—'}:${match.score_away ?? '—'}`;
@@ -1381,12 +1381,78 @@ function LiveMatchHero({ match, onOpenDetails }) {
         </div>
       ) : <p className="live-match-no-goals">Голов пока нет</p>}
       <button type="button" className="live-match-details" onClick={() => onOpenDetails?.(match)}><Icon name="more" /> Детали матча</button>
+      <div className="live-match-participants">
+        <MatchParticipantsInline match={match} leagueId={leagueId} />
+      </div>
     </section>
   );
 }
 
-function HomeHero({ dashboard, setTab, onNextMatchPredict, onOpenLiveMatch }) {
+function LiveMatchCarousel({ matches = [], onOpenDetails, leagueId = null }) {
+  const liveMatches = matches.filter(Boolean);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const carouselRef = useRef(null);
+  if (!liveMatches.length) return null;
+
+  const scrollToSlide = (index) => {
+    const node = carouselRef.current;
+    if (!node) return;
+    const safeIndex = Math.max(0, Math.min(index, liveMatches.length - 1));
+    node.scrollTo({ left: safeIndex * node.clientWidth, behavior: 'smooth' });
+    setActiveIndex(safeIndex);
+  };
+
+  const handleScroll = (event) => {
+    const width = event.currentTarget.clientWidth || 1;
+    const nextIndex = Math.max(0, Math.min(liveMatches.length - 1, Math.round(event.currentTarget.scrollLeft / width)));
+    setActiveIndex(nextIndex);
+  };
+
+  return (
+    <section className={`live-match-section ${liveMatches.length > 1 ? 'has-many' : ''}`} aria-label="Матчи онлайн">
+      <div className="live-match-section-head">
+        <div>
+          <span className="live-match-section-kicker"><i /> Матчи онлайн</span>
+          <small>{liveMatches.length === 1 ? 'Идет прямо сейчас' : `${liveMatches.length} матча идут одновременно`}</small>
+        </div>
+        {liveMatches.length > 1 && (
+          <div className="live-match-carousel-controls">
+            <button type="button" onClick={() => scrollToSlide(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Предыдущий матч">‹</button>
+            <span>{activeIndex + 1}/{liveMatches.length}</span>
+            <button type="button" onClick={() => scrollToSlide(activeIndex + 1)} disabled={activeIndex === liveMatches.length - 1} aria-label="Следующий матч">›</button>
+          </div>
+        )}
+      </div>
+      <div className="live-match-carousel" ref={carouselRef} onScroll={handleScroll}>
+        {liveMatches.map((match) => (
+          <div className="live-match-slide" key={match.id}>
+            <LiveMatchHero match={match} onOpenDetails={onOpenDetails} leagueId={leagueId} />
+          </div>
+        ))}
+      </div>
+      {liveMatches.length > 1 && (
+        <div className="live-match-carousel-dots" aria-label="Выбор матча онлайн">
+          {liveMatches.map((match, index) => (
+            <button
+              type="button"
+              key={match.id}
+              className={index === activeIndex ? 'active' : ''}
+              aria-label={`Показать матч ${match.home_team} — ${match.away_team}`}
+              aria-pressed={index === activeIndex}
+              onClick={() => scrollToSlide(index)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeHero({ dashboard, setTab, onNextMatchPredict, onOpenLiveMatch, activeLeagueId = null }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
+  const liveMatches = dashboard?.live_matches?.length
+    ? dashboard.live_matches
+    : (dashboard?.live_match ? [dashboard.live_match] : []);
   return (
     <section className="matchcenter-top">
       {dashboard?.nearest_matches?.[0] ? (
@@ -1405,7 +1471,7 @@ function HomeHero({ dashboard, setTab, onNextMatchPredict, onOpenLiveMatch }) {
           <b>{missing || '✓'}</b>
         </button>
       )}
-      <LiveMatchHero match={dashboard?.live_match} onOpenDetails={onOpenLiveMatch} />
+      <LiveMatchCarousel matches={liveMatches} onOpenDetails={onOpenLiveMatch} leagueId={activeLeagueId} />
     </section>
   );
 }
@@ -3810,11 +3876,70 @@ function Predictions({ onPredict, onForecast, tournamentPrediction, onTournament
   );
 }
 
-function RatingMatchAnalytics({ analytics, leagueName = '' }) {
+function AnalyticsPredictionsModal({ match, kind, leagueId = null, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const meta = {
+    exact: { title: 'Точные счета', label: 'угадали точный счет', resultClass: 'exact' },
+    outcome: { title: 'Угаданные исходы', label: 'угадали исход', resultClass: 'outcome' },
+    miss: { title: 'Никто не угадал', label: 'не угадали', resultClass: 'miss' },
+  }[kind] || { title: 'Прогнозы участников', label: 'сделали прогноз', resultClass: '' };
+
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setError(null);
+    const suffix = leagueId ? `?league_id=${encodeURIComponent(leagueId)}` : '';
+    api(`/api/webapp/matches/${match.match_id}/predictions${suffix}`)
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, [match.match_id, leagueId]);
+
+  const participants = (data?.participants || []).filter((participant) => participant.result_class === meta.resultClass);
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card participants-modal analytics-predictions-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>{meta.title}</h2>
+        <p className="muted">{match.home_team} {match.score_home}:{match.score_away} {match.away_team}</p>
+        {error && <p className="error-text">{error.message}</p>}
+        {!error && !data && <LoadingCard text="Загружаю прогнозы..." />}
+        {data && (
+          <>
+            <div className="participants-summary">
+              <strong>{participants.length}</strong>
+              <span>{pluralRu(participants.length, 'участник', 'участника', 'участников')} {meta.label}</span>
+            </div>
+            {participants.length === 0 ? (
+              <div className="empty-state compact-empty">
+                <div className="empty-icon"><Icon name="target" /></div>
+                <h2>Пока пусто</h2>
+                <p>В этой категории нет прогнозов.</p>
+              </div>
+            ) : (
+              <div className="participants-list analytics-predictions-list">
+                {participants.map((participant) => (
+                  <div className={`participant-row result-${participant.result_class || 'miss'}`} key={participant.user_id}>
+                    <span>{participant.display_name}</span>
+                    <b>{participant.pred_home}:{participant.pred_away}</b>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function RatingMatchAnalytics({ analytics, leagueName = '', onOpenPredictions }) {
   const exactScores = analytics?.exact_scores || [];
   const outcomes = analytics?.outcomes || [];
+  const nobodyGuessed = analytics?.nobody_guessed || [];
 
-  function AnalyticsList({ title, subtitle, iconName, rows, accentClass }) {
+  function AnalyticsList({ title, subtitle, iconName, rows, accentClass, kind }) {
     return (
       <section className={`rating-analytics-card ${accentClass}`}>
         <div className="rating-analytics-card-head">
@@ -3843,7 +3968,13 @@ function RatingMatchAnalytics({ analytics, leagueName = '' }) {
                     <b>{match.away_team}</b>
                   </span>
                 </div>
-                <span className="rating-analytics-result">{match.count}</span>
+                <button
+                  type="button"
+                  className="rating-analytics-result"
+                  onClick={() => onOpenPredictions?.({ match, kind, title })}
+                  title="Показать прогнозы участников"
+                  aria-label={`Показать прогнозы: ${title}, ${match.home_team} — ${match.away_team}`}
+                >{match.count}</button>
               </div>
             ))}
           </div>
@@ -3858,7 +3989,7 @@ function RatingMatchAnalytics({ analytics, leagueName = '' }) {
         <div>
           <div className="section-label">Аналитика матчей</div>
           <h2>Где в лиге лучше всего читали игру</h2>
-          <p>{leagueName ? `Лига «${leagueName}»` : 'Выбранная лига'} · только завершенные матчи</p>
+          <p>{leagueName ? `Лига «${leagueName}»` : 'Выбранная лига'} · нажмите на число справа, чтобы посмотреть прогнозы</p>
         </div>
       </div>
       <div className="rating-analytics-grid">
@@ -3868,6 +3999,7 @@ function RatingMatchAnalytics({ analytics, leagueName = '' }) {
           iconName="target"
           rows={exactScores}
           accentClass="exact"
+          kind="exact"
         />
         <AnalyticsList
           title="Угаданные исходы"
@@ -3875,6 +4007,17 @@ function RatingMatchAnalytics({ analytics, leagueName = '' }) {
           iconName="rank"
           rows={outcomes}
           accentClass="outcome"
+          kind="outcome"
+        />
+      </div>
+      <div className="rating-analytics-bottom">
+        <AnalyticsList
+          title="Никто не угадал"
+          subtitle="Матчи, в которых все прогнозы оказались мимо"
+          iconName="ball"
+          rows={nobodyGuessed}
+          accentClass="miss"
+          kind="miss"
         />
       </div>
     </section>
@@ -4465,6 +4608,7 @@ function Rating({ activeLeagueId }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
+  const [selectedAnalytics, setSelectedAnalytics] = useState(null);
 
   useEffect(() => {
     setData(null);
@@ -4560,7 +4704,23 @@ function Rating({ activeLeagueId }) {
       <RatingMatchAnalytics
         analytics={data.match_analytics}
         leagueName={data.league?.name || ''}
+        onOpenPredictions={(payload) => {
+          setSelectedAnalytics(payload);
+          trackAnalytics('rating_match_analytics_open', {
+            screen: 'rating',
+            properties: { match_id: payload?.match?.match_id || 0, kind: payload?.kind || '' },
+          });
+        }}
       />
+
+      {selectedAnalytics && (
+        <AnalyticsPredictionsModal
+          match={selectedAnalytics.match}
+          kind={selectedAnalytics.kind}
+          leagueId={activeLeagueId}
+          onClose={() => setSelectedAnalytics(null)}
+        />
+      )}
 
       {selectedParticipant && (
         <ParticipantPredictionsModal
@@ -5857,6 +6017,7 @@ function App() {
             setTab={setTab}
             onNextMatchPredict={setPredictionMatch}
             onOpenLiveMatch={(match) => setHomeTournamentMatch(match)}
+            activeLeagueId={activeLeagueId}
           />
           <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} />
         </>

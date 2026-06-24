@@ -92,6 +92,7 @@ ANALYTICS_ALLOWED_EVENTS = {
     "participant_history_filter",
     "rating_race_open",
     "rating_race_play",
+    "rating_match_analytics_open",
     "league_open",
     "league_selected",
     "league_create",
@@ -726,8 +727,19 @@ def _league_started_before_match_filter(league: League):
     return Match.starts_at >= scoring_start
 
 
-def _serialize_match_points_analytics_item(match: Match, count: int, total_predictions: int) -> dict:
-    """Serialize one match for the compact rating analytics cards."""
+def _serialize_match_points_analytics_item(
+    match: Match,
+    count: int,
+    total_predictions: int,
+    result_kind: str,
+) -> dict:
+    """Serialize one completed match for the rating analytics cards.
+
+    ``count`` always equals the number of visible predictions for the card:
+    exact / outcome hits for the first two rankings and all missed predictions
+    for the "Никто не угадал" ranking. The Mini App can therefore use this
+    value both as the compact counter and as the modal trigger.
+    """
     home_name = get_team_name_ru(match.home_team)
     away_name = get_team_name_ru(match.away_team)
     return {
@@ -742,16 +754,19 @@ def _serialize_match_points_analytics_item(match: Match, count: int, total_predi
         "score_away": match.score_away,
         "count": count,
         "total_predictions": total_predictions,
+        "result_kind": result_kind,
         "starts_at": _ensure_utc(match.starts_at).isoformat(),
     }
 
 
 def _build_league_match_points_analytics(db: Session, league: League) -> dict:
-    """Return the 10 most successful matches inside the selected league.
+    """Return the selected league's most and least predictable matches.
 
-    Exact-score and outcome rankings intentionally use different counters:
-    exact scores are predictions worth 3 points, while outcomes are predictions
-    worth 1 point. This mirrors the metrics shown in the rating cards.
+    The first two rankings show the ten matches with most exact-score (3pt)
+    and outcome (1pt) hits. ``nobody_guessed`` intentionally includes only
+    matches where every submitted forecast scored zero; it is ordered by the
+    number of missed forecasts so the most broadly surprising matches appear
+    first.
     """
     matches_query = (
         db.query(Match)
@@ -768,6 +783,7 @@ def _build_league_match_points_analytics(db: Session, league: League) -> dict:
 
     exact_rows: list[dict] = []
     outcome_rows: list[dict] = []
+    nobody_rows: list[dict] = []
 
     for match in matches_query.order_by(Match.starts_at.desc()).all():
         predictions = (
@@ -787,19 +803,24 @@ def _build_league_match_points_analytics(db: Session, league: League) -> dict:
 
         exact_count = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 3)
         outcome_count = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 1)
+        success_count = exact_count + outcome_count
 
         if exact_count:
-            exact_rows.append(_serialize_match_points_analytics_item(match, exact_count, total_predictions))
+            exact_rows.append(_serialize_match_points_analytics_item(match, exact_count, total_predictions, "exact"))
         if outcome_count:
-            outcome_rows.append(_serialize_match_points_analytics_item(match, outcome_count, total_predictions))
+            outcome_rows.append(_serialize_match_points_analytics_item(match, outcome_count, total_predictions, "outcome"))
+        if success_count == 0:
+            nobody_rows.append(_serialize_match_points_analytics_item(match, total_predictions, total_predictions, "miss"))
 
     sort_key = lambda row: (row["count"], row["total_predictions"], row["starts_at"])
     exact_rows.sort(key=sort_key, reverse=True)
     outcome_rows.sort(key=sort_key, reverse=True)
+    nobody_rows.sort(key=sort_key, reverse=True)
 
     return {
         "exact_scores": exact_rows[:10],
         "outcomes": outcome_rows[:10],
+        "nobody_guessed": nobody_rows[:10],
     }
 
 
@@ -1419,12 +1440,16 @@ def _live_goal_events(details: dict) -> list[dict]:
     return events
 
 
-def _live_match_payload(db: Session, current_user: User) -> dict | None:
-    """Return one live tournament fixture with fresh cached score and scorers.
+def _live_matches_payload(
+    db: Session,
+    current_user: User,
+    league_id: int | None = None,
+) -> list[dict]:
+    """Return every currently live tournament fixture in a compact card format.
 
-    We inspect a small time window and reuse the existing match-details cache.
-    That cache has a one-minute TTL during a live game, so opening the Mini App
-    does not create an uncontrolled stream of provider calls.
+    The existing match-details cache is refreshed at most once per minute while
+    a game is live. Returning a small ordered list lets the Match Center show
+    simultaneous games in a swipeable carousel without additional endpoints.
     """
     now = datetime.now(timezone.utc)
     candidates = (
@@ -1437,20 +1462,26 @@ def _live_match_payload(db: Session, current_user: User) -> dict | None:
             Match.starts_at >= now - timedelta(hours=6),
         )
         .order_by(Match.starts_at.asc())
-        .limit(4)
+        .limit(8)
         .all()
     )
     if not candidates:
-        return None
+        return []
 
     predictions = _prediction_by_match_id(db, current_user, candidates)
+    live_matches: list[dict] = []
     for match in candidates:
         details = build_match_details_payload(db, match, refresh=True)
         overview = details.get("overview") or {}
         status_short = str(overview.get("status_short") or match.status_short or "").upper()
         if status_short not in LIVE_MATCH_STATUS_CODES:
             continue
-        payload = _serialize_match(match, predictions.get(match.id))
+        payload = _serialize_match_center_match(
+            db,
+            match,
+            predictions.get(match.id),
+            league_id=league_id,
+        )
         payload.update({
             "is_live": True,
             "status_short": status_short,
@@ -1460,8 +1491,8 @@ def _live_match_payload(db: Session, current_user: User) -> dict | None:
             "score_away": overview.get("score_away"),
             "goal_events": _live_goal_events(details),
         })
-        return payload
-    return None
+        live_matches.append(payload)
+    return live_matches
 
 
 @router.get("/dashboard")
@@ -1516,6 +1547,8 @@ def get_dashboard(
             current_points = row["points"]
             break
 
+    live_matches = _live_matches_payload(db, current_user, league_id=active_league.id)
+
     return {
         "user": {
             "id": current_user.id,
@@ -1525,7 +1558,10 @@ def get_dashboard(
         "rank": current_rank,
         "points": current_points,
         "league": _serialize_league(active_league, current_user),
-        "live_match": _live_match_payload(db, current_user),
+        # ``live_match`` remains for clients on earlier builds; new clients
+        # render the complete ``live_matches`` carousel.
+        "live_match": live_matches[0] if live_matches else None,
+        "live_matches": live_matches,
         "nearest_matches": [
             _serialize_match(match, predictions_by_match.get(match.id))
             for match in nearest_matches
