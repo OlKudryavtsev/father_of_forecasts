@@ -46,50 +46,104 @@ def get_random_archive_card_for_daily_rubric(db) -> HistoricalArchiveCard | None
 
 
 
+def _daily_group_text(context: dict, commentary: str) -> str:
+    lines = [f"☀️ Итоги дня · лига «{context['league_name']}»", ""]
+    matches = context.get("matches") or []
+    if matches:
+        lines.append("🏁 За последние 24 часа:")
+        for match in matches[:6]:
+            lines.append(f"— {match['label']} · {match['score']}")
+    else:
+        lines.append("🏁 За последние 24 часа завершённых матчей не было.")
+
+    player = context.get("player_of_day") or {}
+    if player and player.get("predictions"):
+        lines.extend([
+            "",
+            f"🏆 Игрок дня: {player.get('name')} · {int(player.get('points') or 0)} очк.",
+        ])
+    leader = context.get("leader") or {}
+    if leader:
+        lines.append(f"👑 Лидер лиги: {leader.get('name')} · {int(leader.get('points') or 0)} очк.")
+    if commentary:
+        lines.extend(["", commentary])
+    return "\n".join(lines)
+
+
+def _daily_personal_text(context: dict, commentary: str) -> str:
+    today = context.get("today") or {}
+    lines = [f"☀️ Лига «{context['league_name']}» · твой итог дня", ""]
+    if context.get("matches_count"):
+        lines.append(
+            f"За сутки: {int(today.get('points') or 0)} очк. · "
+            f"🎯 {int(today.get('exact') or 0)} · 🔵 {int(today.get('outcomes') or 0)} · "
+            f"промахов: {int(today.get('misses') or 0)}"
+        )
+    else:
+        lines.append("За сутки завершённых матчей не было. Рейтинг выдержал паузу.")
+    if context.get("rank"):
+        lines.append(f"🏆 Сейчас ты #{context['rank']} · {int(context.get('league_points') or 0)} очк.")
+    if commentary:
+        lines.extend(["", commentary])
+    return "\n".join(lines)
+
+
+async def _daily_league_message(db, league):
+    from app.services.gamification import build_daily_league_context, normalize_humor_mode
+    from app.services.openai_gamification import generate_daily_league_commentary
+
+    context = build_daily_league_context(db, league)
+    tone = normalize_humor_mode(getattr(league, "humor_mode", None))
+    commentary = await asyncio.to_thread(generate_daily_league_commentary, context, tone)
+    return _daily_group_text(context, commentary)
+
+
+async def _daily_personal_message(db, user, league):
+    from app.services.gamification import build_daily_user_context, normalize_humor_mode
+    from app.services.openai_gamification import generate_daily_personal_commentary
+
+    context = build_daily_user_context(db, user, league)
+    tone = normalize_humor_mode(
+        getattr(user, "personal_humor_mode", None),
+        default=normalize_humor_mode(getattr(league, "humor_mode", None)),
+    )
+    commentary = await asyncio.to_thread(generate_daily_personal_commentary, context, tone)
+    return _daily_personal_text(context, commentary)
+
+
 async def send_daily_match_summary_to_group(db):
-    """Send daily match/prognosis summary to legacy GROUP_CHAT_ID for default league only."""
+    """Send an OpenAI-worded but fact-first morning result to the legacy group."""
     from app.services.leagues import get_default_league
-    from app.services.matches import build_daily_match_summary_text
 
     group_chat_id = get_group_chat_id()
-
     if not group_chat_id:
         print("GROUP_CHAT_ID is not set or invalid")
         return
 
     default_league = get_default_league(db)
-    text = build_daily_match_summary_text(db, league=default_league)
-
+    if not default_league:
+        return
+    text = await _daily_league_message(db, default_league)
     try:
-        await bot.send_message(
-            chat_id=group_chat_id,
-            text=text,
-        )
+        await bot.send_message(chat_id=group_chat_id, text=text)
         print(f"Daily match summary sent to group chat {group_chat_id}")
     except Exception as error:
         print(f"Failed to send daily match summary to group {group_chat_id}: {error}")
 
 
 async def send_daily_match_summary_to_league_chats(db):
-    """Send daily summary to league-specific chats if league.chat_id is configured."""
+    """Send one shared daily story to every configured league chat."""
     from app.services.leagues import get_active_league_chat_targets
-    from app.services.matches import build_daily_match_summary_text
     from app.services.notifications import notify_league_chat
 
     for league in get_active_league_chat_targets(db):
-        text = build_daily_match_summary_text(db, league=league)
+        text = await _daily_league_message(db, league)
         await notify_league_chat(league, text)
 
 
 async def send_daily_match_summary_to_private_users(db):
-    """Send each approved user a summary scoped to every league they belong to.
-
-    The old implementation rendered one shared default-league summary for every
-    private user. With multiple leagues that is misleading: the same user can
-    have different participants, score window and standings in each league.
-    """
+    """Send each league participant their own humorous but factual daily recap."""
     from app.services.leagues import get_user_active_leagues
-    from app.services.matches import build_daily_match_summary_text
     from app.services.notifications import notify_private_user
 
     users = (
@@ -98,21 +152,20 @@ async def send_daily_match_summary_to_private_users(db):
         .order_by(User.display_name.asc())
         .all()
     )
-
     for user in users:
-        leagues = get_user_active_leagues(db, user)
-        # A user without a league has no meaningful league-specific daily table.
-        # They still receive personal match reminders and can create/join a league.
-        for league in leagues:
-            text = build_daily_match_summary_text(db, league=league)
-            await notify_private_user(
-                db,
-                user=user,
-                notification_key="daily_facts",
-                title=f"☕ Итоги дня · {league.name}",
-                text=f"🏆 Лига «{league.name}»\n\n{text}",
-                url="/app",
-            )
+        for league in get_user_active_leagues(db, user):
+            try:
+                text = await _daily_personal_message(db, user, league)
+                await notify_private_user(
+                    db,
+                    user=user,
+                    notification_key="daily_facts",
+                    title=f"☀️ Твой итог · {league.name}",
+                    text=text,
+                    url="/app",
+                )
+            except Exception as error:
+                print(f"Failed to send personal daily recap to {user.telegram_id} for league {league.id}: {error}")
 
 
 async def send_daily_fact_to_group(db, fact: WorldCupFact):

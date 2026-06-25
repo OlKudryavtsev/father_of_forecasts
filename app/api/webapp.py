@@ -48,6 +48,13 @@ from app.runtime import TOURNAMENT_CODE
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.rating_history import build_rating_history
+from app.services.gamification import (
+    HUMOR_MODES,
+    build_achievement_cards,
+    build_profile_title,
+    calculate_profile_stats,
+    normalize_humor_mode,
+)
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.forecast import build_forecast_text
@@ -235,6 +242,11 @@ class LeagueRolePayload(BaseModel):
 
 class LeagueSettingsPayload(BaseModel):
     chat_id: str | None = Field(default=None, max_length=80)
+    humor_mode: str | None = Field(default=None, max_length=24)
+
+
+class HumorModePayload(BaseModel):
+    humor_mode: str = Field(pattern="^(ruthless|ironic|calm|numbers)$")
 
 
 class MatchResultPayload(BaseModel):
@@ -690,6 +702,7 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
         "invite_code": league.invite_code,
         "invite_url": _league_invite_url(league),
         "chat_id": league.chat_id if (current_user and (current_user.is_admin or league.owner_user_id == current_user.id or role in {"owner", "admin"})) else None,
+        "humor_mode": normalize_humor_mode(getattr(league, "humor_mode", None)),
         "is_owner": bool(current_user and league.owner_user_id == current_user.id),
         "role": role,
         "can_manage": role in {"owner", "admin"} or bool(current_user and (current_user.is_admin or league.owner_user_id == current_user.id)),
@@ -989,7 +1002,8 @@ def update_league_settings_endpoint(
 ) -> dict:
     """Update manageable league settings."""
     try:
-        league = update_league_chat_id(db, current_user, league_id, payload.chat_id)
+        from app.services.leagues import update_league_settings
+        league = update_league_settings(db, current_user, league_id, payload.chat_id, payload.humor_mode)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
@@ -4151,29 +4165,15 @@ def admin_save_setting(
 
 @router.get("/profile")
 def get_profile(
+    league_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return current user's Mini App profile, stats and achievements."""
-    predictions = (
-        db.query(Prediction)
-        .filter(Prediction.user_id == current_user.id)
-        .all()
-    )
-
-    future_matches = get_all_available_matches(db, limit=1000)
-    predictions_by_future_match = _prediction_by_match_id(db, current_user, future_matches)
-
-    missing_count = sum(
-        1
-        for match in future_matches
-        if match.id not in predictions_by_future_match
-    )
-    editable_count = sum(
-        1
-        for match in future_matches
-        if match.id in predictions_by_future_match
-    )
+    """Return selected-league profile, current title and progressive achievements."""
+    try:
+        league = require_user_league(db, current_user, league_id)
+    except ValueError:
+        league = None
 
     tournament_prediction = (
         db.query(TournamentPrediction)
@@ -4184,29 +4184,56 @@ def get_profile(
         .first()
     )
 
-    table_rows = build_table_rows(db)
-    rank = None
-    total_points = 0
-    match_points = 0
-    tournament_points = 0
+    if league:
+        normal_stats, achievement_stats = calculate_profile_stats(db, current_user, league)
+        stat_start = normal_stats.get("start_at")
+        predictions_query = (
+            db.query(Prediction)
+            .join(Match, Prediction.match_id == Match.id)
+            .filter(
+                Prediction.user_id == current_user.id,
+                Match.tournament_code == TOURNAMENT_CODE,
+            )
+        )
+        if stat_start is not None:
+            predictions_query = predictions_query.filter(Match.starts_at >= stat_start)
+        predictions = predictions_query.all()
+        table_rows = build_table_rows(db, league_id=league.id)
+        rank = normal_stats.get("rank")
+        total_points = int(normal_stats.get("league_points") or 0)
+        table_row = next((row for row in table_rows if int(row.get("user_id") or 0) == current_user.id), None) or {}
+        match_points = int(table_row.get("match_points") or 0)
+        tournament_points = int(table_row.get("tournament_points") or 0)
+        exact_scores = int(normal_stats.get("exact_scores") or 0)
+        outcomes = int(normal_stats.get("outcomes") or 0)
+        advancement_plus = sum(1 for prediction in predictions if int(prediction.advancement_points or 0) == 1)
+        advancement_minus = sum(1 for prediction in predictions if int(prediction.advancement_points or 0) == -1)
+        total_predictions = int(normal_stats.get("total_predictions") or 0)
+        missing_count = int(normal_stats.get("missing_future") or 0)
+        editable_count = sum(1 for prediction in predictions if not bool(prediction.match.is_finished))
+        title_data = build_profile_title(normal_stats)
+        badges = build_achievement_cards(db, current_user, league, achievement_stats)
+        gamification_started_at = achievement_stats.get("start_at")
+    else:
+        # Graceful fallback for an approved user who has not yet joined a league.
+        predictions = db.query(Prediction).filter(Prediction.user_id == current_user.id).all()
+        rank = None
+        total_points = sum(int(prediction.points or 0) for prediction in predictions)
+        match_points = total_points
+        tournament_points = int(tournament_prediction.points or 0) if tournament_prediction else 0
+        total_points += tournament_points
+        exact_scores = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 3)
+        outcomes = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 1)
+        advancement_plus = sum(1 for prediction in predictions if int(prediction.advancement_points or 0) == 1)
+        advancement_minus = sum(1 for prediction in predictions if int(prediction.advancement_points or 0) == -1)
+        total_predictions = len(predictions)
+        missing_count = 0
+        editable_count = 0
+        title_data = {"title": {"icon": "⚽", "label": "В поиске лиги"}, "form": {"icon": "🧭", "label": "Создай лигу или вступи по приглашению"}}
+        badges = []
+        gamification_started_at = None
 
-    for index, row in enumerate(table_rows, start=1):
-        if row["name"] == current_user.display_name:
-            rank = index
-            total_points = row["points"]
-            match_points = row["match_points"]
-            tournament_points = row["tournament_points"]
-            break
-
-    exact_scores = sum(1 for prediction in predictions if prediction.score_points == 3)
-    outcomes = sum(1 for prediction in predictions if prediction.score_points == 1)
-    advancement_plus = sum(1 for prediction in predictions if prediction.advancement_points == 1)
-    advancement_minus = sum(1 for prediction in predictions if prediction.advancement_points == -1)
-
-    total_predictions = len(predictions)
     favorite_score = _favorite_score(predictions)
-    status_text = _profile_status(total_points, exact_scores, total_predictions, missing_count)
-
     return {
         "user": {
             "id": current_user.id,
@@ -4216,10 +4243,15 @@ def get_profile(
             "initials": "".join(part[:1] for part in current_user.display_name.split()[:2]).upper() or "ОП",
             "is_admin": bool(current_user.is_admin),
             "created_at": _ensure_utc(current_user.created_at).isoformat() if current_user.created_at else None,
+            "personal_humor_mode": normalize_humor_mode(getattr(current_user, "personal_humor_mode", None)),
         },
+        "league": _serialize_league(league, current_user) if league else None,
         "summary": {
             "rank": rank,
-            "status": status_text,
+            "status": title_data["title"]["label"],
+            "status_icon": title_data["title"]["icon"],
+            "form": title_data["form"]["label"],
+            "form_icon": title_data["form"]["icon"],
             "points": total_points,
             "match_points": match_points,
             "tournament_points": tournament_points,
@@ -4232,21 +4264,27 @@ def get_profile(
             "advancement_plus": advancement_plus,
             "advancement_minus": advancement_minus,
             "favorite_score": favorite_score,
+            "gamification_started_at": _ensure_utc(gamification_started_at).isoformat() if gamification_started_at else None,
         },
         "points_breakdown": [
             {"key": "matches", "title": "Прогнозы", "points": match_points, "icon": "ball"},
             {"key": "tournament", "title": "Турнир", "points": tournament_points, "icon": "cup"},
         ],
         "tournament_prediction": _serialize_tournament_prediction(tournament_prediction, db=db) if tournament_prediction else None,
-        "badges": _profile_badges(
-            exact_scores=exact_scores,
-            outcomes=outcomes,
-            total_predictions=total_predictions,
-            missing_count=missing_count,
-            tournament_prediction=tournament_prediction,
-            rank=rank,
-        ),
+        "badges": badges,
     }
+
+
+@router.post("/profile/humor-mode")
+def save_profile_humor_mode(
+    payload: HumorModePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Save the recipient's preferred level of AI football sarcasm."""
+    current_user.personal_humor_mode = normalize_humor_mode(payload.humor_mode)
+    db.commit()
+    return {"ok": True, "humor_mode": current_user.personal_humor_mode, "label": HUMOR_MODES[current_user.personal_humor_mode]}
 
 
 @router.get("/facts/random")

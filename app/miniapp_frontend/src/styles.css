@@ -10382,3 +10382,97 @@ body,
     padding: 0 8px;
   }
 }
+
+/* v2.8.55 — gamification and personal tone controls */
+.profile-form {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.humor-mode-setting {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(148,163,184,0.12);
+}
+
+.humor-mode-setting b,
+.humor-mode-setting small {
+  display: block;
+}
+
+.humor-mode-setting b {
+  font-size: 13px;
+}
+
+.humor-mode-setting small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 3px;
+}
+
+.humor-mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.humor-mode-options button {
+  min-height: 31px;
+  padding: 0 9px;
+  border-radius: 10px;
+  color: var(--muted);
+  background: rgba(148,163,184,0.10);
+  border: 1px solid rgba(148,163,184,0.16);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.humor-mode-options button.active {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: rgba(22,199,132,0.42);
+}
+
+.achievement-season-note {
+  margin: 0 0 11px;
+  line-height: 1.35;
+}
+
+.badge-card small {
+  display: flex;
+  justify-content: space-between;
+}
+
+.badge-card.earned strong::after {
+  content: ' ✦';
+  color: var(--gold);
+}
+
+@media (max-width: 420px) {
+  .profile-hero-card {
+    grid-template-columns: 62px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 15px;
+  }
+
+  .avatar-ring {
+    width: 62px;
+    height: 62px;
+  }
+
+  .profile-form {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

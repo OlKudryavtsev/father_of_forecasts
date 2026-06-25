@@ -1,6 +1,7 @@
 """Real implementation extracted from the former bot_runtime monolith."""
 
 
+import asyncio
 import os
 import re
 
@@ -9,6 +10,7 @@ from app.formatters.matches import format_datetime, format_match_label, format_m
 from app.formatters.misc import format_reminder_offset
 from app.keyboards.matches import build_matches_keyboard, build_prediction_reminder_keyboard
 from app.models import AppSetting, FatherMatchPrediction, League, LeagueMember
+from app.services.gamification import normalize_humor_mode, sync_new_achievements
 from app.runtime import (
     APP_TIMEZONE,
     MATCHDAY_TIMEZONE,
@@ -1045,7 +1047,13 @@ def _format_points(value: int) -> str:
     return f"{points} {_plural_ru(points, 'очко', 'очка', 'очков')}"
 
 
-def build_match_emotion_payload(db, user: User, match: Match, league: League) -> dict:
+def build_match_emotion_payload(
+    db,
+    user: User,
+    match: Match,
+    league: League,
+    newly_unlocked: list[dict] | None = None,
+) -> dict:
     """Build a reusable post-match recap for Telegram and the Mini App.
 
     The calculation intentionally reconstructs the standings immediately before
@@ -1097,7 +1105,7 @@ def build_match_emotion_payload(db, user: User, match: Match, league: League) ->
             result_text = f"Твой прогноз {prediction_score} не принес очков. Реванш уже впереди."
 
     streak = _user_success_streak_for_league(db, user, league, match)
-    achievements: list[dict] = []
+    achievements: list[dict] = list(newly_unlocked or [])
     if result_type == "exact":
         achievements.append({
             "code": "exact_hit",
@@ -1180,11 +1188,69 @@ def build_personal_match_emotion_text(db, user: User, match: Match, league: Leag
 
     return "\n".join(lines)
 
-def build_private_match_finished_league_text(db, user: User, match: Match, league: League) -> str:
-    """Render league-level result text plus the recipient's personal emotion."""
-    group_text = build_match_finished_group_notification_text(db, match, league=league)
-    emotion = build_personal_match_emotion_text(db, user, match, league)
-    return f"🏆 Лига «{league.name}»\n\n{group_text}\n\n──────────\n{emotion}"
+async def build_private_match_finished_league_text(db, user: User, match: Match, league: League) -> str:
+    """Build a fact-first personal recap with optional OpenAI football commentary.
+
+    The deterministic lines remain useful even when the API is unavailable. The
+    model receives only the small calculated context below and never calculates
+    scores, rankings or achievements itself.
+    """
+    newly_unlocked = sync_new_achievements(db, user, league)
+    recap = build_match_emotion_payload(db, user, match, league, newly_unlocked=newly_unlocked)
+    tone = normalize_humor_mode(
+        getattr(user, "personal_humor_mode", None),
+        default=normalize_humor_mode(getattr(league, "humor_mode", None)),
+    )
+    ai_context = {
+        "league_name": league.name,
+        "user_name": user.display_name,
+        "match": f"{match.home_team} — {match.away_team}",
+        "actual_score": recap["actual_score"],
+        "prediction": recap.get("prediction_score"),
+        "result_type": recap["result_type"],
+        "points_for_match": recap["points"],
+        "rank_before": recap.get("rank_before"),
+        "rank_after": recap.get("rank_after"),
+        "rank_delta": recap.get("rank_delta"),
+        "success_streak": recap.get("streak"),
+        "new_achievements": [item.get("title") for item in newly_unlocked],
+    }
+    try:
+        from app.services.openai_gamification import generate_match_commentary
+        commentary = await asyncio.to_thread(generate_match_commentary, ai_context, tone)
+    except Exception as error:
+        print(f"Failed to build AI match commentary: {error}")
+        commentary = "Итог рассчитан по правилам лиги. Следующий матч уже ждёт новый сценарий."
+
+    lines = [
+        f"🏁 Лига «{league.name}» · матч окончен",
+        "",
+        f"{format_match_label(match, include_id=False)}",
+        f"Итог: {recap['actual_score']}",
+    ]
+    if recap.get("prediction_score"):
+        lines.append(f"Твой прогноз: {recap['prediction_score']} · +{_format_points(recap['points'])}")
+    else:
+        lines.append("Твоего прогноза на матч не было · +0 очков")
+
+    if recap.get("rank_after"):
+        if recap.get("rank_delta", 0) > 0:
+            lines.append(f"📈 Место: #{recap['rank_before']} → #{recap['rank_after']} из {recap['participants_count']}")
+        elif recap.get("rank_delta", 0) < 0:
+            lines.append(f"↘️ Место: #{recap['rank_before']} → #{recap['rank_after']} из {recap['participants_count']}")
+        else:
+            lines.append(f"🏆 Сейчас #{recap['rank_after']} из {recap['participants_count']} · {_format_points(recap['league_points'])}")
+
+    lines.extend(["", commentary])
+    if newly_unlocked:
+        lines.extend([
+            "",
+            "✨ Новое достижение: " + " · ".join(
+                f"{item.get('icon', '🏅')} {item.get('title')} — {item.get('level_name')}"
+                for item in newly_unlocked
+            ),
+        ])
+    return "\n".join(lines)
 
 
 async def _send_match_started_notifications(db, now, window_seconds: int):
@@ -1304,7 +1370,7 @@ async def _send_match_finished_notifications(db):
                     if _app_event_sent(db, private_key):
                         continue
                     try:
-                        text = build_private_match_finished_league_text(db, user, match, league)
+                        text = await build_private_match_finished_league_text(db, user, match, league)
                         await notify_private_user(
                             db,
                             user=user,

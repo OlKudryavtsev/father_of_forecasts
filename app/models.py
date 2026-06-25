@@ -36,6 +36,9 @@ class User(Base):
     rejected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Personal delivery tone for AI-generated private messages. The default keeps
+    # the league's original "Без пощады" experience.
+    personal_humor_mode = Column(String, nullable=False, default="ruthless", server_default="ruthless")
 
     predictions = relationship("Prediction", back_populates="user")
     league_memberships = relationship("LeagueMember", back_populates="user", cascade="all, delete-orphan", foreign_keys="LeagueMember.user_id")
@@ -55,6 +58,10 @@ class League(Base):
     chat_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Tone used only for league-chat summaries; individual users have their own preference.
+    humor_mode = Column(String, nullable=False, default="ruthless", server_default="ruthless")
+    # Achievement progress starts at this release, while normal leaderboard stats remain historical.
+    gamification_started_at = Column(DateTime(timezone=True), nullable=True, server_default=func.now())
 
     owner = relationship("User", foreign_keys=[owner_user_id])
     members = relationship("LeagueMember", back_populates="league", cascade="all, delete-orphan")
@@ -524,6 +531,27 @@ class FantasyPlayerMatchStat(Base):
         ),
     )
 
+
+
+class UserAchievement(Base):
+    """One durable per-league achievement level for a participant."""
+
+    __tablename__ = "user_achievements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    achievement_code = Column(String(64), nullable=False, index=True)
+    level = Column(Integer, nullable=False, default=0, server_default="0")
+    earned_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+    league = relationship("League")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "league_id", "achievement_code", name="uq_user_league_achievement"),
+    )
 
 
 class UserNotificationSetting(Base):

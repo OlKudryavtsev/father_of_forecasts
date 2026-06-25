@@ -279,8 +279,14 @@ def deactivate_league(db, actor: User, league_id: int) -> League:
     return league
 
 
-def update_league_chat_id(db, actor: User, league_id: int, chat_id: str | None) -> League:
-    """Set optional Telegram chat id for a league."""
+def update_league_settings(
+    db,
+    actor: User,
+    league_id: int,
+    chat_id: str | None,
+    humor_mode: str | None = None,
+) -> League:
+    """Set optional Telegram chat id and public-summary tone for a league."""
     league = require_manage_league(db, actor, league_id)
     value = (chat_id or "").strip()
     if value:
@@ -294,9 +300,21 @@ def update_league_chat_id(db, actor: User, league_id: int, chat_id: str | None) 
         league.chat_id = value
     else:
         league.chat_id = None
+
+    if humor_mode is not None:
+        from app.services.gamification import normalize_humor_mode
+        normalized = normalize_humor_mode(humor_mode, default="")
+        if not normalized:
+            raise ValueError("Неизвестный режим юмора")
+        league.humor_mode = normalized
     db.commit()
     db.refresh(league)
     return league
+
+
+def update_league_chat_id(db, actor: User, league_id: int, chat_id: str | None) -> League:
+    """Backward-compatible wrapper for older imports."""
+    return update_league_settings(db, actor, league_id, chat_id, None)
 
 
 def get_active_league_chat_targets(db) -> list[League]:

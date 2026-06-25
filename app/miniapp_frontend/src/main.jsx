@@ -3062,7 +3062,7 @@ function OtherFantasyTeams({ onInfo }) {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [activeLeagueId]);
 
   if (error) return <ErrorCard error={error} onRetry={load} />;
   if (!data) return <LoadingCard text="Загружаю составы участников..." />;
@@ -4800,6 +4800,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberActionBusy, setMemberActionBusy] = useState('');
   const [leagueChatIds, setLeagueChatIds] = useState({});
+  const [leagueHumorModes, setLeagueHumorModes] = useState({});
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [activityData, setActivityData] = useState([]);
@@ -4911,6 +4912,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     setManagedLeagueId(league.id);
     setMembersData(null);
     setLeagueChatIds((prev) => ({ ...prev, [league.id]: league.chat_id || '' }));
+    setLeagueHumorModes((prev) => ({ ...prev, [league.id]: league.humor_mode || 'ruthless' }));
     await loadMembers(league.id);
   }
 
@@ -4983,12 +4985,13 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     setMessage('');
     try {
       const chatId = leagueChatIds[league.id] || '';
+      const humorMode = leagueHumorModes[league.id] || league.humor_mode || 'ruthless';
       await api(`/api/webapp/leagues/${league.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ chat_id: chatId.trim() || null }),
+        body: JSON.stringify({ chat_id: chatId.trim() || null, humor_mode: humorMode }),
       });
       await onLeaguesChanged?.();
-      setMessage(chatId.trim() ? 'Chat ID лиги сохранен' : 'Chat ID лиги очищен');
+      setMessage(chatId.trim() ? 'Настройки лиги сохранены' : 'Настройки лиги сохранены');
     } catch (err) {
       setError(err);
     } finally {
@@ -5017,9 +5020,21 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
             />
           </label>
           <button type="button" className="secondary small" onClick={() => saveLeagueChatId(league)} disabled={memberActionBusy === `${league.id}:chat`}>
-            {memberActionBusy === `${league.id}:chat` ? 'Сохраняю…' : 'Сохранить chat_id'}
+            {memberActionBusy === `${league.id}:chat` ? 'Сохраняю…' : 'Сохранить настройки'}
           </button>
-          <p className="muted small">Если указать Telegram chat_id группы, уведомления по событиям этой лиги будут приходить туда.</p>
+          <label>
+            <span>Стиль общих итогов</span>
+            <select
+              value={leagueHumorModes[league.id] ?? league.humor_mode ?? 'ruthless'}
+              onChange={(event) => setLeagueHumorModes((prev) => ({ ...prev, [league.id]: event.target.value }))}
+            >
+              <option value="ruthless">Без пощады</option>
+              <option value="ironic">Футбольная ирония</option>
+              <option value="calm">Спокойно</option>
+              <option value="numbers">Только цифры</option>
+            </select>
+          </label>
+          <p className="muted small">Стиль действует для утренних итогов в общем чате лиги. Личные сообщения каждый участник настраивает в профиле.</p>
         </div>
         <div className="subsection-title compact">
           <h3>Участники</h3>
@@ -5577,7 +5592,7 @@ function CollapsibleProfileSection({ title, meta, defaultOpen = true, children, 
 }
 
 
-function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
+function Profile({ tournamentPrediction, appTheme, setAppTheme, activeLeagueId }) {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState(null);
   const photoUrl = getTelegramPhotoUrl();
@@ -5585,7 +5600,8 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
   async function load() {
     setError(null);
     try {
-      setProfile(await api('/api/webapp/profile'));
+      const suffix = activeLeagueId ? `?league_id=${encodeURIComponent(activeLeagueId)}` : '';
+      setProfile(await api(`/api/webapp/profile${suffix}`));
     } catch (err) {
       setError(err);
     }
@@ -5616,7 +5632,8 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <div className="profile-rank">#{summary.rank || '—'}</div>
           <h2>{user.display_name}</h2>
           {user.username && <p className="muted">@{user.username}</p>}
-          <span className="status-pill">{summary.status}</span>
+          <span className="status-pill">{summary.status_icon || '⚽'} {summary.status}</span>
+          <span className="profile-form">{summary.form_icon || '↗️'} {summary.form || 'В игре'}</span>
         </div>
         <div className="profile-points">
           <b>{summary.points || 0}</b>
@@ -5635,6 +5652,34 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
           <span className="theme-switch" />
           <span className="theme-option light-option">Светлая тема</span>
         </label>
+        <div className="humor-mode-setting">
+          <div>
+            <b>Личный стиль Отца</b>
+            <small>В личных итогах матчей и дня. По умолчанию — без пощады.</small>
+          </div>
+          <div className="humor-mode-options">
+            {[
+              ['ruthless', 'Без пощады'],
+              ['ironic', 'Ирония'],
+              ['calm', 'Спокойно'],
+              ['numbers', 'Цифры'],
+            ].map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                className={(user.personal_humor_mode || 'ruthless') === value ? 'active' : ''}
+                onClick={async () => {
+                  try {
+                    await api('/api/webapp/profile/humor-mode', { method: 'POST', body: JSON.stringify({ humor_mode: value }) });
+                    setProfile((previous) => ({ ...previous, user: { ...previous.user, personal_humor_mode: value } }));
+                  } catch (err) {
+                    setError(err);
+                  }
+                }}
+              >{label}</button>
+            ))}
+          </div>
+        </div>
         <PwaAccessCard />
       </CollapsibleProfileSection>
 
@@ -5666,12 +5711,15 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme }) {
       </CollapsibleProfileSection>
 
       <CollapsibleProfileSection title="Достижения" meta={`${earnedBadges.length}/${badges.length}`}>
+        {summary.gamification_started_at && (
+          <p className="muted small achievement-season-note">Сезон достижений начался {formatDateTime(summary.gamification_started_at).split(',')[0]} · прошлые результаты остаются в статистике, но не закрывают коллекцию мгновенно.</p>
+        )}
         <div className="badges-grid">
           {badges.map((badge) => (
             <div key={badge.code} className={`badge-card ${badge.earned ? 'earned' : 'locked'}`}>
               <i><Icon name={badge.icon} /></i>
               <strong>{badge.title}</strong>
-              <span>{badge.description}</span>
+              <span>{badge.level > 0 ? `${badge.level_name} · ${badge.description}` : badge.description}</span>
               <div className="badge-progress">
                 <em style={{ width: `${Math.round((badge.progress || 0) * 100 / (badge.goal || 1))}%` }} />
               </div>
@@ -6074,7 +6122,7 @@ function App() {
       {tab === 'resources' && <Resources />}
       {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
       {tab === 'rating' && <Rating activeLeagueId={activeLeagueId} />}
-      {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} />}
+      {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} activeLeagueId={activeLeagueId} />}
       {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 
       <BottomNavigation tab={tab} onChange={setTab} />
