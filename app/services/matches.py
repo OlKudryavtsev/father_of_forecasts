@@ -1253,7 +1253,367 @@ async def build_private_match_finished_league_text(db, user: User, match: Match,
     return "\n".join(lines)
 
 
+def _pregame_score_outcome(prediction: Prediction) -> str:
+    if int(prediction.pred_home) > int(prediction.pred_away):
+        return "победа хозяев"
+    if int(prediction.pred_home) < int(prediction.pred_away):
+        return "победа гостей"
+    return "ничья"
+
+
+def _pregame_recent_form_for_user(db, user: User, league: League, before_at) -> dict:
+    """Return only persisted, completed-prediction facts for the slot preview."""
+    from app.services.leagues import league_scoring_start_at
+
+    query = (
+        db.query(Prediction)
+        .join(Match, Prediction.match_id == Match.id)
+        .join(
+            LeagueMember,
+            (LeagueMember.user_id == Prediction.user_id)
+            & (LeagueMember.league_id == league.id)
+            & (LeagueMember.status == "active")
+            & (LeagueMember.joined_at <= Match.starts_at),
+        )
+        .filter(
+            Prediction.user_id == user.id,
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.starts_at < before_at,
+            Match.is_finished == True,
+            Match.score_home.isnot(None),
+            Match.score_away.isnot(None),
+        )
+    )
+    scoring_start = league_scoring_start_at(league)
+    if scoring_start is not None:
+        query = query.filter(Match.starts_at >= scoring_start)
+
+    predictions = query.order_by(Match.starts_at.desc(), Match.id.desc()).limit(3).all()
+    entries = []
+    for prediction in reversed(predictions):
+        score_points = int(prediction.score_points or 0)
+        icon = "🎯" if score_points == 3 else ("🔵" if score_points == 1 else "◌")
+        entries.append({
+            "icon": icon,
+            "points": int(prediction.points or 0),
+            "label": f"{prediction.match.home_team} — {prediction.match.away_team}",
+        })
+
+    return {
+        "name": user.display_name,
+        "recent_results": entries,
+        "recent_points": sum(item["points"] for item in entries),
+    }
+
+
+def build_league_pregame_analysis_context(db, league: League, matches: list[Match]) -> dict:
+    """Collect fact-only data for one started match slot in a league chat.
+
+    The result is intentionally ready for both deterministic formatting and
+    OpenAI wording. The model sees no hidden calculations and never decides the
+    standings or outcomes itself.
+    """
+    if not matches:
+        raise ValueError("Нужен хотя бы один матч для предматчевого разбора")
+
+    ordered_matches = sorted(matches, key=lambda item: (item.starts_at, item.id))
+    slot_start = ordered_matches[0].starts_at
+    if slot_start.tzinfo is None:
+        slot_start = slot_start.replace(tzinfo=timezone.utc)
+
+    member_rows = (
+        db.query(LeagueMember, User)
+        .join(User, User.id == LeagueMember.user_id)
+        .filter(
+            LeagueMember.league_id == league.id,
+            LeagueMember.status == "active",
+            LeagueMember.joined_at <= slot_start,
+            User.access_status == "approved",
+        )
+        .order_by(User.display_name.asc())
+        .all()
+    )
+    members = [user for _member, user in member_rows if not getattr(user, "is_bot", False)]
+    members_by_id = {user.id: user for user in members}
+
+    from app.services.misc import build_table_rows
+
+    table_rows = [row for row in build_table_rows(db, league_id=league.id) if int(row.get("user_id") or 0) in members_by_id]
+    standings = [
+        {
+            "rank": index,
+            "user_id": int(row.get("user_id") or 0),
+            "name": row.get("name") or "Участник",
+            "points": int(row.get("points") or 0),
+            "exact_scores": int(row.get("exact_scores") or 0),
+            "outcomes": int(row.get("outcomes") or 0),
+        }
+        for index, row in enumerate(table_rows, start=1)
+    ]
+    leader_points = int(standings[0]["points"] or 0) if standings else 0
+    for row in standings:
+        row["gap_to_leader"] = max(0, leader_points - int(row["points"] or 0))
+
+    match_contexts = []
+    unique_calls: list[dict] = []
+    prediction_signatures: dict[int, list[str]] = {user.id: [] for user in members}
+
+    for match in ordered_matches:
+        prediction_rows = _get_match_predictions_with_users(db, match, league=league)
+        predictions = []
+        score_groups: dict[str, list[str]] = {}
+        outcome_counts = {"победа хозяев": 0, "ничья": 0, "победа гостей": 0}
+        predicted_user_ids: set[int] = set()
+
+        for prediction, user in prediction_rows:
+            if user.id not in members_by_id:
+                continue
+            score = f"{prediction.pred_home}:{prediction.pred_away}"
+            outcome = _pregame_score_outcome(prediction)
+            predicted_user_ids.add(user.id)
+            prediction_signatures.setdefault(user.id, []).append(f"{match.id}:{score}")
+            predictions.append({
+                "user_id": user.id,
+                "name": user.display_name,
+                "score": score,
+                "outcome": outcome,
+            })
+            score_groups.setdefault(score, []).append(user.display_name)
+            outcome_counts[outcome] = int(outcome_counts.get(outcome, 0)) + 1
+
+        for score, names in score_groups.items():
+            if len(names) == 1:
+                unique_calls.append({
+                    "match": f"{match.home_team} — {match.away_team}",
+                    "name": names[0],
+                    "score": score,
+                })
+
+        missing_names = [user.display_name for user in members if user.id not in predicted_user_ids]
+        consensus_score = None
+        if len(members) >= 2 and len(predictions) == len(members) and len(score_groups) == 1:
+            consensus_score = next(iter(score_groups.keys()))
+
+        match_contexts.append({
+            "match_id": match.id,
+            "label": f"{match.home_team} — {match.away_team}",
+            "predictions": predictions,
+            "score_groups": [
+                {"score": score, "count": len(names), "names": names}
+                for score, names in sorted(score_groups.items(), key=lambda item: (-len(item[1]), item[0]))
+            ],
+            "outcome_distribution": outcome_counts,
+            "missing_participants": missing_names,
+            "consensus_score": consensus_score,
+        })
+
+    close_duels = []
+    for upper, lower in zip(standings, standings[1:]):
+        upper_id = int(upper["user_id"])
+        lower_id = int(lower["user_id"])
+        upper_calls = prediction_signatures.get(upper_id) or []
+        lower_calls = prediction_signatures.get(lower_id) or []
+        if not upper_calls or not lower_calls or upper_calls == lower_calls:
+            continue
+        gap = max(0, int(upper["points"] or 0) - int(lower["points"] or 0))
+        if gap <= 4:
+            close_duels.append({
+                "higher_name": upper["name"],
+                "higher_rank": upper["rank"],
+                "lower_name": lower["name"],
+                "lower_rank": lower["rank"],
+                "points_gap": gap,
+            })
+
+    recent_form = [
+        _pregame_recent_form_for_user(db, user, league, slot_start)
+        for user in members
+    ]
+
+    return {
+        "league_name": league.name,
+        "slot_started_at": slot_start.isoformat(),
+        "participants_count": len(members),
+        "matches": match_contexts,
+        "standings": standings,
+        "recent_form": recent_form,
+        "unique_calls": unique_calls[:8],
+        "close_duels": close_duels[:5],
+    }
+
+
+def _pregame_form_text(item: dict) -> str:
+    entries = item.get("recent_results") or []
+    if not entries:
+        return "без завершённых прогнозов"
+    icons = " ".join(str(entry.get("icon") or "◌") for entry in entries)
+    return f"{icons} · {int(item.get('recent_points') or 0)} очк."
+
+
+def _trim_telegram_text(text: str, limit: int = 3900) -> str:
+    """Stay below Telegram's message limit without breaking an in-flight send."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 58].rstrip() + "\n\n…Полная картина прогнозов доступна в Матч-центре."
+
+
+async def build_league_pregame_analysis_text(db, league: League, matches: list[Match]) -> str:
+    context = build_league_pregame_analysis_context(db, league, matches)
+    tone = normalize_humor_mode(getattr(league, "humor_mode", None))
+    try:
+        from app.services.openai_gamification import generate_pregame_league_commentary
+
+        commentary = await asyncio.to_thread(generate_pregame_league_commentary, context, tone)
+    except Exception as error:
+        print(f"Failed to build AI pregame analysis for league {league.id}: {error}")
+        commentary = "Прогнозы раскрыты. Футболу остаётся только проверить, кто здесь правда что-то понимал."
+
+    match_labels = [item["label"] for item in context["matches"]]
+    header = "🔥 Прогнозы вскрыты" if len(match_labels) == 1 else "🔥 Прогнозы вскрыты · игровой слот"
+    lines = [
+        f"{header} · лига «{league.name}»",
+        "",
+        "⚽ " + "\n⚽ ".join(match_labels),
+        "",
+    ]
+
+    for match_data in context["matches"]:
+        lines.append(f"👥 {match_data['label']}")
+        predictions = match_data.get("predictions") or []
+        if predictions:
+            for prediction in predictions:
+                lines.append(f"— {prediction['name']}: {prediction['score']}")
+        else:
+            lines.append("— прогнозов нет. Лига выбрала путь молчаливого наблюдателя.")
+
+        distribution = match_data.get("outcome_distribution") or {}
+        lines.append(
+            "Исходы: "
+            f"хозяева — {int(distribution.get('победа хозяев') or 0)}, "
+            f"ничья — {int(distribution.get('ничья') or 0)}, "
+            f"гости — {int(distribution.get('победа гостей') or 0)}"
+        )
+        if match_data.get("consensus_score"):
+            lines.append(f"🤝 Единомышленники: все выбрали {match_data['consensus_score']}.")
+        missing = match_data.get("missing_participants") or []
+        if missing:
+            lines.append("⌛ Без прогноза: " + ", ".join(missing))
+        lines.append("")
+
+    standings = context.get("standings") or []
+    lines.extend(["📊 Таблица перед стартом:"])
+    if standings:
+        for row in standings:
+            lines.append(f"{row['rank']}. {row['name']} — {row['points']} очк.")
+    else:
+        lines.append("Таблица пока ждёт первого участника.")
+
+    form = context.get("recent_form") or []
+    if form:
+        lines.extend(["", "🔥 Форма · последние 3 завершённых прогноза:"])
+        for item in form:
+            lines.append(f"— {item['name']}: {_pregame_form_text(item)}")
+
+    duels = context.get("close_duels") or []
+    if duels:
+        lines.extend(["", "⚔️ Интрига в таблице:"])
+        for duel in duels[:3]:
+            gap = int(duel.get("points_gap") or 0)
+            lines.append(
+                f"#{duel['higher_rank']} {duel['higher_name']} и #{duel['lower_rank']} {duel['lower_name']} "
+                f"разделяет {gap} очк.; прогнозы в этом слоте разные."
+            )
+
+    lines.extend(["", "🧠 Разбор Отца:", commentary])
+    return _trim_telegram_text("\n".join(lines))
+
+
+def _pregame_slot_key(matches: list[Match]) -> str:
+    """Stable grouping for matches that start at the exact same kickoff time."""
+    first = min(matches, key=lambda item: (item.starts_at, item.id))
+    starts_at = first.starts_at
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=timezone.utc)
+    match_ids = "-".join(str(item.id) for item in sorted(matches, key=lambda item: item.id))
+    return f"{starts_at.astimezone(timezone.utc).strftime('%Y%m%d%H%M')}-{match_ids}"
+
+
+async def _send_league_pregame_analyses(db, now):
+    """Deliver exactly one detailed forecast reveal per league and kickoff slot.
+
+    A startup grace window is deliberate: deploying a release just after kickoff
+    still delivers the new analysis instead of silently missing the slot.
+    """
+    if os.getenv("PREGAME_ANALYSIS_ENABLED", "true").lower() not in {"1", "true", "yes", "on"}:
+        return
+
+    try:
+        lookback_minutes = int(os.getenv("PREGAME_ANALYSIS_LOOKBACK_MINUTES", "30") or "30")
+    except ValueError:
+        lookback_minutes = 30
+    lookback_minutes = max(2, min(120, lookback_minutes))
+    window_start = now - timedelta(minutes=lookback_minutes)
+
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.starts_at <= now,
+            Match.starts_at >= window_start,
+            Match.is_finished == False,
+        )
+        .order_by(Match.starts_at.asc(), Match.id.asc())
+        .all()
+    )
+    if not matches:
+        return
+
+    slots: dict[str, list[Match]] = {}
+    for match in matches:
+        key_time = match.starts_at
+        if key_time.tzinfo is None:
+            key_time = key_time.replace(tzinfo=timezone.utc)
+        key = key_time.astimezone(timezone.utc).strftime("%Y%m%d%H%M")
+        slots.setdefault(key, []).append(match)
+
+    from app.services.leagues import get_active_league_chat_targets, get_default_league
+
+    default_league = get_default_league(db)
+    configured_leagues = get_active_league_chat_targets(db)
+
+    for slot_matches in slots.values():
+        slot_key = _pregame_slot_key(slot_matches)
+        destinations: list[tuple[League, str]] = []
+        seen_destinations: set[str] = set()
+
+        if GROUP_CHAT_ID_RAW and default_league:
+            chat_id = str(GROUP_CHAT_ID_RAW).strip()
+            if chat_id:
+                destinations.append((default_league, chat_id))
+                seen_destinations.add(chat_id)
+
+        for league in configured_leagues:
+            chat_id = str(getattr(league, "chat_id", "") or "").strip()
+            if not chat_id or chat_id in seen_destinations:
+                continue
+            destinations.append((league, chat_id))
+            seen_destinations.add(chat_id)
+
+        for league, chat_id in destinations:
+            event_key = f"pregame_analysis:{league.id}:{slot_key}:{chat_id}"
+            if _app_event_sent(db, event_key):
+                continue
+            try:
+                text = await build_league_pregame_analysis_text(db, league, slot_matches)
+                await bot.send_message(chat_id=chat_id, text=text)
+                _mark_app_event_sent(db, event_key)
+                print(f"Pregame league analysis sent: league={league.id}, slot={slot_key}, chat={chat_id}")
+            except Exception as error:
+                print(f"Failed to send pregame league analysis for league {league.id}, slot {slot_key}: {error}")
+
+
 async def _send_match_started_notifications(db, now, window_seconds: int):
+    """Send private kickoff notices and one AI league analysis per started slot."""
     window_start = now - timedelta(seconds=window_seconds + 60)
     matches = (
         db.query(Match)
@@ -1266,18 +1626,13 @@ async def _send_match_started_notifications(db, now, window_seconds: int):
         .all()
     )
 
-    if not matches:
-        return
+    if matches:
+        from app.services.notifications import notify_private_users
 
-    from app.services.leagues import get_active_league_chat_targets, get_default_league
-    from app.services.notifications import notify_league_chat, notify_private_users
-
-    default_league = get_default_league(db)
-    league_chat_targets = get_active_league_chat_targets(db)
-
-    for match in matches:
-        private_key = f"private_match_started:{match.id}"
-        if not _app_event_sent(db, private_key):
+        for match in matches:
+            private_key = f"private_match_started:{match.id}"
+            if _app_event_sent(db, private_key):
+                continue
             text = build_private_match_started_text(match)
             try:
                 await notify_private_users(
@@ -1291,23 +1646,36 @@ async def _send_match_started_notifications(db, now, window_seconds: int):
             except Exception as error:
                 print(f"Failed to send private match-start notifications: {error}")
 
-        if GROUP_CHAT_ID_RAW and default_league:
-            key = f"group_match_started:{match.id}"
-            if not _app_event_sent(db, key):
-                text = build_match_start_group_notification_text(db, match, league=default_league)
-                try:
-                    await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
-                    _mark_app_event_sent(db, key)
-                except Exception as error:
-                    print(f"Failed to send default group match-start notification: {error}")
+    # Detailed league-chat analyses run in their own independent background loop.
 
-        for league in league_chat_targets:
-            key = f"league_match_started:{league.id}:{match.id}"
-            if _app_event_sent(db, key):
-                continue
-            text = build_match_start_group_notification_text(db, match, league=league)
-            if await notify_league_chat(league, text):
-                _mark_app_event_sent(db, key)
+
+async def pregame_analysis_loop():
+    """Continuously reveal group-slot analyses, independently from personal reminders.
+
+    This makes the feature work immediately after Railway deployment even when
+    private reminder messages are deliberately disabled. Event keys make the
+    loop idempotent across restarts.
+    """
+    if os.getenv("PREGAME_ANALYSIS_ENABLED", "true").lower() not in {"1", "true", "yes", "on"}:
+        print("Pregame analysis loop is disabled")
+        return
+
+    try:
+        interval_seconds = int(os.getenv("PREGAME_ANALYSIS_CHECK_INTERVAL_SECONDS", "30") or "30")
+    except ValueError:
+        interval_seconds = 30
+    interval_seconds = max(20, min(300, interval_seconds))
+
+    print(f"Pregame analysis loop started. Interval: {interval_seconds} seconds.")
+    while True:
+        db = SessionLocal()
+        try:
+            await _send_league_pregame_analyses(db, datetime.now(timezone.utc))
+        except Exception as error:
+            print(f"Pregame analysis loop error: {error}")
+        finally:
+            db.close()
+        await asyncio.sleep(interval_seconds)
 
 
 async def _send_match_finished_notifications(db):

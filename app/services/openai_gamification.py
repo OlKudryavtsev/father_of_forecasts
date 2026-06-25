@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - deployment fallback
     OpenAI = None
 
-from app.services.gamification import HUMOR_MODES, normalize_humor_mode
+from app.services.gamification import normalize_humor_mode
 
 OPENAI_GAMIFICATION_MODEL = os.getenv("OPENAI_GAMIFICATION_MODEL", os.getenv("AI_MODEL", "gpt-5.5-mini"))
 OPENAI_GAMIFICATION_ENABLED = os.getenv("OPENAI_GAMIFICATION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
@@ -27,6 +27,19 @@ COMMENTARY_SCHEMA = {
         "additionalProperties": False,
         "properties": {
             "commentary": {"type": "string", "minLength": 1, "maxLength": 420},
+        },
+        "required": ["commentary"],
+    },
+    "strict": True,
+}
+
+PREGAME_ANALYSIS_SCHEMA = {
+    "name": "father_forecasts_pregame_analysis",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "commentary": {"type": "string", "minLength": 1, "maxLength": 900},
         },
         "required": ["commentary"],
     },
@@ -77,18 +90,46 @@ def _fallback_daily(context: dict[str, Any], mode: str, personal: bool) -> str:
     return "Матчей с итогами не было. Футбол взял паузу, таблица — нет."
 
 
-def _generate(kind: str, context: dict[str, Any], mode: str, personal: bool = False) -> str:
+def _fallback_pregame(context: dict[str, Any], mode: str) -> str:
+    matches = context.get("matches") or []
+    unique = context.get("unique_calls") or []
+    duels = context.get("close_duels") or []
+    if mode == "numbers":
+        if matches:
+            return f"Прогнозы раскрыты для {len(matches)} матч(а/ей). Расхождения участников отражены выше."
+        return "Прогнозы раскрыты."
+    if unique:
+        item = unique[0]
+        return (
+            f"{item.get('name')} выбрал сценарий {item.get('score')} в матче «{item.get('match')}» в одиночку. "
+            "Либо человек видел будущее, либо очень уверенно не видел чужие прогнозы."
+        )
+    if duels:
+        item = duels[0]
+        return (
+            f"{item.get('higher_name')} и {item.get('lower_name')} идут рядом, но в прогнозах разошлись. "
+            "Один матч может решить, кто будет говорить «я же чувствовал», а кто — «это был план Б»."
+        )
+    if matches:
+        return "Лига смотрит в одну сторону. Обычно это либо коллективный разум, либо коллективное алиби."
+    return "Прогнозы раскрыты. Футболу остаётся только проверить, кто здесь правда что-то понимал."
+
+
+def _request_openai_commentary(
+    *,
+    purpose: str,
+    context: dict[str, Any],
+    mode: str,
+    schema: dict[str, Any],
+    fallback: str,
+    max_chars: int,
+    extra_rules: str = "",
+) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     mode = normalize_humor_mode(mode)
-    fallback = _fallback_match(context, mode) if kind == "match" else _fallback_daily(context, mode, personal)
     if not OPENAI_GAMIFICATION_ENABLED or not api_key or OpenAI is None:
         return fallback
 
-    purpose = (
-        "Персональный итог участника после завершения матча"
-        if kind == "match"
-        else ("Персональный утренний итог участника" if personal else "Общий утренний итог лиги")
-    )
     prompt = f"""
 Ты — «Отец прогнозов», футбольный комментатор дружеской лиги.
 Задача: {purpose}.
@@ -97,11 +138,12 @@ def _generate(kind: str, context: dict[str, Any], mode: str, personal: bool = Fa
 {_tone_instruction(mode)}
 
 Нельзя:
-- выдумывать факты, числа, матчи, места, достижения или причины;
+- выдумывать факты, числа, матчи, места, достижения, прогнозы или причины;
 - давать советы по ставкам на деньги;
 - атаковать личность человека или использовать оскорбления/мат;
-- обращаться к участнику на «ты», если в данных нет имени? Имя в данных есть, можно обращаться на «ты»;
-- писать больше 2 коротких предложений, максимум 360 символов.
+- писать больше 3 коротких предложений, максимум {max_chars} символов;
+- утверждать, что кто-то точно изменит место или наберёт очки: можно говорить только о возможной интриге, если она прямо видна в данных.
+{extra_rules}
 
 Используй только эти проверенные данные:
 {json.dumps(context, ensure_ascii=False)}
@@ -114,8 +156,8 @@ def _generate(kind: str, context: dict[str, Any], mode: str, personal: bool = Fa
             text={
                 "format": {
                     "type": "json_schema",
-                    "name": COMMENTARY_SCHEMA["name"],
-                    "schema": COMMENTARY_SCHEMA["schema"],
+                    "name": schema["name"],
+                    "schema": schema["schema"],
                     "strict": True,
                 }
             },
@@ -124,10 +166,27 @@ def _generate(kind: str, context: dict[str, Any], mode: str, personal: bool = Fa
         text = str(payload.get("commentary") or "").strip()
         if not text:
             return fallback
-        return text[:420]
+        return text[:max_chars]
     except Exception as error:  # Keep notifications available during API outages.
-        print(f"OpenAI gamification commentary fallback ({kind}): {error}")
+        print(f"OpenAI gamification commentary fallback ({purpose}): {error}")
         return fallback
+
+
+def _generate(kind: str, context: dict[str, Any], mode: str, personal: bool = False) -> str:
+    fallback = _fallback_match(context, mode) if kind == "match" else _fallback_daily(context, mode, personal)
+    purpose = (
+        "Персональный итог участника после завершения матча"
+        if kind == "match"
+        else ("Персональный утренний итог участника" if personal else "Общий утренний итог лиги")
+    )
+    return _request_openai_commentary(
+        purpose=purpose,
+        context=context,
+        mode=mode,
+        schema=COMMENTARY_SCHEMA,
+        fallback=fallback,
+        max_chars=420,
+    )
 
 
 def generate_match_commentary(context: dict[str, Any], mode: str) -> str:
@@ -140,3 +199,21 @@ def generate_daily_league_commentary(context: dict[str, Any], mode: str) -> str:
 
 def generate_daily_personal_commentary(context: dict[str, Any], mode: str) -> str:
     return _generate("daily", context, mode, personal=True)
+
+
+def generate_pregame_league_commentary(context: dict[str, Any], mode: str) -> str:
+    """Turn a fact-only prediction slot context into a short league-chat teaser."""
+    return _request_openai_commentary(
+        purpose="Разбор открывшихся прогнозов участников перед стартом матча или одновременного игрового слота",
+        context=context,
+        mode=mode,
+        schema=PREGAME_ANALYSIS_SCHEMA,
+        fallback=_fallback_pregame(context, mode),
+        max_chars=900,
+        extra_rules=(
+            "- выбери 1–3 наиболее интересных факта: единое мнение, уникальный прогноз, "
+            "близкая дуэль в таблице, лидерство или форма;\n"
+            "- не повторяй весь список прогнозов и таблицу: они уже будут в сообщении выше;\n"
+            "- не упоминай участников, если о них нет факта в переданном контексте."
+        ),
+    )

@@ -108,6 +108,7 @@ from app.services.facts import daily_facts_loop
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.api_football_auto_sync import auto_sync_results_and_fantasy
 from app.services.match_details import sync_active_match_details
+from app.services.matches import pregame_analysis_loop
 from app.services.tournament_hub import sync_tournament_hub_cache
 from app.db import SessionLocal
 import os
@@ -323,6 +324,10 @@ async def main():
     """Start background jobs and run aiogram polling."""
     if reminders_enabled():
         asyncio.create_task(reminders_loop())
+
+    # Separate from personal reminders: publish one group analysis when a
+    # match slot starts, including immediately after a Railway deploy.
+    asyncio.create_task(pregame_analysis_loop())
 
     if DAILY_FACTS_ENABLED:
         asyncio.create_task(daily_facts_loop())
