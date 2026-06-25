@@ -10298,3 +10298,87 @@ body,
   .live-match-section-head small { font-size: 10px; }
   .live-match-carousel-controls button { width: 27px; height: 27px; }
 }
+
+
+/* v2.8.54 — consensus analytics and compact match date sorting */
+.match-sort-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  margin: 0 4px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.match-sort-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(148, 163, 184, .17);
+  border-radius: 12px;
+  background: rgba(8, 15, 28, .40);
+}
+
+.match-sort-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 850;
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+}
+
+.match-sort-switch button .svg-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.match-sort-switch button.active {
+  color: #dbeafe;
+  background: rgba(92, 150, 255, .17);
+  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, .20);
+}
+
+.rating-analytics-middle {
+  margin-top: 10px;
+}
+
+.rating-analytics-card.consensus {
+  border-color: rgba(167, 139, 250, .34);
+}
+
+.rating-analytics-card.consensus .rating-analytics-icon {
+  color: #c4b5fd;
+}
+
+.app.theme-light .match-sort-switch {
+  border-color: rgba(15, 32, 60, .12);
+  background: rgba(255,255,255,.70);
+}
+
+.app.theme-light .match-sort-switch button.active {
+  color: #1d4ed8;
+  background: rgba(96, 165, 250, .14);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .16);
+}
+
+@media (max-width: 520px) {
+  .match-sort-row {
+    margin-right: 2px;
+    font-size: 10px;
+  }
+
+  .match-sort-switch button {
+    min-height: 27px;
+    padding: 0 8px;
+  }
+}

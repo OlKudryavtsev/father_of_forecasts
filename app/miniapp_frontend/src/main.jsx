@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.53';
+const APP_VERSION = '2.8.54';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2491,6 +2491,7 @@ function activeLeagueLabel(leagues = [], activeLeagueId) {
 function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
+  const [dateOrder, setDateOrder] = useState('asc');
   const [centerMode, setCenterMode] = useState('matches');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2508,7 +2509,19 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
     } catch (err) { setError(err); } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [scope, group, activeLeagueId]);
-  const grouped = useMemo(() => groupMatchesByDay(data?.matches || []), [data]);
+  const orderedMatches = useMemo(() => {
+    const matches = [...(data?.matches || [])];
+    const toTime = (match) => {
+      const value = new Date(match?.starts_at || '').getTime();
+      return Number.isFinite(value) ? value : 0;
+    };
+    matches.sort((left, right) => {
+      const delta = toTime(left) - toTime(right) || Number(left?.id || 0) - Number(right?.id || 0);
+      return dateOrder === 'desc' ? -delta : delta;
+    });
+    return matches;
+  }, [data?.matches, dateOrder]);
+  const grouped = useMemo(() => groupMatchesByDay(orderedMatches), [orderedMatches]);
   const selectedStanding = group ? data?.standings?.[0] : null;
   const leagueName = activeLeagueLabel(leagues, activeLeagueId);
   const openMatch = (match) => {
@@ -2532,6 +2545,17 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
         <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}><Icon name="ball" /><span>Будущие</span></button>
         <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}><Icon name="check" /><span>Результаты</span></button>
         {(data?.groups || []).map((item) => <button key={item.group_code} className={`group-color group-${item.group_code} ${group === item.group_code ? 'active group' : ''}`} onClick={() => { setGroup(item.group_code); setScope('all'); }}><b>{item.group_code}</b><span>группа</span></button>)}
+      </div>
+      <div className="match-sort-row" aria-label="Сортировка матчей по дате">
+        <span>По дате</span>
+        <div className="match-sort-switch" role="group" aria-label="Порядок матчей">
+          <button type="button" className={dateOrder === 'asc' ? 'active' : ''} aria-pressed={dateOrder === 'asc'} onClick={() => setDateOrder('asc')}>
+            <Icon name="arrowUp" /> Старые
+          </button>
+          <button type="button" className={dateOrder === 'desc' ? 'active' : ''} aria-pressed={dateOrder === 'desc'} onClick={() => setDateOrder('desc')}>
+            <Icon name="arrowDown" /> Новые
+          </button>
+        </div>
       </div>
       <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} compact />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
     </>}
@@ -3882,6 +3906,7 @@ function AnalyticsPredictionsModal({ match, kind, leagueId = null, onClose }) {
   const meta = {
     exact: { title: 'Точные счета', label: 'угадали точный счет', resultClass: 'exact' },
     outcome: { title: 'Угаданные исходы', label: 'угадали исход', resultClass: 'outcome' },
+    consensus: { title: 'Единомышленники', label: 'выбрали один и тот же счёт', resultClass: null, showAll: true },
     miss: { title: 'Никто не угадал', label: 'не угадали', resultClass: 'miss' },
   }[kind] || { title: 'Прогнозы участников', label: 'сделали прогноз', resultClass: '' };
 
@@ -3896,7 +3921,9 @@ function AnalyticsPredictionsModal({ match, kind, leagueId = null, onClose }) {
     return () => { active = false; };
   }, [match.match_id, leagueId]);
 
-  const participants = (data?.participants || []).filter((participant) => participant.result_class === meta.resultClass);
+  const participants = meta.showAll
+    ? (data?.participants || [])
+    : (data?.participants || []).filter((participant) => participant.result_class === meta.resultClass);
   return (
     <div className="modal-backdrop">
       <section className="modal-card participants-modal analytics-predictions-modal">
@@ -3937,6 +3964,7 @@ function AnalyticsPredictionsModal({ match, kind, leagueId = null, onClose }) {
 function RatingMatchAnalytics({ analytics, leagueName = '', onOpenPredictions }) {
   const exactScores = analytics?.exact_scores || [];
   const outcomes = analytics?.outcomes || [];
+  const likeMinded = analytics?.like_minded || [];
   const nobodyGuessed = analytics?.nobody_guessed || [];
 
   function AnalyticsList({ title, subtitle, iconName, rows, accentClass, kind }) {
@@ -4008,6 +4036,16 @@ function RatingMatchAnalytics({ analytics, leagueName = '', onOpenPredictions })
           rows={outcomes}
           accentClass="outcome"
           kind="outcome"
+        />
+      </div>
+      <div className="rating-analytics-middle">
+        <AnalyticsList
+          title="Единомышленники"
+          subtitle="Все участники выбрали один и тот же счёт"
+          iconName="team"
+          rows={likeMinded}
+          accentClass="consensus"
+          kind="consensus"
         />
       </div>
       <div className="rating-analytics-bottom">

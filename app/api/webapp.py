@@ -760,13 +760,14 @@ def _serialize_match_points_analytics_item(
 
 
 def _build_league_match_points_analytics(db: Session, league: League) -> dict:
-    """Return the selected league's most and least predictable matches.
+    """Return the selected league's most memorable completed matches.
 
-    The first two rankings show the ten matches with most exact-score (3pt)
-    and outcome (1pt) hits. ``nobody_guessed`` intentionally includes only
-    matches where every submitted forecast scored zero; it is ordered by the
-    number of missed forecasts so the most broadly surprising matches appear
-    first.
+    The rankings show the ten matches with the most exact-score (3pt) and
+    outcome (1pt) hits, unanimous predictions where every active league member
+    chose the same score, and the most broadly surprising matches where no
+    submitted forecast earned points. A unanimous row is included only when
+    all members eligible for that match submitted a prediction, so a single
+    early forecast cannot look like a league-wide consensus.
     """
     matches_query = (
         db.query(Match)
@@ -783,17 +784,32 @@ def _build_league_match_points_analytics(db: Session, league: League) -> dict:
 
     exact_rows: list[dict] = []
     outcome_rows: list[dict] = []
+    consensus_rows: list[dict] = []
     nobody_rows: list[dict] = []
 
     for match in matches_query.order_by(Match.starts_at.desc()).all():
+        active_members_count = (
+            db.query(LeagueMember)
+            .join(User, User.id == LeagueMember.user_id)
+            .filter(
+                LeagueMember.league_id == league.id,
+                LeagueMember.status == "active",
+                LeagueMember.joined_at <= match.starts_at,
+                User.access_status == "approved",
+            )
+            .count()
+        )
+
         predictions = (
             db.query(Prediction)
             .join(LeagueMember, LeagueMember.user_id == Prediction.user_id)
+            .join(User, User.id == Prediction.user_id)
             .filter(
                 Prediction.match_id == match.id,
                 LeagueMember.league_id == league.id,
                 LeagueMember.status == "active",
                 LeagueMember.joined_at <= match.starts_at,
+                User.access_status == "approved",
             )
             .all()
         )
@@ -812,14 +828,34 @@ def _build_league_match_points_analytics(db: Session, league: League) -> dict:
         if success_count == 0:
             nobody_rows.append(_serialize_match_points_analytics_item(match, total_predictions, total_predictions, "miss"))
 
+        # "Единомышленники": every active member who was in the league when
+        # the match started made a forecast, and all forecasts are identical.
+        if active_members_count >= 2 and total_predictions == active_members_count:
+            first_prediction = predictions[0]
+            if all(
+                prediction.pred_home == first_prediction.pred_home
+                and prediction.pred_away == first_prediction.pred_away
+                for prediction in predictions
+            ):
+                consensus_rows.append(
+                    _serialize_match_points_analytics_item(
+                        match,
+                        total_predictions,
+                        total_predictions,
+                        "consensus",
+                    )
+                )
+
     sort_key = lambda row: (row["count"], row["total_predictions"], row["starts_at"])
     exact_rows.sort(key=sort_key, reverse=True)
     outcome_rows.sort(key=sort_key, reverse=True)
+    consensus_rows.sort(key=sort_key, reverse=True)
     nobody_rows.sort(key=sort_key, reverse=True)
 
     return {
         "exact_scores": exact_rows[:10],
         "outcomes": outcome_rows[:10],
+        "like_minded": consensus_rows[:10],
         "nobody_guessed": nobody_rows[:10],
     }
 
