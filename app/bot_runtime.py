@@ -111,6 +111,7 @@ from app.services.match_details import sync_active_match_details
 from app.services.matches import pregame_analysis_loop
 from app.services.news import news_loop
 from app.services.tournament_hub import sync_tournament_hub_cache
+from app.wc2026_sync import sync_wc2026_schedule
 from app.db import SessionLocal
 import os
 
@@ -300,6 +301,31 @@ async def tournament_hub_cache_loop():
         await asyncio.sleep(interval_seconds)
 
 
+async def wc2026_schedule_auto_sync_loop():
+    """Refresh the full World Cup calendar so newly resolved playoff pairs appear automatically."""
+    enabled = os.getenv("WC2026_SCHEDULE_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = max(300, int(os.getenv("WC2026_SCHEDULE_AUTOSYNC_INTERVAL_SECONDS", "1800")))
+
+    while True:
+        def _sync_schedule():
+            db = SessionLocal()
+            try:
+                return sync_wc2026_schedule(db)
+            finally:
+                db.close()
+
+        try:
+            result = await asyncio.to_thread(_sync_schedule)
+            print(f"WC2026 schedule auto sync: {result}")
+        except Exception as error:
+            print(f"WC2026 schedule auto sync failed: {error}")
+
+        await asyncio.sleep(interval_seconds)
+
+
 async def api_football_auto_sync_loop():
     """Periodically update recently finished match results and Fantasy stats."""
     enabled = os.getenv("API_FOOTBALL_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
@@ -338,6 +364,8 @@ async def main():
 
     asyncio.create_task(matchtv_videos_loop())
     asyncio.create_task(api_football_auto_sync_loop())
+    # Discover newly resolved knockout fixtures every 30 minutes.
+    asyncio.create_task(wc2026_schedule_auto_sync_loop())
     asyncio.create_task(match_details_cache_loop())
     asyncio.create_task(tournament_hub_cache_loop())
 

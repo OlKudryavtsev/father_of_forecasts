@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.58';
+const APP_VERSION = '2.8.59';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2171,8 +2171,14 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
   return (
     <article className={`match-card ${hasVideos ? 'has-video' : ''}`}>
       <div className="match-card-top">
-        <span className="group-pill">{match.group_code ? `Группа ${match.group_code}` : match.stage}</span>
-        <span className="round-pill">{formatRoundLabel(match)}</span>
+        {match.is_playoff ? (
+          <span className="group-pill playoff-stage-pill">{formatRoundLabel(match)}</span>
+        ) : (
+          <>
+            <span className="group-pill">{match.group_code ? `Группа ${match.group_code}` : match.stage}</span>
+            <span className="round-pill">{formatRoundLabel(match)}</span>
+          </>
+        )}
         {hasVideos && <span className="video-mini-icon" aria-label="Видео" title="Видео">🎥</span>}
         <span className={match.is_finished ? 'dot dot-finished' : 'dot'} />
         <span className="muted small match-date">{formatDateTime(match.starts_at)}</span>
@@ -2578,8 +2584,18 @@ function EmptyState({ iconName = 'ball', title, text }) {
 function ScorePicker({ match, onClose, onSaved }) {
   const [home, setHome] = useState(match?.prediction?.pred_home ?? 1);
   const [away, setAway] = useState(match?.prediction?.pred_away ?? 1);
+  const [advancingSide, setAdvancingSide] = useState(
+    match?.prediction?.advancement_bet_enabled ? (match?.prediction?.predicted_advancing_side || null) : null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const isPlayoff = Boolean(match?.is_playoff);
+
+  useEffect(() => {
+    setHome(match?.prediction?.pred_home ?? 1);
+    setAway(match?.prediction?.pred_away ?? 1);
+    setAdvancingSide(match?.prediction?.advancement_bet_enabled ? (match?.prediction?.predicted_advancing_side || null) : null);
+  }, [match?.id]);
 
   useEffect(() => {
     if (match?.id) {
@@ -2602,8 +2618,8 @@ function ScorePicker({ match, onClose, onSaved }) {
           match_id: match.id,
           pred_home: home,
           pred_away: away,
-          advancement_bet_enabled: false,
-          predicted_advancing_side: null,
+          advancement_bet_enabled: Boolean(isPlayoff && advancingSide),
+          predicted_advancing_side: isPlayoff ? advancingSide : null,
         }),
       });
       trackAnalytics('prediction_save', {
@@ -2654,6 +2670,41 @@ function ScorePicker({ match, onClose, onSaved }) {
             <button key={`${h}:${a}`} onClick={() => { setHome(h); setAway(a); }}>{h}:{a}</button>
           ))}
         </div>
+
+        {isPlayoff && (
+          <section className="advancement-picker" aria-label="Прогноз на проход">
+            <div className="advancement-picker-head">
+              <div>
+                <b>Кто пройдёт дальше?</b>
+                <small>Необязательно · +1 за верный проход, −1 за ошибку</small>
+              </div>
+              <span>🎟️</span>
+            </div>
+            <div className="advancement-options">
+              <button
+                type="button"
+                className={advancingSide === 'home' ? 'active' : ''}
+                onClick={() => setAdvancingSide('home')}
+              >
+                <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
+                {match.home_team}
+              </button>
+              <button
+                type="button"
+                className={advancingSide === 'away' ? 'active' : ''}
+                onClick={() => setAdvancingSide('away')}
+              >
+                <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
+                {match.away_team}
+              </button>
+            </div>
+            {advancingSide && (
+              <button type="button" className="advancement-skip" onClick={() => setAdvancingSide(null)}>
+                Не ставить на проход
+              </button>
+            )}
+          </section>
+        )}
 
         {error && <p className="error-text">{error.message}</p>}
         <button className="primary full" disabled={saving} onClick={save}>{saving ? 'Сохраняю...' : 'Сохранить прогноз'}</button>

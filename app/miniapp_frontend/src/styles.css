@@ -10584,3 +10584,75 @@ body,
   .father-news-heading span { font-size: 16px; }
   .father-news-item { padding: 11px; }
 }
+
+
+/* v2.8.59: playoff advancement picker */
+.playoff-stage-pill {
+  background: rgba(70, 107, 205, 0.25);
+  color: #aebfff;
+}
+
+.advancement-picker {
+  margin: 14px 0 8px;
+  padding: 12px;
+  border: 1px solid rgba(42, 216, 163, 0.28);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(21, 70, 75, 0.55), rgba(22, 37, 66, 0.72));
+}
+
+.advancement-picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.advancement-picker-head b,
+.advancement-picker-head small {
+  display: block;
+}
+
+.advancement-picker-head b { font-size: 15px; }
+.advancement-picker-head small { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.25; }
+.advancement-picker-head > span { font-size: 22px; }
+
+.advancement-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.advancement-options button {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  color: var(--text);
+  background: rgba(17, 28, 51, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.advancement-options button.active {
+  color: #05241d;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(30, 210, 154, 0.16);
+}
+
+.advancement-options .flag.mini { font-size: 22px; }
+.advancement-skip {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 28px;
+}
