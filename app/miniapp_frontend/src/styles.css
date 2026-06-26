@@ -10476,3 +10476,111 @@ body,
     white-space: nowrap;
   }
 }
+
+/* RSS curated World Cup news */
+.father-news-card {
+  margin-top: 12px;
+  padding: 14px;
+  border-color: rgba(245, 158, 11, 0.28);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.10), rgba(20, 29, 49, 0.98) 45%, rgba(12, 18, 32, 0.98));
+}
+
+.father-news-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.father-news-heading span,
+.father-news-heading small {
+  display: block;
+}
+
+.father-news-heading span {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.father-news-heading small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.father-news-heading b {
+  min-width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--gold);
+  background: rgba(245, 158, 11, 0.14);
+  font-size: 13px;
+}
+
+.father-news-list {
+  display: grid;
+  gap: 9px;
+}
+
+.father-news-item {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(10, 16, 30, 0.58);
+}
+
+.father-news-item:active {
+  transform: scale(0.99);
+}
+
+.father-news-item strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.father-news-item p,
+.father-news-item em,
+.father-news-item small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.father-news-item em {
+  color: #f8d078;
+  font-style: normal;
+}
+
+.father-news-category {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 8px;
+  color: var(--gold);
+  background: rgba(245, 158, 11, 0.12);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.app.theme-light .father-news-card {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(255, 255, 255, 0.98));
+}
+
+.app.theme-light .father-news-item {
+  background: rgba(255, 255, 255, 0.76);
+}
+
+@media (max-width: 390px) {
+  .father-news-card { padding: 12px; }
+  .father-news-heading span { font-size: 16px; }
+  .father-news-item { padding: 11px; }
+}

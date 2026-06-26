@@ -2,6 +2,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -552,6 +553,67 @@ class UserAchievement(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "league_id", "achievement_code", name="uq_user_league_achievement"),
     )
+
+
+class WorldCupNewsItem(Base):
+    """Curated World Cup 2026 news item collected from configured RSS feeds.
+
+    RSS is the discovery layer; OpenAI only decides whether a candidate is a
+    good fit and writes a compact, fact-bounded recap/commentary.
+    """
+
+    __tablename__ = "world_cup_news_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    external_id = Column(String(128), nullable=False, unique=True, index=True)
+    source_name = Column(String(160), nullable=True)
+    source_url = Column(Text, nullable=False)
+    title = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
+    father_commentary = Column(Text, nullable=True)
+    category = Column(String(64), nullable=True, index=True)
+    relevance_score = Column(Integer, nullable=False, default=0, server_default="0")
+    published_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    discovered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    selected_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    published_for_date = Column(Date, nullable=True, index=True)
+    selection_status = Column(String(24), nullable=False, default="pending", server_default="pending", index=True)
+
+
+class LeagueNewsDelivery(Base):
+    """One delivery record per league and curated news item.
+
+    The constraint makes chat publication idempotent across bot restarts.
+    """
+
+    __tablename__ = "league_news_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    news_item_id = Column(Integer, ForeignKey("world_cup_news_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    chat_id = Column(String(80), nullable=True)
+    delivered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    league = relationship("League")
+    news_item = relationship("WorldCupNewsItem")
+
+    __table_args__ = (
+        UniqueConstraint("league_id", "news_item_id", name="uq_league_news_delivery"),
+    )
+
+
+class AiUsageLog(Base):
+    """Compact per-request usage accounting for optional AI workflows."""
+
+    __tablename__ = "ai_usage_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    purpose = Column(String(64), nullable=False, index=True)
+    model = Column(String(96), nullable=True)
+    input_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    estimated_cost_usd = Column(String(32), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
 class UserNotificationSetting(Base):

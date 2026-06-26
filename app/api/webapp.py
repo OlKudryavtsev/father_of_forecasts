@@ -43,6 +43,7 @@ from app.models import (
     User,
     UserNotificationSetting,
     WorldCupFact,
+    WorldCupNewsItem,
 )
 from app.runtime import TOURNAMENT_CODE
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
@@ -59,6 +60,7 @@ from app.services.predictions import save_prediction_and_notify_admins
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
+from app.services.news import get_news_usage_summary, serialize_news_item
 from app.services.match_details import build_match_details_payload, sync_match_details_cache
 from app.services.tournament_hub import find_top_scorer, get_team_scorers, get_top_scorers, player_match_rows, resolve_player_by_name
 from app.services.leagues import (
@@ -192,7 +194,7 @@ def _analytics_event_label(event_name: str, properties: dict | None = None) -> s
     suffixes = {
         "filter": {"exact": "Точные счета", "outcome": "Исходы"},
         "mode": {"tournament": "Турнир", "scorers": "Бомбардиры", "matches": "Матчи"},
-        "resource": {"fact": "Факт о ЧМ", "archive": "Архив Отца", "father_forecast": "Прогноз Отца", "scorer_help": "Подсказка по бомбардирам"},
+        "resource": {"fact": "Факт о ЧМ", "archive": "Архив Отца", "father_forecast": "Прогноз Отца", "scorer_help": "Подсказка по бомбардирам", "news": "Новости Отца"},
     }
     for key, values in suffixes.items():
         value = properties.get(key)
@@ -4375,6 +4377,34 @@ def save_profile_humor_mode(
     current_user.personal_humor_mode = normalize_humor_mode(payload.humor_mode)
     db.commit()
     return {"ok": True, "humor_mode": current_user.personal_humor_mode, "label": HUMOR_MODES[current_user.personal_humor_mode]}
+
+
+@router.get("/news/latest")
+def get_latest_world_cup_news(
+    limit: int = Query(default=12, ge=1, le=30),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return RSS-curated funny/strange World Cup news for the Resources tab."""
+    rows = (
+        db.query(WorldCupNewsItem)
+        .filter(WorldCupNewsItem.selection_status == "selected")
+        .order_by(WorldCupNewsItem.selected_at.desc(), WorldCupNewsItem.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"items": [serialize_news_item(item) for item in rows]}
+
+
+@router.get("/admin/news/usage")
+def get_admin_news_usage(
+    days: int = Query(default=30, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Expose compact RSS-news AI usage for budget control in admin tools."""
+    _require_miniapp_admin(current_user)
+    return get_news_usage_summary(db, days=days)
 
 
 @router.get("/facts/random")

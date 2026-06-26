@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.57';
+const APP_VERSION = '2.8.58';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5773,10 +5773,16 @@ function Resources() {
   const [scorers, setScorers] = useState(null);
   const [openFather, setOpenFather] = useState(false);
   const [openHelp, setOpenHelp] = useState(false);
+  const [news, setNews] = useState([]);
+  const [newsLoaded, setNewsLoaded] = useState(false);
 
   useEffect(() => {
     api('/api/webapp/tournament-forecast').then(setForecast).catch(() => {});
     api('/api/webapp/top-scorer-candidates').then(setScorers).catch(() => {});
+    api('/api/webapp/news/latest')
+      .then((result) => setNews(result.items || []))
+      .catch(() => setNews([]))
+      .finally(() => setNewsLoaded(true));
   }, []);
 
   async function loadFact() {
@@ -5903,6 +5909,40 @@ function Resources() {
 
       {fact && <section className="card resource-text-card"><p>{fact}</p></section>}
       {archive && <section className="card resource-text-card"><pre>{archive}</pre></section>}
+
+      <section className="card father-news-card">
+        <div className="father-news-heading">
+          <div>
+            <span>😂 Новости Отца</span>
+            <small>смешное, странное и неожиданное вокруг ЧМ</small>
+          </div>
+          {news.length > 0 && <b>{news.length}</b>}
+        </div>
+        {!newsLoaded ? (
+          <p className="muted small">Отец просматривает новостные ленты…</p>
+        ) : news.length ? (
+          <div className="father-news-list">
+            {news.slice(0, 5).map((item) => (
+              <button
+                className="father-news-item"
+                key={item.id}
+                onClick={() => {
+                  trackAnalytics('resource_open', { screen: 'resources', properties: { resource: 'news' } });
+                  openExternalUrl(item.source_url);
+                }}
+              >
+                <span className="father-news-category">{item.category || 'Новости ЧМ'}</span>
+                <strong>{item.title}</strong>
+                {item.summary && <p>{item.summary}</p>}
+                {item.father_commentary && <em>🎙️ Отец: {item.father_commentary}</em>}
+                <small>{item.source_name || 'Источник'}{item.published_at ? ` · ${compactDate(item.published_at)}` : ''}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="muted small">Пока ничего достаточно смешного и проверенного не найдено. Отец не публикует новости ради шума.</p>
+        )}
+      </section>
 
       <section className="card resources-links-card">
         <h2>Матч-центры и статистика</h2>
