@@ -10656,3 +10656,90 @@ body,
   font-size: 12px;
   min-height: 28px;
 }
+
+/* v2.8.60: clearer playoff advancement choice + compact prediction history */
+.advancement-options {
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+
+.advancement-options .advancement-option {
+  position: relative;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 28px 28px minmax(0, 1fr);
+  align-items: center;
+  justify-content: start;
+  gap: 9px;
+  padding: 8px 12px;
+  color: var(--text);
+  text-align: left;
+  background: rgba(12, 21, 40, .90);
+  border: 1px solid rgba(148, 163, 184, .2);
+  border-radius: 15px;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.advancement-options .advancement-option:active { transform: scale(.985); }
+.advancement-options .advancement-option[aria-pressed=\"false\"] { opacity: .74; }
+.advancement-options .advancement-option.active {
+  color: #ecfff8;
+  background: linear-gradient(90deg, rgba(18, 188, 132, .32), rgba(15, 60, 63, .74));
+  border-color: rgba(44, 224, 165, .88);
+  box-shadow: 0 0 0 2px rgba(30, 210, 154, .18), inset 0 0 0 1px rgba(212,255,238,.12);
+  opacity: 1;
+}
+.advancement-option-check {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(148, 163, 184, .62);
+  border-radius: 999px;
+  color: #05241d;
+  background: rgba(15, 23, 42, .65);
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1;
+}
+.advancement-option.active .advancement-option-check {
+  border-color: #e9fff6;
+  background: #e9fff6;
+}
+.advancement-options .advancement-option .flag.mini { font-size: 23px; }
+.advancement-option-copy { min-width: 0; display: grid; gap: 1px; }
+.advancement-option-copy small { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .045em; text-transform: uppercase; }
+.advancement-option.active .advancement-option-copy small { color: rgba(232,255,246,.74); }
+.advancement-option-copy b { overflow: hidden; font-size: 14px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+
+.participant-prediction-row.matchup { border-left-width: 5px; }
+.participant-prediction-row.matchup .participant-prediction-points.exact-points > span { color: #59e6a7; }
+.participant-prediction-row.matchup .participant-prediction-points.outcome-points > span { color: #78a8ff; }
+.participant-prediction-row.matchup .participant-prediction-points > small.participant-prediction-breakdown { color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .02em; }
+
+@media (max-width: 430px) {
+  .participant-predictions-modal { max-height: 96dvh; }
+  .participant-predictions-head { padding: 14px 54px 9px 12px; gap: 8px; }
+  .participant-predictions-avatar { width: 36px; height: 36px; border-radius: 12px; font-size: 16px; }
+  .participant-predictions-head h2 { margin-top: 1px; font-size: 16px; }
+  .participant-predictions-head p { margin-top: 2px; font-size: 9px; }
+  .participant-predictions-head > div:nth-child(2) > span { font-size: 8px; }
+  .participant-rank-badge { min-width: 31px; min-height: 26px; border-radius: 9px; font-size: 11px; }
+  .participant-predictions-summary { gap: 4px; padding: 7px 10px; }
+  .participant-predictions-summary > div, .participant-predictions-summary-filter { padding: 5px 2px; border-radius: 10px; }
+  .participant-predictions-summary b { font-size: 11px; }
+  .participant-predictions-summary span { margin-top: 1px; font-size: 8px; }
+  .participant-predictions-list { gap: 4px; max-height: calc(96dvh - 142px); padding: 7px 9px 16px; }
+  .participant-prediction-row.matchup { grid-template-columns: auto minmax(42px, 1fr) auto minmax(42px, 1fr) auto; column-gap: 5px; min-height: 45px; padding: 4px 6px 4px 7px; border-radius: 11px; border-left-width: 5px; }
+  .participant-prediction-row.matchup .participant-prediction-date { font-size: 7px; line-height: 1; }
+  .participant-prediction-team-stack { gap: 1px; }
+  .participant-prediction-team-stack b { font-size: 9px; line-height: 1; }
+  .participant-prediction-team-stack .flag, .participant-prediction-team-stack .flag img { width: 17px; height: 12px; }
+  .participant-prediction-row.matchup .participant-prediction-actual { min-width: 31px; min-height: 19px; padding: 1px 4px; border-radius: 6px; font-size: 12px; }
+  .participant-prediction-score-stack { gap: 2px; }
+  .participant-prediction-forecast { min-width: 28px; font-size: 10px; }
+  .participant-prediction-points-panel { min-width: 32px; padding-left: 0; }
+  .participant-prediction-row.matchup .participant-prediction-points > span { font-size: 17px; }
+  .participant-prediction-row.matchup .participant-prediction-points > small.participant-prediction-breakdown { font-size: 7px; }
+  .advancement-options .advancement-option { min-height: 54px; grid-template-columns: 26px 25px minmax(0, 1fr); gap: 7px; padding: 7px 10px; }
+  .advancement-option-copy b { font-size: 13px; }
+}

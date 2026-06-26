@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.59';
+const APP_VERSION = '2.8.60';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2683,19 +2683,23 @@ function ScorePicker({ match, onClose, onSaved }) {
             <div className="advancement-options">
               <button
                 type="button"
-                className={advancingSide === 'home' ? 'active' : ''}
+                aria-pressed={advancingSide === 'home'}
+                className={`advancement-option ${advancingSide === 'home' ? 'active' : ''}`}
                 onClick={() => setAdvancingSide('home')}
               >
+                <span className="advancement-option-check">{advancingSide === 'home' ? '✓' : ''}</span>
                 <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
-                {match.home_team}
+                <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.home_team}</b></span>
               </button>
               <button
                 type="button"
-                className={advancingSide === 'away' ? 'active' : ''}
+                aria-pressed={advancingSide === 'away'}
+                className={`advancement-option ${advancingSide === 'away' ? 'active' : ''}`}
                 onClick={() => setAdvancingSide('away')}
               >
+                <span className="advancement-option-check">{advancingSide === 'away' ? '✓' : ''}</span>
                 <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
-                {match.away_team}
+                <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.away_team}</b></span>
               </button>
             </div>
             {advancingSide && (
@@ -4243,6 +4247,10 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
                   const resultClass = participantPredictionClass(item.result_type);
                   const predictionText = hasPrediction ? `${item.prediction_home}:${item.prediction_away}` : '—';
                   const points = Number(item.points || 0);
+                  const scorePoints = Number(item.score_points || 0);
+                  const advancementPoints = Number(item.advancement_points || 0);
+                  const isPlayoffRow = Boolean(item.is_playoff);
+                  const advancementText = advancementPoints > 0 ? `+${advancementPoints}` : String(advancementPoints);
                   return (
                     <article className={`participant-prediction-row matchup ${resultClass}`} key={item.match_id}>
                       <small className="participant-prediction-date">{compactDate(item.starts_at)}</small>
@@ -4261,11 +4269,12 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
                         <b>{item.away_team}</b>
                       </div>
                       <div className="participant-prediction-points-panel">
-                        <b className={`participant-prediction-points ${points > 0 ? 'positive' : points < 0 ? 'negative' : ''}`}>
+                        <b className={`participant-prediction-points ${points === 3 ? 'exact-points' : points === 1 ? 'outcome-points' : points > 0 ? 'positive' : points < 0 ? 'negative' : ''}`}>
                           <span>{participantPointsLabel(points)}</span>
-                          <small>{pointsLabel(Math.abs(points)).replace(/^\d+\s*/, '')}</small>
+                          {isPlayoffRow ? (
+                            <small className="participant-prediction-breakdown">{scorePoints} {advancementText}</small>
+                          ) : null}
                         </b>
-                        {item.advancement_points ? <small className="participant-prediction-advancement">проход {item.advancement_points > 0 ? '+' : ''}{item.advancement_points}</small> : null}
                       </div>
                     </article>
                   );

@@ -2235,6 +2235,7 @@ def get_participant_finished_predictions(
                 "result_label": result_label,
                 "score_points": score_points,
                 "advancement_points": advancement_points,
+                "is_playoff": is_playoff_match(match),
                 "points": total_points,
             }
         )
@@ -2328,6 +2329,7 @@ def get_father_finished_predictions(
                 "result_label": result_label,
                 "score_points": score_points,
                 "advancement_points": 0,
+                "is_playoff": is_playoff_match(match),
                 "points": score_points,
             }
         )
