@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.62';
+const APP_VERSION = '2.8.63';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2588,10 +2588,102 @@ function activeLeagueLabel(leagues = [], activeLeagueId) {
   return leagues.find((league) => Number(league.id) === Number(activeLeagueId))?.name || 'Отец прогнозов';
 }
 
+function normalizeMatchCenterSearch(value) {
+  return String(value || '')
+    .trim()
+    .toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е');
+}
+
+function matchCenterTeamKey(team) {
+  if (team?.id !== null && team?.id !== undefined && team?.id !== '') return `id:${team.id}`;
+  return `name:${normalizeMatchCenterSearch(team?.name)}`;
+}
+
+function MatchCenterTeamFilterModal({ teams = [], selectedTeam = null, onSelect, onClear, onClose }) {
+  const [query, setQuery] = useState('');
+  const normalizedQuery = normalizeMatchCenterSearch(query);
+  const visibleTeams = useMemo(() => {
+    if (!normalizedQuery) return teams;
+    return teams.filter((team) => normalizeMatchCenterSearch(team.name).includes(normalizedQuery));
+  }, [teams, normalizedQuery]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="modal-backdrop match-center-team-filter-backdrop"
+      role="presentation"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}
+    >
+      <section className="modal-card match-center-team-filter-modal" role="dialog" aria-modal="true" aria-label="Фильтр матчей по команде">
+        <button type="button" className="modal-close" aria-label="Закрыть выбор команды" onClick={onClose}>×</button>
+        <header className="match-center-team-filter-head">
+          <span>Фильтр матчей</span>
+          <h2>По команде</h2>
+          <p>Выберите сборную — останутся матчи в выбранных фильтрах выше.</p>
+        </header>
+
+        <label className="match-center-team-search">
+          <Icon name="team" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Начните писать название сборной"
+            aria-label="Поиск сборной"
+          />
+          {query && <button type="button" aria-label="Очистить поиск" onClick={() => setQuery('')}>×</button>}
+        </label>
+
+        {selectedTeam && (
+          <button
+            type="button"
+            className="match-center-team-clear"
+            onClick={() => { onClear?.(); onClose?.(); }}
+          >
+            <span>Показывать все команды</span>
+            <b>Сбросить</b>
+          </button>
+        )}
+
+        <div className="match-center-team-options" role="listbox" aria-label="Сборные турнира">
+          {visibleTeams.map((team) => {
+            const active = matchCenterTeamKey(team) === matchCenterTeamKey(selectedTeam);
+            return (
+              <button
+                type="button"
+                key={matchCenterTeamKey(team)}
+                className={active ? 'active' : ''}
+                role="option"
+                aria-selected={active}
+                onClick={() => { onSelect?.(team); onClose?.(); }}
+              >
+                <TeamFlag code={team.flag_code} emoji={team.flag} name={team.name} size="mini" />
+                <span>{team.name}</span>
+                {active && <b aria-hidden="true">✓</b>}
+              </button>
+            );
+          })}
+          {!visibleTeams.length && <p className="match-center-team-empty">Сборная не найдена</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [dateOrder, setDateOrder] = useState('asc');
+  const [teamFilter, setTeamFilter] = useState(null);
+  const [teamFilterOpen, setTeamFilterOpen] = useState(false);
   const [centerMode, setCenterMode] = useState('matches');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2621,7 +2713,31 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
     });
     return matches;
   }, [data?.matches, dateOrder]);
-  const grouped = useMemo(() => groupMatchesByDay(orderedMatches), [orderedMatches]);
+  const teamOptions = useMemo(() => {
+    const teams = new Map();
+    for (const match of data?.matches || []) {
+      const candidates = [
+        { id: match.home_team_id, name: match.home_team, flag: match.home_flag, flag_code: match.home_flag_code },
+        { id: match.away_team_id, name: match.away_team, flag: match.away_flag, flag_code: match.away_flag_code },
+      ];
+      for (const team of candidates) {
+        if (!team.name || team.name === 'TBD') continue;
+        const key = matchCenterTeamKey(team);
+        if (!teams.has(key)) teams.set(key, team);
+      }
+    }
+    return [...teams.values()].sort((left, right) => String(left.name).localeCompare(String(right.name), 'ru'));
+  }, [data?.matches]);
+  const teamFilteredMatches = useMemo(() => {
+    if (!teamFilter) return orderedMatches;
+    const key = matchCenterTeamKey(teamFilter);
+    return orderedMatches.filter((match) => {
+      const homeKey = matchCenterTeamKey({ id: match.home_team_id, name: match.home_team });
+      const awayKey = matchCenterTeamKey({ id: match.away_team_id, name: match.away_team });
+      return homeKey === key || awayKey === key;
+    });
+  }, [orderedMatches, teamFilter]);
+  const grouped = useMemo(() => groupMatchesByDay(teamFilteredMatches), [teamFilteredMatches]);
   const selectedStanding = group ? data?.standings?.[0] : null;
   const leagueName = activeLeagueLabel(leagues, activeLeagueId);
   const openMatch = (match) => {
@@ -2633,6 +2749,20 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
   const changeCenterMode = (mode) => {
     setCenterMode(mode);
     trackAnalytics('tournament_mode_open', { screen: 'matches', properties: { mode } });
+  };
+  const selectTeamFilter = (team) => {
+    setTeamFilter(team);
+    trackAnalytics('match_center_team_filter', {
+      screen: 'matches',
+      properties: { team_id: team?.id || 0, team: team?.name || '', scope, group_code: group || '' },
+    });
+  };
+  const clearTeamFilter = () => {
+    setTeamFilter(null);
+    trackAnalytics('match_center_team_filter', {
+      screen: 'matches',
+      properties: { team_id: 0, team: '', scope, group_code: group || '' },
+    });
   };
   if (error) return <ErrorCard error={error} onRetry={load} />;
   return <main className="screen-content">
@@ -2646,20 +2776,33 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
         <button className={scope === 'results' ? 'active result' : ''} onClick={() => { setGroup(null); setScope('results'); }}><Icon name="check" /><span>Результаты</span></button>
         {(data?.groups || []).map((item) => <button key={item.group_code} className={`group-color group-${item.group_code} ${group === item.group_code ? 'active group' : ''}`} onClick={() => { setGroup(item.group_code); setScope('all'); }}><b>{item.group_code}</b><span>группа</span></button>)}
       </div>
-      <div className="match-sort-row" aria-label="Сортировка матчей по дате">
-        <span>По дате</span>
-        <div className="match-sort-switch" role="group" aria-label="Порядок матчей">
-          <button type="button" className={dateOrder === 'asc' ? 'active' : ''} aria-pressed={dateOrder === 'asc'} onClick={() => setDateOrder('asc')}>
-            <Icon name="arrowUp" /> Старые
-          </button>
-          <button type="button" className={dateOrder === 'desc' ? 'active' : ''} aria-pressed={dateOrder === 'desc'} onClick={() => setDateOrder('desc')}>
-            <Icon name="arrowDown" /> Новые
-          </button>
+      <div className="match-sort-row" aria-label="Фильтры и сортировка матчей">
+        <button
+          type="button"
+          className={`match-team-filter ${teamFilter ? 'active' : ''}`}
+          aria-pressed={Boolean(teamFilter)}
+          onClick={() => setTeamFilterOpen(true)}
+        >
+          {teamFilter ? <TeamFlag code={teamFilter.flag_code} emoji={teamFilter.flag} name={teamFilter.name} size="mini" /> : <Icon name="team" />}
+          <span>{teamFilter ? teamFilter.name : 'По команде'}</span>
+          <b aria-hidden="true">⌄</b>
+        </button>
+        <div className="match-sort-date" aria-label="Сортировка по дате">
+          <span>По дате</span>
+          <div className="match-sort-switch" role="group" aria-label="Порядок матчей">
+            <button type="button" className={dateOrder === 'asc' ? 'active' : ''} aria-pressed={dateOrder === 'asc'} onClick={() => setDateOrder('asc')}>
+              <Icon name="arrowUp" /> Старые
+            </button>
+            <button type="button" className={dateOrder === 'desc' ? 'active' : ''} aria-pressed={dateOrder === 'desc'} onClick={() => setDateOrder('desc')}>
+              <Icon name="arrowDown" /> Новые
+            </button>
+          </div>
         </div>
       </div>
-      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} compact />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title="Нет матчей" text={scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
+      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} compact />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title={teamFilter ? `Нет матчей сборной «${teamFilter.name}»` : 'Нет матчей'} text={teamFilter ? 'Попробуйте изменить сборную или фильтры выше.' : scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
     </>}
     </section>
+    {teamFilterOpen && <MatchCenterTeamFilterModal teams={teamOptions} selectedTeam={teamFilter} onSelect={selectTeamFilter} onClear={clearTeamFilter} onClose={() => setTeamFilterOpen(false)} />}
     {detailsMatch && <MatchDetailsModal match={detailsMatch} onClose={() => setDetailsMatch(null)} onPredict={onPredict} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
     {teamId && <TeamProfileModal teamId={teamId} onClose={() => setTeamId(null)} onOpenMatch={openMatch} onOpenPlayer={openPlayer} />}
     {playerId && <PlayerProfileModal playerId={playerId} onClose={() => setPlayerId(null)} onOpenTeam={openTeam} onOpenMatch={openMatch} />}
