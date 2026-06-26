@@ -10743,3 +10743,178 @@ body,
   .advancement-options .advancement-option { min-height: 54px; grid-template-columns: 26px 25px minmax(0, 1fr); gap: 7px; padding: 7px 10px; }
   .advancement-option-copy b { font-size: 13px; }
 }
+
+/* v2.8.61 — compact Match Center controls and automatic live transition */
+.modern-filters {
+  position: relative;
+  z-index: 2;
+  gap: 4px;
+  margin-top: 6px;
+  margin-bottom: 12px;
+  padding: 3px 12px 8px;
+}
+
+.modern-filters button {
+  flex: 0 0 56px;
+  min-width: 56px;
+  min-height: 47px;
+  padding: 4px 5px;
+  gap: 2px;
+  border-radius: 14px;
+}
+
+.modern-filters button::after {
+  border-radius: 13px;
+}
+
+.modern-filters button .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.modern-filters button b {
+  font-size: 18px;
+}
+
+.modern-filters button span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 8.5px;
+  line-height: 1;
+  letter-spacing: .01em;
+}
+
+/* Do not rely on an outer ring: horizontal scrolling clips it at the top. */
+.modern-filters button.active {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 60%, transparent);
+}
+
+.next-match-slot {
+  margin-bottom: 2px;
+}
+
+.next-match-slot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 3px 7px;
+}
+
+.next-match-slot-head > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.next-match-slot-head > div:first-child > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b9cae7;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.next-match-slot-head .svg-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--blue);
+}
+
+.next-match-slot-head small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.next-match-slot-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.next-match-slot-controls button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(90, 141, 255, .22);
+  border-radius: 9px;
+  background: rgba(90, 141, 255, .10);
+  color: #d9e7ff;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.next-match-slot-controls button:disabled {
+  opacity: .34;
+  cursor: default;
+}
+
+.next-match-carousel {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.next-match-carousel::-webkit-scrollbar { display: none; }
+
+.next-match-slide {
+  min-width: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.next-match-slide .next-match-hero {
+  margin-bottom: 0;
+}
+
+.next-match-carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.next-match-carousel-dots button {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .38);
+  transition: width .18s ease, background .18s ease;
+}
+
+.next-match-carousel-dots button.active {
+  width: 22px;
+  background: var(--blue);
+}
+
+.app.theme-light .next-match-slot-head > div:first-child > span { color: #1e3a5f; }
+.app.theme-light .next-match-slot-controls button { color: #1d4ed8; border-color: rgba(37,99,235,.16); background: rgba(37,99,235,.07); }
+
+@media (max-width: 520px) {
+  .modern-filters {
+    gap: 4px;
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .modern-filters button {
+    flex-basis: 55px;
+    min-width: 55px;
+    min-height: 46px;
+  }
+  .modern-filters button span { font-size: 8px; }
+  .next-match-slot-head { margin-bottom: 6px; }
+  .next-match-slot-controls button { width: 27px; height: 27px; }
+}

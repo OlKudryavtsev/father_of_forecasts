@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.60';
+const APP_VERSION = '2.8.61';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1204,7 +1204,7 @@ function tournamentPredictionItemTarget(item, prediction) {
   return id ? { type: 'team', id } : null;
 }
 
-function NextMatchHero({ match, onPredict, onShowPredictions }) {
+function NextMatchHero({ match, onPredict, onShowPredictions, kicker = 'Следующий матч' }) {
   const [nowTick, setNowTick] = useState(Date.now());
 
   useEffect(() => {
@@ -1224,7 +1224,7 @@ function NextMatchHero({ match, onPredict, onShowPredictions }) {
   return (
     <section className={`next-match-hero ${hasPrediction ? 'has-prediction' : 'needs-prediction'}`}>
       <div className="next-match-hero-top">
-        <span className="next-match-kicker"><Icon name="ball" /> Следующий матч</span>
+        <span className="next-match-kicker"><Icon name="ball" /> {kicker}</span>
         <span className="next-match-countdown">{formatMatchCountdown(match.starts_at, nowTick)}</span>
       </div>
 
@@ -1448,6 +1448,100 @@ function LiveMatchCarousel({ matches = [], onOpenDetails, leagueId = null }) {
   );
 }
 
+function NextMatchCarousel({ matches = [], onPredict, onShowPredictions }) {
+  const slotMatches = useMemo(() => {
+    const candidates = (matches || []).filter((match) => match?.starts_at);
+    if (!candidates.length) return [];
+
+    const toTime = (match) => {
+      const value = new Date(match.starts_at).getTime();
+      return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+    };
+    const earliest = Math.min(...candidates.map(toTime));
+    // API sources can differ by a few seconds when a slot is updated. Keep one kickoff window.
+    const sameKickoff = candidates.filter((match) => Math.abs(toTime(match) - earliest) < 60_000);
+
+    return sameKickoff.sort((left, right) => {
+      const leftMissing = left?.prediction ? 1 : 0;
+      const rightMissing = right?.prediction ? 1 : 0;
+      return leftMissing - rightMissing || Number(left?.id || 0) - Number(right?.id || 0);
+    });
+  }, [matches]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const carouselRef = useRef(null);
+  const slotKey = slotMatches.map((match) => match.id).join(':');
+
+  useEffect(() => {
+    setActiveIndex(0);
+    if (carouselRef.current) carouselRef.current.scrollLeft = 0;
+  }, [slotKey]);
+
+  if (!slotMatches.length) return null;
+  if (slotMatches.length === 1) {
+    return (
+      <NextMatchHero
+        match={slotMatches[0]}
+        onPredict={onPredict}
+        onShowPredictions={onShowPredictions}
+      />
+    );
+  }
+
+  const scrollToSlide = (index) => {
+    const node = carouselRef.current;
+    if (!node) return;
+    const safeIndex = Math.max(0, Math.min(index, slotMatches.length - 1));
+    node.scrollTo({ left: safeIndex * node.clientWidth, behavior: 'smooth' });
+    setActiveIndex(safeIndex);
+  };
+
+  const handleScroll = (event) => {
+    const width = event.currentTarget.clientWidth || 1;
+    const nextIndex = Math.max(0, Math.min(slotMatches.length - 1, Math.round(event.currentTarget.scrollLeft / width)));
+    setActiveIndex(nextIndex);
+  };
+
+  return (
+    <section className="next-match-slot" aria-label="Ближайшие матчи">
+      <div className="next-match-slot-head">
+        <div>
+          <span><Icon name="ball" /> Будущие матчи</span>
+          <small>{slotMatches.length} матча стартуют одновременно</small>
+        </div>
+        <div className="next-match-slot-controls">
+          <button type="button" onClick={() => scrollToSlide(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Предыдущий матч">‹</button>
+          <span>{activeIndex + 1}/{slotMatches.length}</span>
+          <button type="button" onClick={() => scrollToSlide(activeIndex + 1)} disabled={activeIndex === slotMatches.length - 1} aria-label="Следующий матч">›</button>
+        </div>
+      </div>
+      <div className="next-match-carousel" ref={carouselRef} onScroll={handleScroll}>
+        {slotMatches.map((match) => (
+          <div className="next-match-slide" key={match.id}>
+            <NextMatchHero
+              match={match}
+              kicker={match.prediction ? 'Будущий матч' : 'Нужен прогноз'}
+              onPredict={onPredict}
+              onShowPredictions={onShowPredictions}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="next-match-carousel-dots" aria-label="Выбор ближайшего матча">
+        {slotMatches.map((match, index) => (
+          <button
+            type="button"
+            key={match.id}
+            className={index === activeIndex ? 'active' : ''}
+            aria-label={`Показать матч ${match.home_team} — ${match.away_team}`}
+            aria-pressed={index === activeIndex}
+            onClick={() => scrollToSlide(index)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function HomeHero({ dashboard, setTab, onNextMatchPredict, onOpenLiveMatch, activeLeagueId = null }) {
   const missing = dashboard?.missing_predictions_count ?? 0;
   const liveMatches = dashboard?.live_matches?.length
@@ -1456,8 +1550,8 @@ function HomeHero({ dashboard, setTab, onNextMatchPredict, onOpenLiveMatch, acti
   return (
     <section className="matchcenter-top">
       {dashboard?.nearest_matches?.[0] ? (
-        <NextMatchHero
-          match={dashboard.nearest_matches[0]}
+        <NextMatchCarousel
+          matches={dashboard.nearest_matches}
           onPredict={onNextMatchPredict}
           onShowPredictions={() => setTab('predictions')}
         />
@@ -6125,10 +6219,25 @@ function App() {
   }, [refreshKey, hasBrowserSession, activeLeagueId]);
 
   useEffect(() => {
-    if (!dashboard?.live_match) return undefined;
-    const timer = window.setInterval(() => loadDashboard(), 60000);
-    return () => window.clearInterval(timer);
-  }, [Boolean(dashboard?.live_match), refreshKey, hasBrowserSession]);
+    if (tab !== 'matches' || (!isTelegramMode() && !hasBrowserSession)) return undefined;
+
+    // Keep the home card fresh before a kickoff too: a live match can appear
+    // without the user reopening the Mini App.
+    const pollTimer = window.setInterval(() => loadDashboard(), 30000);
+    const starts = (dashboard?.nearest_matches || [])
+      .map((match) => new Date(match?.starts_at || '').getTime())
+      .filter((value) => Number.isFinite(value) && value > Date.now());
+    const nearestStart = starts.length ? Math.min(...starts) : null;
+    const kickoffDelay = nearestStart ? Math.max(1000, nearestStart - Date.now() + 2500) : null;
+    const kickoffTimer = kickoffDelay && kickoffDelay < 8 * 60 * 60 * 1000
+      ? window.setTimeout(() => loadDashboard(), kickoffDelay)
+      : null;
+
+    return () => {
+      window.clearInterval(pollTimer);
+      if (kickoffTimer) window.clearTimeout(kickoffTimer);
+    };
+  }, [tab, activeLeagueId, refreshKey, hasBrowserSession, dashboard?.nearest_matches?.[0]?.starts_at]);
 
   function handleSaved() {
     setRefreshKey((value) => value + 1);
