@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
 from app.api_football import ApiFootballClient
-from app.models import Match
+from app.models import Match, Prediction
+from app.scoring import score_match_prediction
 
 
 API_PROVIDER = "api-football"
@@ -232,11 +233,100 @@ def normalize_api_fixture(
     }
 
 
+def _is_playoff_stage(stage: str | None) -> bool:
+    return stage in {
+        "round_of_32",
+        "round_of_16",
+        "quarterfinal",
+        "semifinal",
+        "third_place",
+        "final",
+    }
+
+
+def _prediction_points_are_stale(db, match: Match, row: dict) -> bool:
+    """Check whether stored prediction points disagree with the final API score.
+
+    The schedule synchronizer can discover a final score before the ordinary
+    result synchronizer sees the fixture. In that case all score fields are
+    already present on the match, but predictions still contain their previous
+    zero values. Detect that state so a later calendar refresh self-heals it.
+    """
+    if not row.get("is_finished"):
+        return False
+
+    score_home = row.get("score_home")
+    score_away = row.get("score_away")
+    if score_home is None or score_away is None:
+        return False
+
+    predictions = db.query(Prediction).filter(Prediction.match_id == match.id).all()
+    for prediction in predictions:
+        expected = score_match_prediction(
+            pred_home=prediction.pred_home,
+            pred_away=prediction.pred_away,
+            actual_home=score_home,
+            actual_away=score_away,
+            advancement_bet_enabled=bool(prediction.advancement_bet_enabled),
+            predicted_advancing_side=prediction.predicted_advancing_side,
+            actual_winner_side=row.get("winner_side"),
+        )
+        if (
+            int(prediction.score_points or 0) != int(expected["score_points"])
+            or int(prediction.advancement_points or 0) != int(expected["advancement_points"])
+            or int(prediction.points or 0) != int(expected["total_points"])
+        ):
+            return True
+
+    return False
+
+
+def _apply_final_result_and_recalculate_predictions(
+    db,
+    match: Match,
+    score_home: int,
+    score_away: int,
+    winner_side: str | None,
+) -> int:
+    """Persist a final result and recalculate every prediction for the match.
+
+    Kept local to schedule synchronization to avoid importing the Telegram
+    service layer (and its runtime dependencies) from a background sync job.
+    """
+    match.score_home = score_home
+    match.score_away = score_away
+    match.winner_side = winner_side
+    match.is_finished = True
+
+    predictions = db.query(Prediction).filter(Prediction.match_id == match.id).all()
+    for prediction in predictions:
+        result = score_match_prediction(
+            pred_home=prediction.pred_home,
+            pred_away=prediction.pred_away,
+            actual_home=score_home,
+            actual_away=score_away,
+            advancement_bet_enabled=bool(prediction.advancement_bet_enabled),
+            predicted_advancing_side=prediction.predicted_advancing_side,
+            actual_winner_side=winner_side,
+        )
+        prediction.score_points = result["score_points"]
+        prediction.advancement_points = result["advancement_points"]
+        prediction.points = result["total_points"]
+
+    return len(predictions)
+
+
 def upsert_match_from_api_fixture(
     db,
     api_fixture: dict,
     team_group_map: dict[int, str] | None = None,
-) -> tuple[Match, bool]:
+) -> tuple[Match, bool, bool]:
+    """Create/update a fixture and recalculate predictions when a final arrives.
+
+    Final scores must go through the same scorer as manual result entry.
+    Writing them directly into ``matches`` marks a match as finished but leaves
+    participant predictions at stale values.
+    """
     row = normalize_api_fixture(
         api_fixture=api_fixture,
         team_group_map=team_group_map,
@@ -262,10 +352,59 @@ def upsert_match_from_api_fixture(
         db.add(match)
         created = True
 
+    # Result fields are deliberately excluded here: finished results are applied
+    # below through apply_match_result_from_admin(), which recalculates points.
+    result_keys = {"score_home", "score_away", "winner_side", "is_finished"}
     for key, value in row.items():
-        setattr(match, key, value)
+        if key not in result_keys:
+            setattr(match, key, value)
 
-    return match, created
+    recalculated = False
+    has_final_score = (
+        bool(row.get("is_finished"))
+        and row.get("score_home") is not None
+        and row.get("score_away") is not None
+    )
+
+    if has_final_score:
+        playoff_requires_winner = _is_playoff_stage(match.stage)
+        winner_side = row.get("winner_side") if playoff_requires_winner else None
+        result_changed = (
+            not bool(match.is_finished)
+            or match.score_home != row.get("score_home")
+            or match.score_away != row.get("score_away")
+            or match.winner_side != winner_side
+        )
+        points_stale = (
+            not created
+            and (not playoff_requires_winner or winner_side is not None)
+            and _prediction_points_are_stale(db, match, row)
+        )
+
+        if (result_changed or points_stale) and (not playoff_requires_winner or winner_side is not None):
+            _apply_final_result_and_recalculate_predictions(
+                db=db,
+                match=match,
+                score_home=int(row["score_home"]),
+                score_away=int(row["score_away"]),
+                winner_side=winner_side,
+            )
+            recalculated = True
+        else:
+            # New historical fixtures normally have no predictions yet. Preserve
+            # their final result without invoking the scorer unnecessarily.
+            match.score_home = row.get("score_home")
+            match.score_away = row.get("score_away")
+            match.winner_side = winner_side
+            match.is_finished = True
+    else:
+        # Keep live/unknown score metadata, but never mark the match as final.
+        match.score_home = row.get("score_home")
+        match.score_away = row.get("score_away")
+        match.winner_side = row.get("winner_side")
+        match.is_finished = bool(row.get("is_finished"))
+
+    return match, created, recalculated
 
 
 def sync_wc2026_schedule(db) -> dict:
@@ -282,9 +421,10 @@ def sync_wc2026_schedule(db) -> dict:
 
     created = 0
     updated = 0
+    recalculated_results = 0
 
     for api_fixture in fixtures:
-        _, was_created = upsert_match_from_api_fixture(
+        _, was_created, was_recalculated = upsert_match_from_api_fixture(
             db=db,
             api_fixture=api_fixture,
             team_group_map=team_group_map,
@@ -295,12 +435,16 @@ def sync_wc2026_schedule(db) -> dict:
         else:
             updated += 1
 
+        if was_recalculated:
+            recalculated_results += 1
+
     db.commit()
 
     return {
         "total": len(fixtures),
         "created": created,
         "updated": updated,
+        "recalculated_results": recalculated_results,
     }
 
 def build_team_group_map_from_standings(standings: list[list[dict]]) -> dict[int, str]:
