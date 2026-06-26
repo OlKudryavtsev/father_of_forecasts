@@ -17,7 +17,14 @@ except ImportError:  # pragma: no cover - deployment fallback
 
 from app.services.gamification import normalize_humor_mode
 
-OPENAI_GAMIFICATION_MODEL = os.getenv("OPENAI_GAMIFICATION_MODEL", os.getenv("AI_MODEL", "gpt-5.5-mini"))
+# Reuse the proven forecast model by default. This avoids silently falling
+# back to templates when a separate gamification model was not configured.
+OPENAI_GAMIFICATION_MODEL = (
+    os.getenv("OPENAI_GAMIFICATION_MODEL")
+    or os.getenv("OPENAI_FORECAST_MODEL")
+    or os.getenv("AI_MODEL")
+    or "gpt-5.4-mini"
+)
 OPENAI_GAMIFICATION_ENABLED = os.getenv("OPENAI_GAMIFICATION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
 COMMENTARY_SCHEMA = {
@@ -90,29 +97,78 @@ def _fallback_daily(context: dict[str, Any], mode: str, personal: bool) -> str:
     return "Матчей с итогами не было. Футбол взял паузу, таблица — нет."
 
 
+def _pregame_variant_index(context: dict[str, Any], size: int) -> int:
+    seed = str(context.get("style_seed") or "pregame")
+    return sum((index + 1) * ord(char) for index, char in enumerate(seed)) % max(1, size)
+
+
 def _fallback_pregame(context: dict[str, Any], mode: str) -> str:
+    """Write a varied group-level fallback when OpenAI is unavailable.
+
+    The fallback intentionally talks about the league's overall pattern rather
+    than repeatedly roasting one participant with a unique prediction.
+    """
     matches = context.get("matches") or []
-    unique = context.get("unique_calls") or []
     duels = context.get("close_duels") or []
     if mode == "numbers":
         if matches:
-            return f"Прогнозы раскрыты для {len(matches)} матч(а/ей). Расхождения участников отражены выше."
+            return f"Прогнозы раскрыты для {len(matches)} матч(а/ей). Распределение сценариев показано выше."
         return "Прогнозы раскрыты."
-    if unique:
-        item = unique[0]
-        return (
-            f"{item.get('name')} выбрал сценарий {item.get('score')} в матче «{item.get('match')}» в одиночку. "
-            "Либо человек видел будущее, либо очень уверенно не видел чужие прогнозы."
+    if not matches:
+        return "Прогнозы раскрыты. Футболу остаётся только проверить, кто здесь правда что-то понимал."
+
+    total_unique = sum(
+        1
+        for match in matches
+        for group in (match.get("score_groups") or [])
+        if int(group.get("count") or 0) == 1
+    )
+    consensus = [match for match in matches if match.get("consensus_score")]
+    rich_match = max(
+        matches,
+        key=lambda item: len(item.get("score_groups") or []),
+    )
+    group_count = len(rich_match.get("score_groups") or [])
+    label = rich_match.get("label") or "этот матч"
+    dominant = (rich_match.get("score_groups") or [{}])[0]
+    dominant_score = dominant.get("score")
+    dominant_count = int(dominant.get("count") or 0)
+
+    openings = [
+        "Коллективный штаб лиги сдал протокол: прогнозы есть, общего плана — не у всех.",
+        "Лига открыла карты и внезапно выяснила, что футбольная интуиция умеет работать в разных режимах.",
+        "Прогнозный штаб собрался. Единственное, чего он пока не собрал, — единая версия происходящего.",
+        "Карты на столе: часть лиги строит расчёт, часть — красивую легенду для послематчевого чата.",
+    ]
+    sentences = [openings[_pregame_variant_index(context, len(openings))]]
+
+    if consensus:
+        consensus_labels = ", ".join(
+            f"{item.get('label')} — {item.get('consensus_score')}" for item in consensus[:2]
         )
-    if duels:
-        item = duels[0]
-        return (
-            f"{item.get('higher_name')} и {item.get('lower_name')} идут рядом, но в прогнозах разошлись. "
-            "Один матч может решить, кто будет говорить «я же чувствовал», а кто — «это был план Б»."
+        sentences.append(
+            f"По {consensus_labels} лига выступила единым организмом: либо коллективный разум, либо коллективное алиби."
         )
-    if matches:
-        return "Лига смотрит в одну сторону. Обычно это либо коллективный разум, либо коллективное алиби."
-    return "Прогнозы раскрыты. Футболу остаётся только проверить, кто здесь правда что-то понимал."
+    elif group_count <= 1 and dominant_score:
+        sentences.append(
+            f"В матче «{label}» все голоса сошлись на {dominant_score}; альтернативный сценарий сегодня остался без профсоюза."
+        )
+    elif dominant_score:
+        sentences.append(
+            f"В матче «{label}» самый популярный сценарий — {dominant_score} ({dominant_count}), но вариантов уже {group_count}: дисциплина уступила место творческому беспорядку."
+        )
+
+    if total_unique:
+        sentences.append(
+            f"В слоте есть {total_unique} одиночных сценария: лига оставила футболу достаточно поводов выбрать самый неудобный из них."
+        )
+    elif duels:
+        duel = duels[0]
+        sentences.append(
+            f"Особенно нервно у соседей по таблице: #{duel.get('higher_rank')} и #{duel.get('lower_rank')} расходятся в прогнозах при разнице всего {duel.get('points_gap')} очк."
+        )
+
+    return " ".join(sentences[:3])
 
 
 def _request_openai_commentary(
@@ -211,9 +267,12 @@ def generate_pregame_league_commentary(context: dict[str, Any], mode: str) -> st
         fallback=_fallback_pregame(context, mode),
         max_chars=900,
         extra_rules=(
-            "- выбери 1–3 наиболее интересных факта: единое мнение, уникальный прогноз, "
-            "близкая дуэль в таблице, лидерство или форма;\n"
+            "- напиши единый мини-обзор всей лиги и игрового слота, а не портрет одного участника;\n"
+            "- начни с коллективного рисунка прогнозов: единодушие, раскол, фаворитский сценарий, число разных счетов или дуэль в таблице;\n"
+            "- одиночные прогнозы можно упомянуть только как часть общей картины, не делай из одного человека героя всего текста;\n"
             "- не повторяй весь список прогнозов и таблицу: они уже будут в сообщении выше;\n"
+            "- не используй и не перефразируй шаблон «либо человек видел будущее, либо очень уверенно не видел чужие прогнозы»;\n"
+            "- используй style_seed как внутренний ключ для свежей подачи: меняй образ, ритм и шутку между игровыми слотами;\n"
             "- не упоминай участников, если о них нет факта в переданном контексте."
         ),
     )

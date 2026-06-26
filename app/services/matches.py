@@ -1359,6 +1359,10 @@ def build_league_pregame_analysis_context(db, league: League, matches: list[Matc
     prediction_signatures: dict[int, list[str]] = {user.id: [] for user in members}
 
     for match in ordered_matches:
+        # The Father forecast is revealed together with participants' locked
+        # predictions. It is persisted before formatting so the score remains
+        # immutable on subsequent reads and visible in the Mini App as well.
+        father_prediction = _ensure_father_match_prediction_for_notifications(db, match)
         prediction_rows = _get_match_predictions_with_users(db, match, league=league)
         predictions = []
         score_groups: dict[str, list[str]] = {}
@@ -1405,6 +1409,11 @@ def build_league_pregame_analysis_context(db, league: League, matches: list[Matc
             "outcome_distribution": outcome_counts,
             "missing_participants": missing_names,
             "consensus_score": consensus_score,
+            "father_prediction": {
+                "score": f"{father_prediction.pred_home}:{father_prediction.pred_away}",
+                "outcome": father_prediction.outcome,
+                "source": father_prediction.source,
+            },
         })
 
     close_duels = []
@@ -1439,6 +1448,10 @@ def build_league_pregame_analysis_context(db, league: League, matches: list[Matc
         "recent_form": recent_form,
         "unique_calls": unique_calls[:8],
         "close_duels": close_duels[:5],
+        # A stable slot signature gives the language model a non-visible
+        # variation key, so different kick-off windows do not drift into one
+        # repeated stock phrase when their facts look similar.
+        "style_seed": f"{league.id}:{slot_start.isoformat()}:{','.join(str(match.id) for match in ordered_matches)}",
     }
 
 
@@ -1479,6 +1492,10 @@ async def build_league_pregame_analysis_text(db, league: League, matches: list[M
 
     for match_data in context["matches"]:
         lines.append(f"👥 {match_data['label']}")
+        father_prediction = match_data.get("father_prediction") or {}
+        father_score = father_prediction.get("score")
+        if father_score:
+            lines.append(f"🤖 Отец прогнозов: {father_score}")
         predictions = match_data.get("predictions") or []
         if predictions:
             for prediction in predictions:

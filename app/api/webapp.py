@@ -2253,6 +2253,96 @@ def get_participant_finished_predictions(
     }
 
 
+@router.get("/table/father/predictions")
+def get_father_finished_predictions(
+    league_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return Father's completed forecasts in the same shape as participant history."""
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    query = (
+        db.query(FatherMatchPrediction)
+        .join(Match, FatherMatchPrediction.match_id == Match.id)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished == True,
+            Match.score_home.isnot(None),
+            Match.score_away.isnot(None),
+        )
+    )
+    scoring_start = league_scoring_start_at(active_league)
+    if scoring_start is not None:
+        query = query.filter(Match.starts_at >= scoring_start)
+
+    father_predictions = query.order_by(Match.starts_at.desc(), Match.id.desc()).all()
+    rows: list[dict] = []
+    exact_count = 0
+    outcome_count = 0
+    total_match_points = 0
+
+    for prediction in father_predictions:
+        match = prediction.match
+        if not match or match.score_home is None or match.score_away is None:
+            continue
+
+        if prediction.pred_home == match.score_home and prediction.pred_away == match.score_away:
+            result_type = "exact"
+            result_label = "Точный счет"
+            score_points = 3
+            exact_count += 1
+        elif _score_outcome(prediction.pred_home, prediction.pred_away) == _score_outcome(match.score_home, match.score_away):
+            result_type = "outcome"
+            result_label = "Угадан исход"
+            score_points = 1
+            outcome_count += 1
+        else:
+            result_type = "miss"
+            result_label = "Не угадан"
+            score_points = 0
+
+        total_match_points += score_points
+        home_name = get_team_name_ru(match.home_team)
+        away_name = get_team_name_ru(match.away_team)
+        rows.append(
+            {
+                "match_id": match.id,
+                "starts_at": _ensure_utc(match.starts_at).isoformat(),
+                "home_team": home_name,
+                "away_team": away_name,
+                "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
+                "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
+                "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
+                "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
+                "actual_home": match.score_home,
+                "actual_away": match.score_away,
+                "prediction_home": prediction.pred_home,
+                "prediction_away": prediction.pred_away,
+                "result_type": result_type,
+                "result_label": result_label,
+                "score_points": score_points,
+                "advancement_points": 0,
+                "points": score_points,
+            }
+        )
+
+    return {
+        "league": _serialize_league(active_league, current_user),
+        "participant": {"id": "father", "name": "🤖 Отец прогнозов", "is_father": True},
+        "summary": {
+            "matches_count": len(rows),
+            "exact_scores": exact_count,
+            "outcomes": outcome_count,
+            "match_points": total_match_points,
+        },
+        "rows": rows,
+    }
+
+
 @router.get("/tournament-forecast")
 def get_father_tournament_forecast(
     db: Session = Depends(get_db),

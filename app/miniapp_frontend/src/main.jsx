@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.56';
+const APP_VERSION = '2.8.57';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -4079,10 +4079,12 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
   const [resultFilter, setResultFilter] = useState(null);
 
   useEffect(() => {
-    if (participant?.user_id) {
+    const isFather = Boolean(participant?.is_father);
+    const participantId = isFather ? 'father' : participant?.user_id;
+    if (participantId) {
       trackAnalytics('participant_history_open', {
         screen: 'rating',
-        properties: { participant_id: participant.user_id, league_id: leagueId || 0 },
+        properties: { participant_id: participantId, league_id: leagueId || 0 },
       });
     }
     let active = true;
@@ -4092,13 +4094,16 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
     const params = new URLSearchParams();
     if (leagueId) params.set('league_id', String(leagueId));
     const suffix = params.toString() ? `?${params.toString()}` : '';
+    const endpoint = isFather
+      ? `/api/webapp/table/father/predictions${suffix}`
+      : `/api/webapp/table/participant/${participant.user_id}/predictions${suffix}`;
 
-    api(`/api/webapp/table/participant/${participant.user_id}/predictions${suffix}`)
+    api(endpoint)
       .then((result) => { if (active) setData(result); })
       .catch((err) => { if (active) setError(err); });
 
     return () => { active = false; };
-  }, [participant.user_id, leagueId]);
+  }, [participant?.is_father, participant?.user_id, leagueId]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -4121,7 +4126,7 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
       const next = current === filter ? null : filter;
       trackAnalytics('participant_history_filter', {
         screen: 'rating',
-        properties: { participant_id: participant.user_id, league_id: leagueId || 0, filter: next || 'all' },
+        properties: { participant_id: participant?.is_father ? 'father' : participant.user_id, league_id: leagueId || 0, filter: next || 'all' },
       });
       return next;
     });
@@ -4136,9 +4141,9 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
       <section className="modal-card participant-predictions-modal" role="dialog" aria-modal="true" aria-label={`Прогнозы участника ${displayName}`}>
         <button type="button" className="modal-close" aria-label="Закрыть прогнозы участника" onClick={onClose}>×</button>
         <header className="participant-predictions-head">
-          <div className="participant-predictions-avatar">{(displayName || '?').slice(0, 1).toUpperCase()}</div>
+          <div className="participant-predictions-avatar">{participant?.is_father ? '🤖' : (displayName || '?').slice(0, 1).toUpperCase()}</div>
           <div>
-            <span>Прогнозы участника</span>
+            <span>{participant?.is_father ? 'ИИ-прогнозы' : 'Прогнозы участника'}</span>
             <h2>{displayName}</h2>
             <p>{leagueName ? `Лига «${leagueName}»` : 'Выбранная лига'} · завершенные матчи</p>
           </div>
@@ -4676,7 +4681,7 @@ function Rating({ activeLeagueId }) {
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row) => {
-          const canOpenParticipant = Boolean(row.user_id) && !row.is_father;
+          const canOpenParticipant = Boolean(row.user_id) || Boolean(row.is_father);
           const openParticipant = () => {
             if (canOpenParticipant) setSelectedParticipant({ ...row, rank: row.display_rank });
           };
@@ -4686,7 +4691,7 @@ function Rating({ activeLeagueId }) {
             className={`ranking-row rating-rich-row ${row.is_current_user ? 'me' : ''} ${row.is_father ? 'father-ranking-row' : ''} ${canOpenParticipant ? 'rating-row-clickable' : ''}`}
             role={canOpenParticipant ? 'button' : undefined}
             tabIndex={canOpenParticipant ? 0 : undefined}
-            aria-label={canOpenParticipant ? `Открыть прогнозы участника ${row.name}` : undefined}
+            aria-label={canOpenParticipant ? `Открыть прогнозы ${row.name}` : undefined}
             onClick={openParticipant}
             onKeyDown={(event) => {
               if (canOpenParticipant && (event.key === 'Enter' || event.key === ' ')) {
