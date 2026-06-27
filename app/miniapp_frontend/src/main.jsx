@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.65';
+const APP_VERSION = '2.8.66';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2494,10 +2494,65 @@ function TournamentScorerRow({ item, rank, onOpenPlayer, onOpenTeam }) {
   </article>;
 }
 
+function knockoutCandidateNames(slot) {
+  const names = (slot?.candidates || []).map((team) => team?.name).filter(Boolean);
+  const unique = [...new Set(names)];
+  if (!unique.length) return '';
+  const visible = unique.slice(0, 4);
+  return `${visible.join(' · ')}${unique.length > visible.length ? ` · +${unique.length - visible.length}` : ''}`;
+}
+
+function KnockoutTeamLine({ slot, score, winner = false }) {
+  const candidates = knockoutCandidateNames(slot);
+  if (slot?.known) {
+    return <div className={`knockout-team-line known ${winner ? 'winner' : ''}`.trim()}>
+      <span className="knockout-team-identity"><TeamFlag code={slot.flag_code} emoji={slot.flag} name={slot.name} size="mini" /><b>{slot.name}</b></span>
+      {score !== null && score !== undefined && <strong>{score}</strong>}
+    </div>;
+  }
+  return <div className="knockout-team-line unresolved">
+    <span className="knockout-slot-label"><i>⌛</i><b>{slot?.label || 'Соперник определится'}</b></span>
+    {candidates && <small>Возможны: {candidates}</small>}
+  </div>;
+}
+
+function KnockoutMatchCard({ match, onOpenMatch, compact = false }) {
+  if (!match) return null;
+  const canOpen = Boolean(match.id && onOpenMatch);
+  const scoreHome = match.is_finished ? match.score_home : null;
+  const scoreAway = match.is_finished ? match.score_away : null;
+  const meta = [formatDateTime(match.starts_at), match.city].filter(Boolean).join(' · ');
+  const content = <>
+    <div className="knockout-match-head"><span>{meta || 'Дата уточняется'}</span>{match.is_finished && <b>Итог</b>}</div>
+    <KnockoutTeamLine slot={match.home} score={scoreHome} winner={match.is_finished && match.winner_side === 'home'} />
+    <KnockoutTeamLine slot={match.away} score={scoreAway} winner={match.is_finished && match.winner_side === 'away'} />
+  </>;
+  if (!canOpen) return <article className={`knockout-match-card ${compact ? 'compact' : ''}`.trim()}>{content}</article>;
+  return <button type="button" className={`knockout-match-card clickable ${compact ? 'compact' : ''}`.trim()} onClick={() => onOpenMatch(match.id)}>{content}</button>;
+}
+
+function KnockoutBracket({ stages = [], onOpenMatch }) {
+  const columns = stages.filter((stage) => (stage.matches || []).length);
+  if (!columns.length) return null;
+  return <details className="knockout-bracket-details">
+    <summary><span>⌘</span><b>Полная турнирная сетка</b><small>свайпните влево</small><i>⌄</i></summary>
+    <div className="knockout-bracket-scroll">
+      <div className="knockout-bracket-grid" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(176px, 1fr))` }}>
+        {columns.map((stage) => <section key={stage.key} className={`knockout-bracket-column stage-${stage.key}`}>
+          <header><b>{stage.short_label || stage.label}</b><small>{(stage.matches || []).length} {pluralRu((stage.matches || []).length, 'матч', 'матча', 'матчей')}</small></header>
+          <div className="knockout-bracket-match-list">{stage.matches.map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} compact />)}</div>
+        </section>)}
+      </div>
+    </div>
+  </details>;
+}
+
 function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenTeam, onOpenPlayer }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [selectedGroups, setSelectedGroups] = useState([]);
+  const [tournamentView, setTournamentView] = useState('groups');
+  const [selectedKnockoutStage, setSelectedKnockoutStage] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -2511,6 +2566,8 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
         if (validCurrent.length) return validCurrent;
         return defaults.length ? defaults : available.slice(0, 1);
       });
+      const knockoutStages = (result.knockout?.stages || []).filter((stage) => (stage.matches || []).length);
+      setSelectedKnockoutStage((current) => knockoutStages.some((stage) => stage.key === current) ? current : (knockoutStages[0]?.key || null));
     }).catch((err) => { if (active) setError(err); });
     return () => { active = false; };
   }, []);
@@ -2532,30 +2589,50 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
   const visibleGroups = groups.filter((item) => selectedGroups.includes(item.group_code));
   const scorers = data.top_scorers?.items || [];
   const selectedLabel = visibleGroups.length ? visibleGroups.map((item) => item.group_code).join(', ') : 'не выбраны';
+  const knockoutStages = (data.knockout?.stages || []).filter((stage) => (stage.matches || []).length);
+  const currentStage = knockoutStages.find((stage) => stage.key === selectedKnockoutStage) || knockoutStages[0];
 
   return <div className="tournament-hub">
     {mode === 'tournament' ? <>
-      <details className="group-multi-select">
-        <summary>
-          <span>Группы</span>
-          <b>{selectedLabel}</b>
-          <i aria-hidden="true">⌄</i>
-        </summary>
-        <div className="group-multi-options">
-          {groups.map((item) => (
-            <label key={item.group_code}>
-              <input type="checkbox" checked={selectedGroups.includes(item.group_code)} onChange={() => toggleGroup(item.group_code)} />
-              <span className={`group-picker-dot group-${item.group_code}`}>{item.group_code}</span>
-              <b>Группа {item.group_code}</b>
-            </label>
-          ))}
-        </div>
-      </details>
-      <p className="group-selection-hint">По умолчанию выбраны группы с матчами текущего игрового дня по времени США.</p>
-      <div className="tournament-group-tables">
-        {visibleGroups.map((group) => <GroupTable key={group.group_code} group={group} onTeam={onOpenTeam} />)}
+      <div className="tournament-view-tabs" role="tablist" aria-label="Разделы турнира">
+        <button type="button" className={tournamentView === 'groups' ? 'active' : ''} onClick={() => setTournamentView('groups')} role="tab" aria-selected={tournamentView === 'groups'}><span>▦</span> Группы</button>
+        <button type="button" className={tournamentView === 'knockout' ? 'active' : ''} onClick={() => setTournamentView('knockout')} role="tab" aria-selected={tournamentView === 'knockout'}><span>⌘</span> Плей-офф</button>
       </div>
-      <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact"><TournamentScorerHeader compact />{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
+      {tournamentView === 'groups' ? <>
+        <details className="group-multi-select">
+          <summary>
+            <span>Группы</span>
+            <b>{selectedLabel}</b>
+            <i aria-hidden="true">⌄</i>
+          </summary>
+          <div className="group-multi-options">
+            {groups.map((item) => (
+              <label key={item.group_code}>
+                <input type="checkbox" checked={selectedGroups.includes(item.group_code)} onChange={() => toggleGroup(item.group_code)} />
+                <span className={`group-picker-dot group-${item.group_code}`}>{item.group_code}</span>
+                <b>Группа {item.group_code}</b>
+              </label>
+            ))}
+          </div>
+        </details>
+        <p className="group-selection-hint">По умолчанию выбраны группы с матчами текущего игрового дня по времени США.</p>
+        <div className="tournament-group-tables">
+          {visibleGroups.map((group) => <GroupTable key={group.group_code} group={group} onTeam={onOpenTeam} />)}
+        </div>
+        <section className="hub-preview-card"><header><div><span className="section-label">Лидеры гонки</span><h2>Бомбардиры</h2></div><button type="button" onClick={() => onModeChange?.('scorers')}>Все →</button></header><div className="hub-scorers-list compact"><TournamentScorerHeader compact />{scorers.slice(0, 5).map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</div></section>
+      </> : <>
+        {!knockoutStages.length ? <DetailEmpty title="Пары плей-офф ещё уточняются" text="Как только источник опубликует сетку, здесь появятся стадии и возможные соперники." /> : <>
+          <section className="knockout-stage-card">
+            <header><div><span className="section-label">Плей-офф</span><h2>{currentStage?.label || 'Сетка'}</h2></div><small>{(currentStage?.matches || []).length} {pluralRu((currentStage?.matches || []).length, 'матч', 'матча', 'матчей')}</small></header>
+            <div className="knockout-stage-tabs" role="tablist" aria-label="Стадии плей-офф">
+              {knockoutStages.map((stage) => <button key={stage.key} type="button" className={currentStage?.key === stage.key ? 'active' : ''} onClick={() => setSelectedKnockoutStage(stage.key)} role="tab" aria-selected={currentStage?.key === stage.key}>{stage.short_label || stage.label}</button>)}
+            </div>
+            <div className="knockout-stage-note"><i>⌛</i><span>Если команда ещё не определена, показываем, кто может попасть в этот слот по сетке.</span></div>
+            <div className="knockout-stage-match-list">{(currentStage?.matches || []).map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} />)}</div>
+          </section>
+          <KnockoutBracket stages={knockoutStages} onOpenMatch={onOpenMatch} />
+        </>}
+      </>}
     </> : <section className="hub-scorers-card"><header><div><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? <><TournamentScorerHeader />{scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</> : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}
   </div>;
 }

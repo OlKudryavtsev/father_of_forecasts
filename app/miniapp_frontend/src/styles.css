@@ -11170,3 +11170,225 @@ body,
 @media (max-width: 430px) {
   .playoff-main-time-note { padding: 9px 10px; font-size: 10px; border-radius: 13px; }
 }
+
+/* v2.8.66 — knockout stages and connected tournament bracket */
+.tournament-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 5px;
+  border: 1px solid rgba(148,163,184,.17);
+  border-radius: 17px;
+  background: rgba(15,23,42,.34);
+}
+.tournament-view-tabs button {
+  min-height: 39px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+.tournament-view-tabs button span { font-size: 16px; line-height: 1; }
+.tournament-view-tabs button.active {
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(22,199,132,.22), rgba(90,141,255,.16));
+  box-shadow: inset 0 0 0 1px rgba(22,199,132,.28);
+}
+
+.knockout-stage-card,
+.knockout-bracket-details {
+  border: 1px solid rgba(90,141,255,.30);
+  border-radius: 20px;
+  background: radial-gradient(circle at 88% 0%, rgba(90,141,255,.17), transparent 43%), rgba(18,26,44,.88);
+  box-shadow: var(--shadow);
+}
+.knockout-stage-card { padding: 14px; }
+.knockout-stage-card > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+.knockout-stage-card > header .section-label { display: block; margin: 0 0 3px; font-size: 10px; }
+.knockout-stage-card > header h2 { margin: 0; color: var(--text); font-size: 20px; }
+.knockout-stage-card > header > small { padding: 6px 8px; border-radius: 10px; color: #bdd4ff; background: rgba(90,141,255,.13); font-size: 10px; font-weight: 850; white-space: nowrap; }
+.knockout-stage-tabs {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  margin: 0 -3px 10px;
+  padding: 1px 3px 4px;
+  scrollbar-width: none;
+}
+.knockout-stage-tabs::-webkit-scrollbar { display: none; }
+.knockout-stage-tabs button {
+  min-width: 59px;
+  min-height: 33px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid rgba(148,163,184,.16);
+  border-radius: 11px;
+  color: var(--muted);
+  background: rgba(255,255,255,.025);
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.knockout-stage-tabs button.active { color: #eaf2ff; border-color: rgba(90,141,255,.55); background: rgba(90,141,255,.20); box-shadow: inset 0 0 0 1px rgba(90,141,255,.16); }
+.knockout-stage-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 11px;
+  padding: 9px 10px;
+  border: 1px solid rgba(244,191,54,.20);
+  border-radius: 12px;
+  color: #b9c3d7;
+  background: rgba(244,191,54,.07);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.32;
+}
+.knockout-stage-note i { flex: 0 0 auto; color: var(--gold); font-style: normal; }
+.knockout-stage-match-list { display: grid; gap: 8px; }
+.knockout-match-card {
+  width: 100%;
+  display: grid;
+  gap: 0;
+  padding: 9px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(148,163,184,.15);
+  border-radius: 14px;
+  color: var(--text);
+  text-align: left;
+  background: rgba(2,6,23,.32);
+}
+.knockout-match-card.clickable { transition: transform .14s ease, border-color .14s ease, background .14s ease; }
+.knockout-match-card.clickable:active { transform: scale(.987); }
+.knockout-match-card.clickable:hover { border-color: rgba(90,141,255,.42); background: rgba(90,141,255,.075); }
+.knockout-match-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+}
+.knockout-match-head b { padding: 3px 5px; border-radius: 6px; color: var(--green); background: rgba(22,199,132,.10); font-size: 8px; text-transform: uppercase; }
+.knockout-team-line {
+  min-height: 29px;
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 7px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(148,163,184,.09);
+}
+.knockout-team-line:first-of-type { border-top: 0; }
+.knockout-team-line.known { font-size: 12px; }
+.knockout-team-line.winner { color: var(--green); }
+.knockout-team-identity,
+.knockout-slot-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.knockout-team-identity b,
+.knockout-slot-label b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knockout-team-line strong { min-width: 18px; color: var(--text); text-align: right; font-size: 15px; line-height: 1; }
+.knockout-team-line.winner strong { color: var(--green); }
+.knockout-team-line.unresolved { grid-template-columns: minmax(0,1fr); align-items: start; }
+.knockout-slot-label { color: #d4def1; font-size: 11px; }
+.knockout-slot-label i { color: var(--gold); font-style: normal; }
+.knockout-team-line.unresolved small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 9px; line-height: 1.15; }
+.knockout-team-line .flag,
+.knockout-team-line .flag img { width: 19px; height: 14px; }
+
+.knockout-bracket-details { overflow: hidden; }
+.knockout-bracket-details > summary {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.knockout-bracket-details > summary::-webkit-details-marker { display: none; }
+.knockout-bracket-details > summary > span { color: #bdd4ff; font-size: 18px; }
+.knockout-bracket-details > summary > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.knockout-bracket-details > summary > small { color: var(--muted); font-size: 9px; font-weight: 750; white-space: nowrap; }
+.knockout-bracket-details > summary > i { color: #bfd2ff; font-size: 17px; font-style: normal; transition: transform .16s ease; }
+.knockout-bracket-details[open] > summary > i { transform: rotate(180deg); }
+.knockout-bracket-scroll { overflow-x: auto; padding: 0 11px 12px; scrollbar-width: thin; scrollbar-color: rgba(90,141,255,.5) transparent; }
+.knockout-bracket-grid { min-width: max-content; display: grid; gap: 18px; align-items: start; }
+.knockout-bracket-column { position: relative; min-width: 176px; display: grid; gap: 8px; }
+.knockout-bracket-column:not(:last-child)::after {
+  content: '›';
+  position: absolute;
+  z-index: 3;
+  top: 38px;
+  right: -15px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #c7d8ff;
+  background: #17213a;
+  border: 1px solid rgba(90,141,255,.33);
+  font-size: 16px;
+  line-height: 1;
+}
+.knockout-bracket-column > header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px; }
+.knockout-bracket-column > header b { color: #c5d7ff; font-size: 12px; }
+.knockout-bracket-column > header small { color: var(--muted); font-size: 9px; }
+.knockout-bracket-match-list { display: grid; gap: 10px; }
+.knockout-match-card.compact { min-height: 74px; padding: 7px 8px; border-radius: 12px; }
+.knockout-match-card.compact .knockout-match-head { margin-bottom: 2px; font-size: 8px; }
+.knockout-match-card.compact .knockout-team-line { min-height: 24px; padding: 3px 0; }
+.knockout-match-card.compact .knockout-team-line.known { font-size: 10px; }
+.knockout-match-card.compact .knockout-slot-label { font-size: 9px; }
+.knockout-match-card.compact .knockout-team-line.unresolved small { font-size: 8px; }
+.knockout-match-card.compact .knockout-team-line strong { font-size: 12px; }
+.knockout-match-card.compact .knockout-team-line .flag,
+.knockout-match-card.compact .knockout-team-line .flag img { width: 16px; height: 12px; }
+.app.theme-light .tournament-view-tabs { background: rgba(255,255,255,.72); border-color: rgba(15,23,42,.10); }
+.app.theme-light .tournament-view-tabs button.active { color: #0f172a; background: linear-gradient(135deg, rgba(22,199,132,.13), rgba(37,99,235,.10)); }
+.app.theme-light .knockout-stage-card,
+.app.theme-light .knockout-bracket-details { background: radial-gradient(circle at 88% 0%, rgba(37,99,235,.08), transparent 43%), #f8fbff; border-color: rgba(37,99,235,.18); }
+.app.theme-light .knockout-match-card { background: rgba(15,23,42,.025); border-color: rgba(15,23,42,.10); }
+.app.theme-light .knockout-bracket-column:not(:last-child)::after { color: #1e3a8a; background: #eef4ff; }
+
+@media (max-width: 520px) {
+  .tournament-view-tabs { border-radius: 15px; }
+  .tournament-view-tabs button { min-height: 37px; font-size: 11px; }
+  .knockout-stage-card { padding: 11px; border-radius: 18px; }
+  .knockout-stage-card > header h2 { font-size: 18px; }
+  .knockout-stage-tabs { margin-bottom: 8px; }
+  .knockout-stage-tabs button { min-width: 55px; min-height: 31px; font-size: 9px; }
+  .knockout-stage-note { margin-bottom: 9px; padding: 8px 9px; font-size: 9px; }
+  .knockout-match-card { border-radius: 13px; }
+  .knockout-match-head { font-size: 8.5px; }
+  .knockout-team-line.known { font-size: 11.5px; }
+  .knockout-slot-label { font-size: 10px; }
+  .knockout-team-line.unresolved small { font-size: 8.5px; }
+  .knockout-bracket-details > summary { min-height: 45px; padding: 0 11px; }
+  .knockout-bracket-details > summary > small { display: none; }
+  .knockout-bracket-scroll { padding-left: 9px; padding-right: 9px; }
+  .knockout-bracket-grid { gap: 15px; }
+  .knockout-bracket-column { min-width: 164px; }
+  .knockout-bracket-column:not(:last-child)::after { right: -13px; width: 16px; height: 16px; font-size: 14px; }
+}

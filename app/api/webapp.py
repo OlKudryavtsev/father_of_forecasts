@@ -126,7 +126,7 @@ ANALYTICS_ALLOWED_SOURCES = {"telegram", "pwa", "browser"}
 ANALYTICS_ALLOWED_PROPERTY_KEYS = {
     "match_id", "league_id", "participant_id", "team_id", "player_id", "video_id",
     "filter", "mode", "scope", "group_code", "entry_point", "is_update", "tab",
-    "resource", "result", "section", "destination",
+    "resource", "result", "section", "destination", "stage", "view",
 }
 
 ANALYTICS_EVENT_LABELS = {
@@ -4847,6 +4847,314 @@ def _default_tournament_group_codes(db: Session) -> list[str]:
     return sorted(by_day.get(target_day, set()))
 
 
+KNOCKOUT_STAGE_META = (
+    ("round_of_32", "1/16 финала", "1/16"),
+    ("round_of_16", "1/8 финала", "1/8"),
+    ("quarterfinal", "1/4 финала", "1/4"),
+    ("semifinal", "1/2 финала", "1/2"),
+    ("third_place", "Матч за 3-е место", "3-е место"),
+    ("final", "Финал", "Финал"),
+)
+
+# API-Football keeps World Cup fixture ids stable after the schedule is published.
+# The map makes the early part of the 2026 bracket deterministic even before the
+# next round teams are known. Remaining rounds use chronological bracket pairing
+# as a safe fallback, so the UI does not become empty if the provider adds a new id.
+WC2026_R32_TO_R16_FIXTURE = {
+    "53452541": "53452509",
+    "53452543": "53452509",
+    "53452545": "53452511",
+    "53452547": "53452511",
+    "53452557": "53452517",
+    "53452561": "53452517",
+    "53452563": "53452519",
+    "53452565": "53452519",
+    "53452555": "53452515",
+    "53452553": "53452515",
+    "53452551": "53452513",
+    "53452549": "53452513",
+    "53452505": "53452523",
+    "53452507": "53452523",
+    "53452503": "53452521",
+    "53452569": "53452521",
+}
+
+WC2026_R32_BRACKET_ORDER = [
+    "53452541", "53452543", "53452545", "53452547",
+    "53452557", "53452561", "53452563", "53452565",
+    "53452555", "53452553", "53452551", "53452549",
+    "53452505", "53452507", "53452503", "53452569",
+]
+
+# Qualification slots give a useful answer before a provider replaces a slot
+# with a concrete national team. The `groups` values are also used to show the
+# current candidates from the relevant group tables.
+WC2026_R32_SLOT_SPECS = {
+    "53452563": {"away": {"label": "3-е место групп C / E / F / H / I", "rank": 3, "groups": ["C", "E", "F", "H", "I"]}},
+    "53452565": {
+        "home": {"label": "1-е место группы L", "rank": 1, "groups": ["L"]},
+        "away": {"label": "3-е место групп E / H / I / J / K", "rank": 3, "groups": ["E", "H", "I", "J", "K"]},
+    },
+    "53452555": {"away": {"label": "3-е место групп A / E / H / I / J", "rank": 3, "groups": ["A", "E", "H", "I", "J"]}},
+    "53452551": {"away": {"label": "2-е место группы J", "rank": 2, "groups": ["J"]}},
+    "53452549": {
+        "home": {"label": "2-е место группы K", "rank": 2, "groups": ["K"]},
+        "away": {"label": "2-е место группы L", "rank": 2, "groups": ["L"]},
+    },
+    "53452505": {"away": {"label": "3-е место групп E / F / G / I / J", "rank": 3, "groups": ["E", "F", "G", "I", "J"]}},
+    "53452507": {
+        "home": {"label": "1-е место группы K", "rank": 1, "groups": ["K"]},
+        "away": {"label": "3-е место групп D / E / I / J / L", "rank": 3, "groups": ["D", "E", "I", "J", "L"]},
+    },
+}
+
+KNOCKOUT_UNKNOWN_MARKERS = (
+    "tbd", "unknown", "winner of", "loser of", "1st group", "2nd group", "3rd group",
+    "победитель", "проигравший", "определится",
+)
+
+
+def _knockout_stage_meta(stage: str | None) -> tuple[str, str] | None:
+    normalized = str(stage or "").strip().lower()
+    for key, label, short_label in KNOCKOUT_STAGE_META:
+        if key == normalized:
+            return label, short_label
+    return None
+
+
+def _is_resolved_knockout_team(name: str | None, team_id: int | None = None) -> bool:
+    value = str(name or "").strip()
+    if not value:
+        return False
+    normalized = value.lower()
+    if any(marker in normalized for marker in KNOCKOUT_UNKNOWN_MARKERS):
+        return False
+    # A provider can leave an id empty for a known team; the readable team name
+    # is sufficient for the bracket. Conversely, a raw "TBD" id is never useful.
+    return value not in {"—", "-"}
+
+
+def _knockout_team_payload(name: str | None, api_name: str | None, team_id: int | None) -> dict:
+    display_name = get_team_name_ru(name or api_name or "")
+    known = _is_resolved_knockout_team(display_name, team_id)
+    return {
+        "name": display_name if known else None,
+        "raw_name": display_name or None,
+        "team_id": int(team_id) if team_id is not None else None,
+        "flag": get_team_flag(display_name, api_name) if known else None,
+        "flag_code": get_team_flag_code(display_name, api_name) if known else None,
+        "known": known,
+    }
+
+
+def _knockout_match_sort_key(match: Match) -> tuple:
+    fixture_id = str(match.external_fixture_id or "")
+    if match.stage == "round_of_32":
+        try:
+            return (0, WC2026_R32_BRACKET_ORDER.index(fixture_id), _ensure_utc(match.starts_at), match.id)
+        except ValueError:
+            pass
+    return (1, _ensure_utc(match.starts_at), match.id)
+
+
+def _knockout_match_base(match: Match) -> dict:
+    stage_meta = _knockout_stage_meta(match.stage) or (match.match_round or match.stage or "Плей-офф", match.match_round or match.stage or "Плей-офф")
+    return {
+        "id": match.id,
+        "external_fixture_id": str(match.external_fixture_id or "") or None,
+        "stage": match.stage,
+        "stage_label": stage_meta[0],
+        "stage_short_label": stage_meta[1],
+        "starts_at": _ensure_utc(match.starts_at).isoformat(),
+        "venue": match.venue,
+        "city": match.city,
+        "is_finished": bool(match.is_finished),
+        "score_home": match.score_home,
+        "score_away": match.score_away,
+        "winner_side": match.winner_side,
+        "home": _knockout_team_payload(match.home_team, match.home_team_api_name, match.home_external_team_id),
+        "away": _knockout_team_payload(match.away_team, match.away_team_api_name, match.away_external_team_id),
+    }
+
+
+def _build_knockout_bracket(db: Session) -> dict:
+    """Build a mobile-friendly knockout list and a connected bracket graph.
+
+    The source may publish a fixture before both participants are resolved. We
+    preserve that fixture and derive candidate teams from predecessor matches,
+    which is more useful than rendering a bare "TBD — TBD" card.
+    """
+    playoff_matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.stage.in_([item[0] for item in KNOCKOUT_STAGE_META]),
+        )
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    by_stage: dict[str, list[Match]] = {item[0]: [] for item in KNOCKOUT_STAGE_META}
+    for match in playoff_matches:
+        if match.stage in by_stage:
+            by_stage[match.stage].append(match)
+    for stage in by_stage:
+        by_stage[stage].sort(key=_knockout_match_sort_key)
+
+    all_by_id = {match.id: match for match in playoff_matches}
+    by_fixture_id = {
+        str(match.external_fixture_id): match
+        for match in playoff_matches
+        if match.external_fixture_id is not None
+    }
+    group_rows_by_code = {
+        group["group_code"]: group.get("rows") or []
+        for group in _build_group_standings(db)
+    }
+
+    next_match_by_source_id: dict[int, int] = {}
+    # Prefer official published edges for the Round of 32.
+    for source_fixture, target_fixture in WC2026_R32_TO_R16_FIXTURE.items():
+        source = by_fixture_id.get(source_fixture)
+        target = by_fixture_id.get(target_fixture)
+        if source and target:
+            next_match_by_source_id[source.id] = target.id
+
+    def pair_to_next(source_stage: str, target_stage: str) -> None:
+        source_matches = by_stage.get(source_stage, [])
+        target_matches = by_stage.get(target_stage, [])
+        if not source_matches or not target_matches:
+            return
+        for index, source in enumerate(source_matches):
+            if source.id in next_match_by_source_id:
+                continue
+            target = target_matches[min(index // 2, len(target_matches) - 1)]
+            next_match_by_source_id[source.id] = target.id
+
+    pair_to_next("round_of_32", "round_of_16")
+    pair_to_next("round_of_16", "quarterfinal")
+    pair_to_next("quarterfinal", "semifinal")
+
+    # Both semifinals feed the final and the bronze match. The UI distinguishes
+    # winner and loser slots in their labels; candidate teams remain the same
+    # until the semi-finals are played.
+    semis = by_stage.get("semifinal", [])
+
+    source_ids_by_target: dict[int, list[int]] = {}
+    for source_id, target_id in next_match_by_source_id.items():
+        source_ids_by_target.setdefault(target_id, []).append(source_id)
+    for stage in ("final", "third_place"):
+        for target in by_stage.get(stage, []):
+            source_ids_by_target[target.id] = [semi.id for semi in semis]
+
+    def direct_teams(match_id: int) -> list[dict]:
+        match = all_by_id.get(match_id)
+        if not match:
+            return []
+        values = [
+            _knockout_team_payload(match.home_team, match.home_team_api_name, match.home_external_team_id),
+            _knockout_team_payload(match.away_team, match.away_team_api_name, match.away_external_team_id),
+        ]
+        return [value for value in values if value.get("known")]
+
+    def group_slot_spec(match: Match, side: str) -> dict | None:
+        return (WC2026_R32_SLOT_SPECS.get(str(match.external_fixture_id or "")) or {}).get(side)
+
+    def group_slot_candidates(match: Match, side: str) -> list[dict]:
+        spec = group_slot_spec(match, side)
+        if not spec:
+            return []
+        row_index = max(0, int(spec.get("rank") or 1) - 1)
+        candidates: list[dict] = []
+        for group_code in spec.get("groups") or []:
+            rows = group_rows_by_code.get(str(group_code), [])
+            if row_index >= len(rows):
+                continue
+            row = rows[row_index]
+            team_name = row.get("team")
+            if not team_name:
+                continue
+            candidates.append({
+                "name": team_name,
+                "team_id": row.get("team_id"),
+                "flag": row.get("flag"),
+                "flag_code": row.get("flag_code"),
+                "known": True,
+            })
+        return candidates
+
+    def candidate_teams(match_id: int, visited: set[int] | None = None) -> list[dict]:
+        visited = set(visited or set())
+        if match_id in visited:
+            return []
+        visited.add(match_id)
+        candidates = direct_teams(match_id)
+        for source_id in source_ids_by_target.get(match_id, []):
+            candidates.extend(candidate_teams(source_id, visited))
+        seen: set[str] = set()
+        result: list[dict] = []
+        for item in candidates:
+            key = str(item.get("team_id") or item.get("name") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+        return result
+
+    def unresolved_slot_label(match: Match, side: str, source_id: int | None) -> str:
+        spec = group_slot_spec(match, side)
+        if spec:
+            return str(spec.get("label") or "Соперник определится")
+        if match.stage == "final":
+            return "Победитель полуфинала"
+        if match.stage == "third_place":
+            return "Проигравший полуфинала"
+        if source_id:
+            source = all_by_id.get(source_id)
+            if source:
+                source_label = (_knockout_stage_meta(source.stage) or (source.match_round or "матча", ""))[0]
+                return f"Победитель {source_label}"
+        raw = match.home_team if side == "home" else match.away_team
+        raw_display = get_team_name_ru(raw)
+        if raw_display and not any(marker in raw_display.lower() for marker in KNOCKOUT_UNKNOWN_MARKERS):
+            return raw_display
+        return "Соперник определится"
+
+    def serialize_bracket_match(match: Match) -> dict:
+        payload = _knockout_match_base(match)
+        sources = source_ids_by_target.get(match.id, [])
+        for side_index, side in enumerate(("home", "away")):
+            slot = payload[side]
+            if slot.get("known"):
+                slot["label"] = slot.get("name")
+                slot["candidates"] = []
+                continue
+            source_id = sources[side_index] if side_index < len(sources) else None
+            source_candidates = candidate_teams(source_id) if source_id else group_slot_candidates(match, side)
+            if not source_candidates and not source_id:
+                source_candidates = candidate_teams(match.id)
+            slot["label"] = unresolved_slot_label(match, side, source_id)
+            slot["source_match_id"] = source_id
+            slot["candidates"] = source_candidates[:8]
+        return payload
+
+    stages = []
+    for stage, label, short_label in KNOCKOUT_STAGE_META:
+        matches = by_stage.get(stage, [])
+        stages.append({
+            "key": stage,
+            "label": label,
+            "short_label": short_label,
+            "matches": [serialize_bracket_match(match) for match in matches],
+        })
+
+    return {
+        "has_matches": bool(playoff_matches),
+        "stages": stages,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/tournament/overview")
 def get_tournament_overview(
     db: Session = Depends(get_db),
@@ -4857,6 +5165,7 @@ def get_tournament_overview(
     return {
         "groups": _build_group_standings(db),
         "default_group_codes": _default_tournament_group_codes(db),
+        "knockout": _build_knockout_bracket(db),
         "top_scorers": get_top_scorers(db, refresh=True, limit=20),
     }
 
