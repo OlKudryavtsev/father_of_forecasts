@@ -84,19 +84,16 @@ def build_advancement_keyboard(
     )
 
 
-def build_predictions_matches_keyboard(matches: list[Match]) -> InlineKeyboardMarkup:
-    """Provide bot helper logic for build_predictions_matches_keyboard."""
+def build_predictions_matches_keyboard(matches: list[Match], league_id: int | None = None) -> InlineKeyboardMarkup:
+    """Build a match picker while preserving the selected league scope."""
     buttons = []
-
+    scope = f":{league_id}" if league_id is not None else ""
     for match in matches:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=format_match_label(match, include_id=False),
-                    callback_data=f"predictions_match:{match.id}",
-                )
-            ]
-        )
-
+        buttons.append([
+            InlineKeyboardButton(
+                text=format_match_label(match, include_id=False),
+                callback_data=f"predictions_match:{match.id}{scope}",
+            )
+        ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

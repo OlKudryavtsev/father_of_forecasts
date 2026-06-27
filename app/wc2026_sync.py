@@ -204,11 +204,15 @@ def normalize_api_fixture(
 
         "stage": normalize_stage(api_round),
         "match_round": normalize_match_round(api_round),
+        # Group membership is useful for group-stage fixtures only.  A knockout
+        # fixture can inherit one participant's group through team_group_map;
+        # persisting it here made R32 teams appear as fifth/sixth rows in the
+        # Mini App group table.  Keep playoff rows explicitly outside groups.
         "group_code": (
             extract_group_code(api_round)
             or team_group_map.get(home_team_id)
             or team_group_map.get(away_team_id)
-        ),
+        ) if normalize_stage(api_round) == "group" else None,
         "api_league_round": api_round,
 
         "starts_at": parse_datetime_utc(fixture["date"]),

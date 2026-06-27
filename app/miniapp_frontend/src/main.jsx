@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.63';
+const APP_VERSION = '2.8.64';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5169,10 +5169,14 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       });
       setInviteCode('');
       setJoinOpen(false);
-      await onLeaguesChanged?.();
-      onLeagueChange?.(result.league.id);
       trackAnalytics('league_join', { screen: 'leagues', properties: { league_id: result.league.id } });
-      setMessage(`Вы вступили в лигу «${result.league.name}»`);
+      if (result.join_status === 'active') {
+        await onLeaguesChanged?.();
+        onLeagueChange?.(result.league.id);
+        setMessage(`Вы уже состоите в лиге «${result.league.name}»`);
+      } else {
+        setMessage(`Заявка в лигу «${result.league.name}» отправлена ее администратору`);
+      }
     } catch (err) {
       setError(err);
     } finally {
@@ -5248,6 +5252,23 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
       await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}`, { method: 'DELETE' });
       await loadMembers(leagueId);
       await onLeaguesChanged?.();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setMemberActionBusy('');
+    }
+  }
+
+  async function decideMemberRequest(leagueId, member, decision) {
+    if (!leagueId || !member) return;
+    const busyKey = `${leagueId}:${member.user_id}:${decision}`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    try {
+      await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}/${decision}`, { method: 'POST' });
+      await loadMembers(leagueId);
+      await onLeaguesChanged?.();
+      await loadLeagueActivity(leagueId);
     } catch (err) {
       setError(err);
     } finally {
@@ -5356,6 +5377,12 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
                     {member.username ? `@${member.username} · ` : ''}{memberRoleText(member)}{!isActive ? ` · ${member.status}` : ''}
                   </small>
                 </div>
+                {member.status === 'pending' && (
+                  <div className="league-member-actions">
+                    <button type="button" className="approve" onClick={() => decideMemberRequest(league.id, member, 'approve')} disabled={memberActionBusy === `${league.id}:${member.user_id}:approve`}>Одобрить</button>
+                    <button type="button" className="danger" onClick={() => decideMemberRequest(league.id, member, 'reject')} disabled={memberActionBusy === `${league.id}:${member.user_id}:reject`}>Отклонить</button>
+                  </div>
+                )}
                 {isActive && (
                   <div className="league-member-actions">
                     {!isProtected && member.role !== 'admin' && (

@@ -91,8 +91,15 @@ from app.handlers.quiz import (
     quiz_handler,
     quiz_stats_handler,
 )
-from app.handlers.start import chat_id_handler, start_handler, access_approve_callback, access_reject_callback
-from app.handlers.table import ai_summary_handler, summary_handler, table_buttons_handler, table_handler, table_noop_callback
+from app.handlers.start import (
+    access_approve_callback,
+    access_reject_callback,
+    chat_id_handler,
+    league_join_approve_callback,
+    league_join_reject_callback,
+    start_handler,
+)
+from app.handlers.table import ai_summary_handler, summary_handler, table_buttons_handler, table_handler, table_league_callback, table_noop_callback
 from app.handlers.tournament import (
     tournament_champion_handler,
     tournament_forecast_handler,
@@ -236,6 +243,9 @@ def register_handlers():
     dp.callback_query.register(panini_team_callback, PaniniForm.waiting_for_team, _cb_startswith("panini_team:"))
     dp.callback_query.register(access_approve_callback, _cb_startswith("access_approve:"))
     dp.callback_query.register(access_reject_callback, _cb_startswith("access_reject:"))
+    dp.callback_query.register(league_join_approve_callback, _cb_startswith("league_join_approve:"))
+    dp.callback_query.register(league_join_reject_callback, _cb_startswith("league_join_reject:"))
+    dp.callback_query.register(table_league_callback, _cb_startswith("table_league:"))
     dp.callback_query.register(table_noop_callback, _cb_equals("table_noop"))
 
 

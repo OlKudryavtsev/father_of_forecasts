@@ -17,6 +17,7 @@ from app.runtime import (
 )
 from app.services.matches import get_all_available_matches, get_nearest_matchday_matches, get_recent_and_upcoming_matches, is_playoff_match
 from app.services.predictions import build_predictions_text, get_missing_predictions_for_matches, parse_advancement_choice, parse_score, save_prediction_and_notify_admins
+from app.services.leagues import get_default_or_first_user_league, get_league_by_chat_id
 from app.services.users import get_or_create_user
 from app.states import MatchPredictionForm
 
@@ -224,6 +225,9 @@ async def predictions_handler(message: Message):
     db = SessionLocal()
 
     try:
+        user, _ = get_or_create_user(db, message.from_user)
+        league = get_league_by_chat_id(db, message.chat.id) if message.chat.type in {"group", "supergroup"} else get_default_or_first_user_league(db, user)
+        league_id = league.id if league else None
         parts = message.text.split()
 
         # Новый кнопочный режим
@@ -236,7 +240,7 @@ async def predictions_handler(message: Message):
 
             await message.answer(
                 "Выбери матч, по которому хочешь посмотреть прогнозы:",
-                reply_markup=build_predictions_matches_keyboard(matches),
+                reply_markup=build_predictions_matches_keyboard(matches, league_id=league_id),
             )
             return
 
@@ -260,7 +264,7 @@ async def predictions_handler(message: Message):
             await message.answer("Матч с таким ID не найден.")
             return
 
-        await message.answer(build_predictions_text(db, match))
+        await message.answer(build_predictions_text(db, match, league_id=league_id))
 
     finally:
         db.close()
@@ -273,7 +277,9 @@ async def predict_match_callback(callback: CallbackQuery):
     try:
         user, _ = get_or_create_user(db, callback.from_user)
 
-        match_id = int(callback.data.split(":")[1])
+        parts = (callback.data or "").split(":")
+        match_id = int(parts[1])
+        league_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
 
         match = db.query(Match).filter(Match.id == match_id).first()
 
@@ -560,7 +566,9 @@ async def predictions_match_callback(callback: CallbackQuery):
     db = SessionLocal()
 
     try:
-        match_id = int(callback.data.split(":")[1])
+        parts = (callback.data or "").split(":")
+        match_id = int(parts[1])
+        league_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
 
         match = db.query(Match).filter(Match.id == match_id).first()
 
@@ -569,7 +577,7 @@ async def predictions_match_callback(callback: CallbackQuery):
             await callback.answer()
             return
 
-        await callback.message.answer(build_predictions_text(db, match))
+        await callback.message.answer(build_predictions_text(db, match, league_id=league_id))
         await callback.answer()
 
     finally:

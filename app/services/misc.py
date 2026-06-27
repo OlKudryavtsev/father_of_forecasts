@@ -220,11 +220,22 @@ def get_team_flag_code(team_name: str | None, api_name: str | None = None) -> st
     return ""
 
 
-def build_user_summary_context(db, user: User) -> dict:
+def build_user_summary_context(db, user: User, league_id: int | None = None) -> dict:
     """Provide bot helper logic for build_user_summary_context."""
-    predictions = db.query(Prediction).filter(
-        Prediction.user_id == user.id
-    ).all()
+    predictions_query = (
+        db.query(Prediction)
+        .join(Match, Prediction.match_id == Match.id)
+        .filter(Prediction.user_id == user.id, Match.tournament_code == TOURNAMENT_CODE)
+    )
+    selected_league = None
+    if league_id is not None:
+        from app.models import League
+        from app.services.leagues import league_scoring_start_at
+        selected_league = db.query(League).filter(League.id == league_id, League.is_active == True).first()
+        scoring_start = league_scoring_start_at(selected_league) if selected_league else None
+        if scoring_start is not None:
+            predictions_query = predictions_query.filter(Match.starts_at >= scoring_start)
+    predictions = predictions_query.all()
 
     tournament_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
@@ -268,6 +279,13 @@ def build_user_summary_context(db, user: User) -> dict:
         key=lambda row: row["points"],
         reverse=True,
     )
+
+    if league_id is not None and selected_league is not None:
+        # Reuse the single source of truth used by /table for rank and points.
+        leaderboard_rows = [
+            {"user_id": row.get("user_id"), "name": row.get("name"), "points": row.get("points", 0)}
+            for row in build_table_rows(db, league_id=selected_league.id)
+        ]
 
     user_position = None
     leader_points = 0
@@ -382,10 +400,11 @@ def build_user_summary_context(db, user: User) -> dict:
         }
 
     return {
+        "league": {"id": selected_league.id, "name": selected_league.name} if selected_league else None,
         "user": {
             "name": user.display_name,
             "position": user_position,
-            "participants_count": len(all_users),
+            "participants_count": len(leaderboard_rows),
             "leader_points": leader_points,
             "points_behind_leader": max(leader_points - total_points, 0),
         },

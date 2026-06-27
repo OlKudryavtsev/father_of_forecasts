@@ -12,6 +12,7 @@ from app.runtime import (
 )
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, parse_tournament_prediction_payload, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
 from app.services.tournament_forecast import build_father_tournament_forecast_text
+from app.services.leagues import get_default_or_first_user_league, get_league_by_chat_id
 from app.services.users import get_or_create_user
 from app.states import TournamentPredictionForm
 
@@ -114,7 +115,13 @@ async def tournament_predictions_handler(message: Message):
     db = SessionLocal()
 
     try:
-        users = db.query(User).order_by(User.display_name).all()
+        user, _ = get_or_create_user(db, message.from_user)
+        league = get_league_by_chat_id(db, message.chat.id) if message.chat.type in {"group", "supergroup"} else get_default_or_first_user_league(db, user)
+        users_query = db.query(User).filter(User.access_status == "approved")
+        if league:
+            from app.models import LeagueMember
+            users_query = users_query.join(LeagueMember, LeagueMember.user_id == User.id).filter(LeagueMember.league_id == league.id, LeagueMember.status == "active")
+        users = users_query.order_by(User.display_name).all()
 
         predictions = db.query(TournamentPrediction).filter(
             TournamentPrediction.tournament_code == TOURNAMENT_CODE
@@ -130,7 +137,7 @@ async def tournament_predictions_handler(message: Message):
         start_text = format_datetime(get_tournament_starts_at())
 
         lines = [
-            "🏆 Прогнозы на итоги турнира",
+            f"🏆 Прогнозы на итоги турнира{f' · {league.name}' if league else ''}",
             f"Старт турнира: {start_text}",
             "",
         ]

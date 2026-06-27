@@ -64,10 +64,12 @@ from app.services.news import get_news_usage_summary, serialize_news_item
 from app.services.match_details import build_match_details_payload, sync_match_details_cache
 from app.services.tournament_hub import find_top_scorer, get_team_scorers, get_top_scorers, player_match_rows, resolve_player_by_name
 from app.services.leagues import (
+    approve_league_join_request,
     create_user_league,
     deactivate_league,
     get_user_active_leagues,
-    join_league_by_invite_code,
+    reject_league_join_request,
+    request_league_join_by_invite_code,
     league_scoring_start_at,
     list_league_members,
     normalize_invite_code,
@@ -896,31 +898,42 @@ def get_my_leagues(
 
 
 @router.post("/leagues")
-def create_league_endpoint(
+async def create_league_endpoint(
     payload: LeagueCreatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Create a private league and add current user as admin."""
+    """Create a private league and inform the global administrator."""
     try:
         league = create_user_league(db, current_user, payload.name, payload.description)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    try:
+        from app.services.league_notifications import notify_global_admins_about_league_event
+        await notify_global_admins_about_league_event(league, current_user, "league_created")
+    except Exception as error:
+        print(f"Failed to notify global admin about new league: {error}")
     return {"ok": True, "league": _serialize_league(league, current_user)}
 
 
 @router.post("/leagues/join")
-def join_league_endpoint(
+async def join_league_endpoint(
     payload: LeagueJoinPayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Join an existing league by invite code."""
+    """Request entrance to an existing league by invite code."""
     try:
-        league = join_league_by_invite_code(db, current_user, payload.invite_code)
+        league, member, request_created = request_league_join_by_invite_code(db, current_user, payload.invite_code)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    return {"ok": True, "league": _serialize_league(league, current_user)}
+    if request_created:
+        try:
+            from app.services.league_notifications import notify_league_managers_about_join_request
+            await notify_league_managers_about_join_request(db, league, current_user)
+        except Exception as error:
+            print(f"Failed to notify league managers about join request: {error}")
+    return {"ok": True, "league": _serialize_league(league, current_user), "join_status": member.status, "request_created": bool(request_created)}
 
 
 
@@ -950,6 +963,10 @@ def _serialize_league_activity(event: LeagueActivityEvent) -> dict:
         title = "Вступил в лигу"
         detail = payload.get("league_name") or "Лига"
         icon = "👋"
+    elif action_type == "member_join_requested":
+        title = "Отправил запрос на вступление"
+        detail = payload.get("league_name") or "Лига"
+        icon = "⏳"
     elif action_type in {"match_prediction_created", "match_prediction_updated"}:
         # The activity feed must never disclose a participant's predicted score.
         # Legacy records may still carry payload["prediction"], so intentionally
@@ -1099,6 +1116,50 @@ def remove_league_member_endpoint(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "member": _serialize_league_member(member, league)}
+
+
+@router.post("/leagues/{league_id}/members/{user_id}/approve")
+async def approve_league_member_request_endpoint(league_id: int, user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict:
+    try:
+        member = approve_league_join_request(db, current_user, league_id, user_id)
+        league = member.league
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        from app.services.league_notifications import (
+            league_manager_telegram_ids,
+            notify_global_admins_about_league_event,
+            notify_join_decision,
+        )
+        await notify_join_decision(member.user, league, accepted=True)
+        await notify_global_admins_about_league_event(
+            league,
+            member.user,
+            "member_joined",
+            exclude_telegram_ids=league_manager_telegram_ids(db, league),
+        )
+    except Exception as error:
+        print(f"Failed to send approved league join notifications: {error}")
+    return {"ok": True, "member": _serialize_league_member(member, league)}
+
+
+@router.post("/leagues/{league_id}/members/{user_id}/reject")
+async def reject_league_member_request_endpoint(league_id: int, user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict:
+    try:
+        member = reject_league_join_request(db, current_user, league_id, user_id)
+        league = member.league
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        from app.services.league_notifications import notify_join_decision
+        await notify_join_decision(member.user, league, accepted=False)
+    except Exception as error:
+        print(f"Failed to send rejected league join notification: {error}")
     return {"ok": True, "member": _serialize_league_member(member, league)}
 
 
@@ -4675,6 +4736,7 @@ def _build_group_standings(db: Session) -> list[dict]:
         db.query(Match)
         .filter(
             Match.tournament_code == TOURNAMENT_CODE,
+            Match.stage == "group",
             Match.group_code.isnot(None),
         )
         .order_by(Match.group_code.asc(), Match.starts_at.asc())
@@ -4758,6 +4820,7 @@ def _default_tournament_group_codes(db: Session) -> list[str]:
         db.query(Match.group_code, Match.starts_at)
         .filter(
             Match.tournament_code == TOURNAMENT_CODE,
+            Match.stage == "group",
             Match.group_code.isnot(None),
         )
         .order_by(Match.starts_at.asc())

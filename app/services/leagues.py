@@ -489,31 +489,106 @@ def create_user_league(db, owner: User, name: str, description: str | None = Non
     return league
 
 
-def join_league_by_invite_code(db, user: User, invite_code: str | None) -> League:
-    """Join a league using an invite code."""
+def get_league_by_chat_id(db, chat_id: int | str | None) -> League | None:
+    """Return the active league explicitly bound to a Telegram chat."""
+    raw = str(chat_id or "").strip()
+    if not raw:
+        return None
+    # chat_id was TEXT in newer migrations and BIGINT in older installations;
+    # compare in Python to remain compatible with both schemas.
+    for league in db.query(League).filter(League.is_active == True, League.chat_id.isnot(None)).all():
+        if str(getattr(league, "chat_id", "") or "").strip() == raw:
+            return league
+    return None
+
+
+def request_league_join_by_invite_code(db, user: User, invite_code: str | None) -> tuple[League, LeagueMember, bool]:
+    """Create a pending request instead of silently adding a user to a league.
+
+    Returns ``(league, membership, created_request)``. Existing active members
+    are returned unchanged so invite links remain idempotent.
+    """
     league = get_league_by_invite_code(db, invite_code)
     if not league:
         raise ValueError("Лига с таким кодом не найдена")
 
-    previous = (
-        db.query(LeagueMember)
-        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user.id)
-        .first()
-    )
-    was_active = bool(previous and previous.status == "active")
-    ensure_user_in_league(db, user, league, role="member")
+    member = get_league_member(db, league, user)
+    if member and member.status == "active":
+        return league, member, False
+    if member and member.status == "pending":
+        return league, member, False
+
+    if not member:
+        member = LeagueMember(league_id=league.id, user_id=user.id, role="member", status="pending")
+        db.add(member)
+    else:
+        member.role = "member"
+        member.status = "pending"
+
     db.commit()
+    db.refresh(member)
     db.refresh(league)
 
-    if not was_active:
-        try:
-            record_league_activity(
-                db,
-                league=league,
-                actor=user,
-                action_type="member_joined",
-                payload={"league_name": league.name},
-            )
-        except Exception:
-            db.rollback()
+    try:
+        record_league_activity(
+            db,
+            league=league,
+            actor=user,
+            action_type="member_join_requested",
+            payload={"league_name": league.name},
+        )
+    except Exception:
+        db.rollback()
+
+    return league, member, True
+
+
+def approve_league_join_request(db, actor: User, league_id: int, user_id: int) -> LeagueMember:
+    """Accept a pending membership request as the owner or a league admin."""
+    league = require_manage_league(db, actor, league_id)
+    member = (
+        db.query(LeagueMember)
+        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user_id)
+        .first()
+    )
+    if not member or member.status != "pending":
+        raise ValueError("Заявка на вступление не найдена")
+
+    member.status = "active"
+    member.joined_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(member)
+
+    try:
+        record_league_activity(
+            db,
+            league=league,
+            actor=member.user,
+            action_type="member_joined",
+            payload={"league_name": league.name},
+        )
+    except Exception:
+        db.rollback()
+    return member
+
+
+def reject_league_join_request(db, actor: User, league_id: int, user_id: int) -> LeagueMember:
+    """Decline a pending membership request without blocking the user globally."""
+    league = require_manage_league(db, actor, league_id)
+    member = (
+        db.query(LeagueMember)
+        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user_id)
+        .first()
+    )
+    if not member or member.status != "pending":
+        raise ValueError("Заявка на вступление не найдена")
+    member.status = "rejected"
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+def join_league_by_invite_code(db, user: User, invite_code: str | None) -> League:
+    """Backward-compatible wrapper used by older call sites."""
+    league, _member, _created = request_league_join_by_invite_code(db, user, invite_code)
     return league

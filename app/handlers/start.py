@@ -4,7 +4,15 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.runtime import CallbackQuery, Message, SessionLocal, bot
 from app.services.admin import get_admin_telegram_ids
-from app.services.leagues import approve_user, extract_invite_code_from_start_text, get_league_by_invite_code, reject_user
+from app.services.leagues import (
+    approve_user,
+    can_manage_league,
+    extract_invite_code_from_start_text,
+    get_league_by_invite_code,
+    get_league_member,
+    reject_user,
+    request_league_join_by_invite_code,
+)
 from app.services.users import get_or_create_user, get_start_message_for_user
 from app.handlers.miniapp import answer_with_private_miniapp_button, get_miniapp_url
 
@@ -20,32 +28,29 @@ def _approval_keyboard(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
-async def _notify_admins_about_access_request(user, invite_league_name: str | None = None) -> None:
+async def _notify_admins_about_access_request(db, user, invite_league=None) -> None:
+    """Route invited newcomers to the league owner; global admins get an FYI."""
+    if invite_league:
+        from app.services.league_notifications import notify_league_managers_about_join_request
+        await notify_league_managers_about_join_request(db, invite_league, user, access_request=True)
+        return
+
     admin_ids = get_admin_telegram_ids()
     if not admin_ids:
         return
-
     username_text = f"@{user.username}" if user.username else "без username"
-    invite_text = f"\nПриглашение в лигу: {invite_league_name}" if invite_league_name else ""
-
     text = (
         "🆕 Новая заявка на участие\n\n"
         f"Имя: {user.display_name}\n"
         f"Telegram ID: {user.telegram_id}\n"
-        f"Username: {username_text}"
-        f"{invite_text}\n\n"
+        f"Username: {username_text}\n\n"
         "Подтвердить доступ?"
     )
-
     for admin_telegram_id in admin_ids:
         if admin_telegram_id == user.telegram_id:
             continue
         try:
-            await bot.send_message(
-                chat_id=admin_telegram_id,
-                text=text,
-                reply_markup=_approval_keyboard(user.id),
-            )
+            await bot.send_message(chat_id=admin_telegram_id, text=text, reply_markup=_approval_keyboard(user.id))
         except Exception as error:
             print(f"Failed to send access request to admin {admin_telegram_id}: {error}")
 
@@ -78,15 +83,32 @@ async def start_handler(message: Message):
     try:
         user, created = get_or_create_user(db, message.from_user, invite_code=invite_code)
 
+        invite_league = None
         invite_league_name = None
         if invite_code:
             invite_league = get_league_by_invite_code(db, invite_code)
             invite_league_name = invite_league.name if invite_league else None
 
+        # An already approved user who opened a league deep link sends a
+        # membership request; a private league never gains members silently.
+        if invite_code and invite_league and getattr(user, "access_status", "approved") == "approved":
+            current_member = get_league_member(db, invite_league, user)
+            if not current_member or current_member.status != "active":
+                _league, member, request_created = request_league_join_by_invite_code(db, user, invite_code)
+                if request_created:
+                    from app.services.league_notifications import notify_league_managers_about_join_request
+                    await notify_league_managers_about_join_request(db, invite_league, user)
+                await message.answer(
+                    f"⏳ Заявка на вступление в лигу «{invite_league.name}» отправлена ее администратору."
+                    if member.status == "pending" else
+                    f"Ты уже состоишь в лиге «{invite_league.name}»."
+                )
+                return
+
         await message.answer(get_start_message_for_user(user, created))
 
         if created and getattr(user, "access_status", "approved") == "pending":
-            await _notify_admins_about_access_request(user, invite_league_name=invite_league_name)
+            await _notify_admins_about_access_request(db, user, invite_league=invite_league)
             return
 
         if created and getattr(user, "access_status", "approved") == "approved":
@@ -122,9 +144,6 @@ async def access_approve_callback(callback: CallbackQuery):
     db = SessionLocal()
     try:
         admin_user, _ = get_or_create_user(db, callback.from_user)
-        if not admin_user.is_admin:
-            await callback.answer("Недостаточно прав.", show_alert=True)
-            return
 
         try:
             user_id = int((callback.data or "").split(":", 1)[1])
@@ -137,6 +156,11 @@ async def access_approve_callback(callback: CallbackQuery):
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             await callback.answer("Пользователь не найден.", show_alert=True)
+            return
+
+        invite_league = get_league_by_invite_code(db, getattr(user, "pending_invite_code", None))
+        if not admin_user.is_admin and not (invite_league and can_manage_league(db, admin_user, invite_league)):
+            await callback.answer("Недостаточно прав.", show_alert=True)
             return
 
         if user.access_status == "approved":
@@ -187,9 +211,6 @@ async def access_reject_callback(callback: CallbackQuery):
     db = SessionLocal()
     try:
         admin_user, _ = get_or_create_user(db, callback.from_user)
-        if not admin_user.is_admin:
-            await callback.answer("Недостаточно прав.", show_alert=True)
-            return
 
         try:
             user_id = int((callback.data or "").split(":", 1)[1])
@@ -202,6 +223,30 @@ async def access_reject_callback(callback: CallbackQuery):
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             await callback.answer("Пользователь не найден.", show_alert=True)
+            return
+
+        invite_league = get_league_by_invite_code(db, getattr(user, "pending_invite_code", None))
+        if not admin_user.is_admin and not (invite_league and can_manage_league(db, admin_user, invite_league)):
+            await callback.answer("Недостаточно прав.", show_alert=True)
+            return
+
+        if not admin_user.is_admin and invite_league:
+            # The owner declines only this league admission. The person remains
+            # eligible to receive another invite, rather than being globally banned.
+            user.access_status = "approved"
+            user.approved_at = user.approved_at or __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            user.pending_invite_code = None
+            db.commit()
+            await callback.answer("Заявка в лигу отклонена.")
+            if callback.message:
+                try:
+                    await callback.message.edit_text(f"❌ Заявка в лигу «{invite_league.name}» отклонена\n\nПользователь: {user.display_name}")
+                except Exception:
+                    pass
+            try:
+                await bot.send_message(chat_id=user.telegram_id, text=f"❌ Заявка в лигу «{invite_league.name}» отклонена ее администратором.")
+            except Exception as error:
+                print(f"Failed to notify rejected league applicant {user.telegram_id}: {error}")
             return
 
         reject_user(db, user, rejected_by=admin_user)
@@ -236,3 +281,67 @@ async def chat_id_handler(message: Message):
         f"chat_id: {message.chat.id}\n"
         f"type: {message.chat.type}"
     )
+
+
+async def league_join_approve_callback(callback: CallbackQuery):
+    """Approve a Mini App league join request from Telegram."""
+    db = SessionLocal()
+    try:
+        actor, _ = get_or_create_user(db, callback.from_user)
+        try:
+            _prefix, league_id_raw, user_id_raw = (callback.data or "").split(":", 2)
+            league_id, user_id = int(league_id_raw), int(user_id_raw)
+        except Exception:
+            await callback.answer("Некорректная заявка.", show_alert=True)
+            return
+        from app.services.leagues import approve_league_join_request
+        member = approve_league_join_request(db, actor, league_id, user_id)
+        from app.services.league_notifications import (
+            league_manager_telegram_ids,
+            notify_global_admins_about_league_event,
+            notify_join_decision,
+        )
+        await notify_join_decision(member.user, member.league, accepted=True)
+        await notify_global_admins_about_league_event(
+            member.league,
+            member.user,
+            "member_joined",
+            exclude_telegram_ids=league_manager_telegram_ids(db, member.league),
+        )
+        await callback.answer("Участник добавлен в лигу.")
+        if callback.message:
+            try:
+                await callback.message.edit_text(f"✅ Заявка одобрена\n\nЛига: «{member.league.name}»\nУчастник: {member.user.display_name}")
+            except Exception:
+                pass
+    except (PermissionError, ValueError) as error:
+        await callback.answer(str(error), show_alert=True)
+    finally:
+        db.close()
+
+
+async def league_join_reject_callback(callback: CallbackQuery):
+    """Reject a Mini App league join request from Telegram."""
+    db = SessionLocal()
+    try:
+        actor, _ = get_or_create_user(db, callback.from_user)
+        try:
+            _prefix, league_id_raw, user_id_raw = (callback.data or "").split(":", 2)
+            league_id, user_id = int(league_id_raw), int(user_id_raw)
+        except Exception:
+            await callback.answer("Некорректная заявка.", show_alert=True)
+            return
+        from app.services.leagues import reject_league_join_request
+        member = reject_league_join_request(db, actor, league_id, user_id)
+        from app.services.league_notifications import notify_join_decision
+        await notify_join_decision(member.user, member.league, accepted=False)
+        await callback.answer("Заявка отклонена.")
+        if callback.message:
+            try:
+                await callback.message.edit_text(f"❌ Заявка отклонена\n\nЛига: «{member.league.name}»\nУчастник: {member.user.display_name}")
+            except Exception:
+                pass
+    except (PermissionError, ValueError) as error:
+        await callback.answer(str(error), show_alert=True)
+    finally:
+        db.close()

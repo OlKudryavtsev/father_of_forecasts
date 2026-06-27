@@ -3,10 +3,11 @@
 
 from app.formatters.matches import format_match_label
 from app.formatters.misc import format_percent
-from app.keyboards.table import build_table_buttons_keyboard
+from app.keyboards.table import build_league_selector_keyboard, build_table_buttons_keyboard
 from app.runtime import (
     CallbackQuery,
     Message,
+    Match,
     Prediction,
     SessionLocal,
     TOURNAMENT_CODE,
@@ -16,127 +17,70 @@ from app.runtime import (
     generate_ai_summary,
     timezone,
 )
+from app.services.leagues import get_default_or_first_user_league, get_league_by_chat_id, get_user_active_leagues, league_scoring_start_at, require_user_league
 from app.services.misc import build_table_rows, build_user_summary_context
 from app.services.predictions import get_prediction_points_breakdown
 from app.services.users import get_or_create_user
 
-async def table_handler(message: Message):
-    """Handle asynchronous bot workflow for table_handler."""
-    db = SessionLocal()
-
-    try:
-        users = db.query(User).all()
-
-        rows = []
-
-        for user in users:
-            predictions = db.query(Prediction).filter(
-                Prediction.user_id == user.id
-            ).all()
-
-            tournament_prediction = db.query(TournamentPrediction).filter(
-                TournamentPrediction.user_id == user.id,
-                TournamentPrediction.tournament_code == TOURNAMENT_CODE,
-            ).first()
-
-            match_points = sum(
-                prediction.points or 0
-                for prediction in predictions
-            )
-
-            tournament_points = (
-                tournament_prediction.points
-                if tournament_prediction
-                else 0
-            )
-
-            total_points = match_points + tournament_points
-
-            exact_scores = sum(
-                1
-                for prediction in predictions
-                if prediction.score_points == 3
-            )
-
-            outcomes = sum(
-                1
-                for prediction in predictions
-                if prediction.score_points == 1
-            )
-
-            advancement_plus = sum(
-                1
-                for prediction in predictions
-                if prediction.advancement_points == 1
-            )
-
-            advancement_minus = sum(
-                1
-                for prediction in predictions
-                if prediction.advancement_points == -1
-            )
-
-            total_predictions = len(predictions)
-
-            rows.append(
-                {
-                    "name": user.display_name,
-                    "points": total_points,
-                    "exact_scores": exact_scores,
-                    "outcomes": outcomes,
-                    "advancement_plus": advancement_plus,
-                    "advancement_minus": advancement_minus,
-                    "tournament_points": tournament_points,
-                    "total_predictions": total_predictions,
-                }
-            )
-
-        rows.sort(
-            key=lambda row: (
-                row["points"],
-                row["exact_scores"],
-                row["outcomes"],
-            ),
-            reverse=True,
+def _format_league_table(db, league) -> str:
+    rows = build_table_rows(db, league_id=league.id)
+    if not rows:
+        return f"🏆 Таблица «{league.name}»\n\nПока нет участников с прогнозами."
+    lines = [f"🏆 Таблица «{league.name}»", "№ Игрок — Очки | 🎯 ✅ 🟢 🔴 🏆 📋", ""]
+    for index, row in enumerate(rows, start=1):
+        name = row.get("name") or "Игрок"
+        if len(name) > 16:
+            name = name[:15] + "…"
+        lines.append(
+            f"{index}. {name} — {row.get('points', 0)} | "
+            f"{row.get('exact_scores', 0)} {row.get('outcomes', 0)} "
+            f"{row.get('advancement_plus', 0)} {row.get('advancement_minus', 0)} "
+            f"{row.get('tournament_points', 0)} {row.get('total_predictions', 0)}"
         )
+    lines += ["", "🎯 точные счета (+3) · ✅ исходы (+1)", "🟢/🔴 проход (+1/−1) · 🏆 турнир · 📋 матчевые прогнозы"]
+    return "\n".join(lines)
 
-        if not rows:
-            await message.answer("Таблица пока пустая.")
+
+def _message_chat_is_group(message: Message) -> bool:
+    return getattr(getattr(message, "chat", None), "type", None) in {"group", "supergroup"}
+
+
+async def table_handler(message: Message):
+    """Show a chat-bound table or offer a selector of the user's active leagues."""
+    db = SessionLocal()
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+        if _message_chat_is_group(message):
+            league = get_league_by_chat_id(db, message.chat.id)
+            if not league:
+                await message.answer("Для этого чата не настроена лига. Владелец может указать Chat ID в приложении.")
+                return
+            await message.answer(_format_league_table(db, league))
             return
+        leagues = get_user_active_leagues(db, user)
+        if not leagues:
+            await message.answer("Ты пока не состоишь ни в одной лиге.")
+        elif len(leagues) == 1:
+            await message.answer(_format_league_table(db, leagues[0]))
+        else:
+            await message.answer("🏆 Выбери лигу, таблицу которой хочешь посмотреть:", reply_markup=build_league_selector_keyboard(leagues))
+    finally:
+        db.close()
 
-        lines = [
-            "🏆 Таблица «Отец прогнозов»",
-            "№ Игрок — Очки | 🎯 ✅ 🟢 🔴 🏆 📋",
-            "",
-        ]
 
-        for index, row in enumerate(rows, start=1):
-            name = row["name"]
-
-            # Чтобы длинные имена не ломали таблицу
-            if len(name) > 16:
-                name = name[:15] + "…"
-
-            lines.append(
-                f"{index}. {name} — {row['points']} | "
-                f"{row['exact_scores']} "
-                f"{row['outcomes']} "
-                f"{row['advancement_plus']} "
-                f"{row['advancement_minus']} "
-                f"{row['tournament_points']} "
-                f"{row['total_predictions']}"
-            )
-
-        lines.append("")
-        lines.append("🎯 точные счета (+3)")
-        lines.append("✅ угаданные исходы (+1)")
-        lines.append("🟢 угаданные проходы (+1)")
-        lines.append("🔴 неугаданные проходы (-1)")
-        lines.append("🏆 очки за прогноз на турнир")
-        lines.append("📋 всего матчевых прогнозов")
-
-        await message.answer("\n".join(lines))
-
+async def table_league_callback(callback: CallbackQuery):
+    db = SessionLocal()
+    try:
+        user, _ = get_or_create_user(db, callback.from_user)
+        try:
+            league_id = int((callback.data or "").split(":", 1)[1])
+            league = require_user_league(db, user, league_id)
+        except (ValueError, IndexError):
+            await callback.answer("Лига недоступна.", show_alert=True)
+            return
+        if callback.message:
+            await callback.message.answer(_format_league_table(db, league))
+        await callback.answer()
     finally:
         db.close()
 
@@ -147,10 +91,15 @@ async def summary_handler(message: Message):
 
     try:
         user, _ = get_or_create_user(db, message.from_user)
-
-        predictions = db.query(Prediction).filter(
-            Prediction.user_id == user.id
-        ).all()
+        league = get_league_by_chat_id(db, message.chat.id) if _message_chat_is_group(message) else get_default_or_first_user_league(db, user)
+        predictions_query = (
+            db.query(Prediction)
+            .join(Match, Prediction.match_id == Match.id)
+            .filter(Prediction.user_id == user.id, Match.tournament_code == TOURNAMENT_CODE)
+        )
+        if league and league_scoring_start_at(league) is not None:
+            predictions_query = predictions_query.filter(Match.starts_at >= league_scoring_start_at(league))
+        predictions = predictions_query.all()
 
         tournament_prediction = db.query(TournamentPrediction).filter(
             TournamentPrediction.user_id == user.id,
@@ -233,7 +182,7 @@ async def summary_handler(message: Message):
         )
 
         lines = [
-            "📊 Твоя статистика",
+            f"📊 Твоя статистика{f' · {league.name}' if league else ''}",
             "",
             f"Участник: {user.display_name}",
             f"Всего очков: {total_points}",
@@ -309,10 +258,11 @@ async def ai_summary_handler(message: Message):
 
     try:
         user, _ = get_or_create_user(db, message.from_user)
+        league = get_league_by_chat_id(db, message.chat.id) if _message_chat_is_group(message) else get_default_or_first_user_league(db, user)
 
-        await message.answer("🤖 Отец прогнозов изучает твою статистику...")
+        await message.answer(f"🤖 Отец прогнозов изучает твою статистику{f' в лиге «{league.name}»' if league else ''}...")
 
-        context = build_user_summary_context(db, user)
+        context = build_user_summary_context(db, user, league_id=league.id if league else None)
 
         try:
             text = generate_ai_summary(context)
@@ -332,27 +282,8 @@ async def ai_summary_handler(message: Message):
 
 
 async def table_buttons_handler(message: Message):
-    """Handle asynchronous bot workflow for table_buttons_handler."""
-    db = SessionLocal()
-
-    try:
-        rows = build_table_rows(db)
-
-        if not rows:
-            await message.answer("Таблица пока пустая.")
-            return
-
-        await message.answer(
-            "🏆 Турнирная таблица\n\n"
-            "О — очки всего\n"
-            "🎯 — точные счета\n"
-            "✅ — угаданные исходы\n"
-            "🏆 — очки за прогноз на турнир",
-            reply_markup=build_table_buttons_keyboard(rows),
-        )
-
-    finally:
-        db.close()
+    """Backward-compatible alias for /table."""
+    await table_handler(message)
 
 
 async def table_noop_callback(callback: CallbackQuery):

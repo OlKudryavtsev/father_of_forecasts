@@ -158,8 +158,9 @@ def user_has_prediction(db, user: User, match: Match) -> bool:
     return prediction is not None
 
 
-def build_predictions_text(db, match: Match) -> str:
-    """Provide bot helper logic for build_predictions_text."""
+def build_predictions_text(db, match: Match, league_id: int | None = None) -> str:
+    """Build participant predictions, scoped to a league where requested."""
+    from app.models import LeagueMember
     from app.services.matches import is_playoff_match
     now = datetime.now(timezone.utc)
 
@@ -169,11 +170,27 @@ def build_predictions_text(db, match: Match) -> str:
 
     is_revealed = now >= match_start
 
-    users = db.query(User).order_by(User.display_name).all()
-
-    predictions = db.query(Prediction).filter(
-        Prediction.match_id == match.id
-    ).all()
+    users_query = db.query(User).filter(User.access_status == "approved")
+    predictions_query = db.query(Prediction).filter(Prediction.match_id == match.id)
+    if league_id is not None:
+        users_query = (
+            users_query.join(LeagueMember, LeagueMember.user_id == User.id)
+            .filter(
+                LeagueMember.league_id == league_id,
+                LeagueMember.status == "active",
+                LeagueMember.joined_at <= match.starts_at,
+            )
+        )
+        predictions_query = (
+            predictions_query.join(LeagueMember, LeagueMember.user_id == Prediction.user_id)
+            .filter(
+                LeagueMember.league_id == league_id,
+                LeagueMember.status == "active",
+                LeagueMember.joined_at <= match.starts_at,
+            )
+        )
+    users = users_query.order_by(User.display_name).all()
+    predictions = predictions_query.all()
 
     predictions_by_user_id = {
         prediction.user_id: prediction

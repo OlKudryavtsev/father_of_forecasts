@@ -1344,3 +1344,15 @@ Scorer aliases and cached event fallback keep tournament-prediction status and t
 - Новый фильтр не требует миграций и работает только на стороне Mini App.
 
 Подробности: `RELEASE_V2_8_63_MATCH_CENTER_TEAM_FILTER.md`.
+
+
+## v2.8.64
+- Group standings include only actual group-stage fixtures.
+- League-bound Telegram tables, scoped prediction views and owner-approved league joins.
+
+
+### v2.8.64 — лиги в командах и заявки
+
+- Групповые таблицы защищены от попадания команд из плей-офф.
+- `/table` в личке выбирает лигу, а в связанном групповом чате автоматически показывает таблицу лиги этого чата.
+- Вступление по приглашению требует одобрения владельца/администратора лиги; глобальный администратор получает информационные уведомления.

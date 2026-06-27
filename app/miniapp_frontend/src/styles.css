@@ -11132,3 +11132,12 @@ body,
   .match-center-team-clear { width: calc(100% - 24px); margin-left: 12px; margin-right: 12px; }
   .match-center-team-options { padding-left: 12px; padding-right: 12px; }
 }
+
+.league-member-actions button.approve {
+  background: rgba(31, 203, 129, 0.18);
+  color: #8ff3c4;
+}
+.app.theme-light .league-member-actions button.approve {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
