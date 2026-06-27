@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.64';
+const APP_VERSION = '2.8.65';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2909,7 +2909,12 @@ function ScorePicker({ match, onClose, onSaved }) {
         </div>
 
         {isPlayoff && (
-          <section className="advancement-picker" aria-label="Прогноз на проход">
+          <>
+            <p className="playoff-main-time-note" role="note">
+              <span aria-hidden="true">🕒</span>
+              <span><b>Счёт — только за 90 минут.</b> Дополнительное время и пенальти учитываются только при выборе прохода.</span>
+            </p>
+            <section className="advancement-picker" aria-label="Прогноз на проход">
             <div className="advancement-picker-head">
               <div>
                 <b>Кто пройдёт дальше?</b>
@@ -2945,6 +2950,7 @@ function ScorePicker({ match, onClose, onSaved }) {
               </button>
             )}
           </section>
+          </>
         )}
 
         {error && <p className="error-text">{error.message}</p>}
@@ -6312,6 +6318,9 @@ function RulesModal({ onClose }) {
 
         <div className="rules-section">
           <h3>Плей-офф</h3>
+          <p className="playoff-main-time-note rules-main-time-note">
+            🕒 <b>Прогноз счёта учитывается только по основному времени — 90 минут.</b> Дополнительное время и пенальти учитываются только для прохода.
+          </p>
           <ul className="nice-list">
             <li>🟢 +1 очко — если проход дальше угадан.</li>
             <li>🔴 -1 очко — если проход не угадан.</li>
