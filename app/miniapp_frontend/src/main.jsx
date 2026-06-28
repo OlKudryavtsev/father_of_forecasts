@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.69';
+const APP_VERSION = '2.8.70';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5757,6 +5757,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
 
 function AdminAnalytics() {
   const [days, setDays] = useState(7);
+  const [showAdminActions, setShowAdminActions] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -5765,7 +5766,7 @@ function AdminAnalytics() {
     setLoading(true);
     setError(null);
     try {
-      setData(await api(`/api/webapp/admin/analytics?days=${days}`));
+      setData(await api(`/api/webapp/admin/analytics?days=${days}&include_admin=${showAdminActions ? 'true' : 'false'}`));
     } catch (err) {
       setError(err);
     } finally {
@@ -5777,7 +5778,7 @@ function AdminAnalytics() {
     trackAnalytics('analytics_open', { screen: 'admin', properties: { tab: 'analytics' } });
   }, []);
 
-  useEffect(() => { load(); }, [days]);
+  useEffect(() => { load(); }, [days, showAdminActions]);
 
   const summary = data?.summary || {};
   const screens = data?.screens || [];
@@ -5804,10 +5805,17 @@ function AdminAnalytics() {
           <h2>Что востребовано в приложении</h2>
           <p className="muted">Данные собираются только после установки этой версии. В статистику не попадают Telegram ID, username, фактические счета и тексты прогнозов.</p>
         </div>
-        <div className="admin-analytics-period" role="group" aria-label="Период аналитики">
-          {[7, 30].map((value) => (
-            <button key={value} type="button" className={days === value ? 'active' : ''} onClick={() => setDays(value)}>{value} дней</button>
-          ))}
+        <div className="admin-analytics-controls">
+          <div className="admin-analytics-period" role="group" aria-label="Период аналитики">
+            {[7, 30].map((value) => (
+              <button key={value} type="button" className={days === value ? 'active' : ''} onClick={() => setDays(value)}>{value} дней</button>
+            ))}
+          </div>
+          <label className="admin-analytics-admin-toggle">
+            <input type="checkbox" checked={showAdminActions} onChange={(event) => setShowAdminActions(event.target.checked)} />
+            <span className="admin-analytics-admin-switch" aria-hidden="true" />
+            <span><b>Показывать действия администратора</b><small>{showAdminActions ? 'В расчёты и историю включены ваши действия.' : 'По умолчанию ваши действия исключены из расчётов и истории.'}</small></span>
+          </label>
         </div>
       </section>
 

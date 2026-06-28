@@ -1376,27 +1376,37 @@ def create_analytics_event(
 @router.get("/admin/analytics")
 def get_admin_analytics(
     days: int = Query(default=7, ge=1, le=90),
+    include_admin: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Return compact, privacy-aware product usage analytics for administrators."""
+    """Return compact, privacy-aware product usage analytics for administrators.
+
+    By default the report excludes actions made by the administrator who opened
+    it. This keeps product metrics focused on ordinary participant behaviour,
+    while the optional flag still allows the admin to inspect their own actions.
+    """
     _require_miniapp_admin(current_user)
 
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=days)
-    base = db.query(AnalyticsEvent).filter(AnalyticsEvent.created_at >= since)
+    analytics_filters = [AnalyticsEvent.created_at >= since]
+    if not include_admin:
+        analytics_filters.append(AnalyticsEvent.user_id != current_user.id)
+
+    base = db.query(AnalyticsEvent).filter(*analytics_filters)
 
     def unique_users_for(event_names: list[str]) -> int:
         return int(
             db.query(func.count(func.distinct(AnalyticsEvent.user_id)))
-            .filter(AnalyticsEvent.created_at >= since, AnalyticsEvent.event_name.in_(event_names))
+            .filter(*analytics_filters, AnalyticsEvent.event_name.in_(event_names))
             .scalar() or 0
         )
 
     def event_count_for(event_names: list[str]) -> int:
         return int(
             db.query(func.count(AnalyticsEvent.id))
-            .filter(AnalyticsEvent.created_at >= since, AnalyticsEvent.event_name.in_(event_names))
+            .filter(*analytics_filters, AnalyticsEvent.event_name.in_(event_names))
             .scalar() or 0
         )
 
@@ -1414,7 +1424,7 @@ def get_admin_analytics(
             func.count(AnalyticsEvent.id).label("events"),
             func.count(func.distinct(AnalyticsEvent.user_id)).label("users"),
         )
-        .filter(AnalyticsEvent.created_at >= since, AnalyticsEvent.event_name == "screen_view")
+        .filter(*analytics_filters, AnalyticsEvent.event_name == "screen_view")
         .group_by(AnalyticsEvent.screen)
         .order_by(func.count(AnalyticsEvent.id).desc())
         .all()
@@ -1426,7 +1436,7 @@ def get_admin_analytics(
             func.count(AnalyticsEvent.id).label("events"),
             func.count(func.distinct(AnalyticsEvent.user_id)).label("users"),
         )
-        .filter(AnalyticsEvent.created_at >= since)
+        .filter(*analytics_filters)
         .group_by(AnalyticsEvent.event_name)
         .order_by(func.count(AnalyticsEvent.id).desc())
         .limit(12)
@@ -1439,7 +1449,7 @@ def get_admin_analytics(
             func.count(AnalyticsEvent.id).label("events"),
             func.count(func.distinct(AnalyticsEvent.user_id)).label("users"),
         )
-        .filter(AnalyticsEvent.created_at >= since)
+        .filter(*analytics_filters)
         .group_by(func.date(AnalyticsEvent.created_at))
         .order_by(func.date(AnalyticsEvent.created_at).asc())
         .all()
@@ -1467,7 +1477,7 @@ def get_admin_analytics(
     recent_rows = (
         db.query(AnalyticsEvent, User)
         .outerjoin(User, User.id == AnalyticsEvent.user_id)
-        .filter(AnalyticsEvent.created_at >= since)
+        .filter(*analytics_filters)
         .order_by(AnalyticsEvent.created_at.desc())
         .limit(40)
         .all()
@@ -1479,6 +1489,7 @@ def get_admin_analytics(
     return {
         "period_days": days,
         "since": since.isoformat(),
+        "includes_admin_actions": bool(include_admin),
         "summary": {
             "active_users": active_users,
             "active_sessions": active_sessions,
