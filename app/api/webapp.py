@@ -5401,6 +5401,368 @@ def _build_knockout_bracket(db: Session) -> dict:
     }
 
 
+# v2.8.69 — canonical World Cup 2026 draw.
+#
+# API-Football provides fixture records (and will continue to enrich them), but
+# a provider may expose the future fixtures late or omit their parent/child
+# graph.  The World Cup draw itself is already fixed, therefore the Mini App
+# must be able to render every stage even before the corresponding future match
+# has appeared in the database.  These logical node ids are stable UI ids; when
+# a real API-Football fixture exists, its database id is attached as
+# ``db_match_id`` and the card becomes clickable.
+WC2026_CANONICAL_DRAW = (
+    # Round of 32 (all qualifiers and pairings are now known).
+    {"id": "r32-01", "stage": "round_of_32", "home": "ЮАР", "away": "Канада", "starts_at": "2026-06-28T19:00:00+00:00", "city": "Лос-Анджелес"},
+    {"id": "r32-02", "stage": "round_of_32", "home": "Бразилия", "away": "Япония", "starts_at": "2026-06-29T17:00:00+00:00", "city": "Хьюстон"},
+    {"id": "r32-03", "stage": "round_of_32", "home": "Германия", "away": "Парагвай", "starts_at": "2026-06-29T20:30:00+00:00", "city": "Фоксборо"},
+    {"id": "r32-04", "stage": "round_of_32", "home": "Нидерланды", "away": "Марокко", "starts_at": "2026-06-30T01:00:00+00:00", "city": "Гвадалахара"},
+    {"id": "r32-05", "stage": "round_of_32", "home": "Кот-д'Ивуар", "away": "Норвегия", "starts_at": "2026-06-30T17:00:00+00:00", "city": "Арлингтон"},
+    {"id": "r32-06", "stage": "round_of_32", "home": "Франция", "away": "Швеция", "starts_at": "2026-06-30T21:00:00+00:00", "city": "Нью-Йорк / Нью-Джерси"},
+    {"id": "r32-07", "stage": "round_of_32", "home": "Мексика", "away": "Эквадор", "starts_at": "2026-07-01T01:00:00+00:00", "city": "Мехико"},
+    {"id": "r32-08", "stage": "round_of_32", "home": "Англия", "away": "ДР Конго", "starts_at": "2026-07-01T16:00:00+00:00", "city": "Атланта"},
+    {"id": "r32-09", "stage": "round_of_32", "home": "Бельгия", "away": "Сенегал", "starts_at": "2026-07-01T20:00:00+00:00", "city": "Сиэтл"},
+    {"id": "r32-10", "stage": "round_of_32", "home": "США", "away": "Босния и Герцеговина", "starts_at": "2026-07-02T00:00:00+00:00", "city": "Санта-Клара"},
+    {"id": "r32-11", "stage": "round_of_32", "home": "Испания", "away": "Австрия", "starts_at": "2026-07-02T19:00:00+00:00", "city": "Лос-Анджелес"},
+    {"id": "r32-12", "stage": "round_of_32", "home": "Португалия", "away": "Хорватия", "starts_at": "2026-07-02T23:00:00+00:00", "city": "Торонто"},
+    {"id": "r32-13", "stage": "round_of_32", "home": "Швейцария", "away": "Алжир", "starts_at": "2026-07-03T03:00:00+00:00", "city": "Ванкувер"},
+    {"id": "r32-14", "stage": "round_of_32", "home": "Австралия", "away": "Египет", "starts_at": "2026-07-03T18:00:00+00:00", "city": "Арлингтон"},
+    {"id": "r32-15", "stage": "round_of_32", "home": "Аргентина", "away": "Кабо-Верде", "starts_at": "2026-07-03T22:00:00+00:00", "city": "Майами"},
+    {"id": "r32-16", "stage": "round_of_32", "home": "Колумбия", "away": "Гана", "starts_at": "2026-07-04T01:30:00+00:00", "city": "Канзас-Сити"},
+    # Round of 16.  The source slots intentionally follow the published route,
+    # not date order: this is what makes the bracket predictable.
+    {"id": "r16-01", "stage": "round_of_16", "sources": ["r32-03", "r32-06"], "starts_at": "2026-07-04T21:00:00+00:00", "city": "Филадельфия"},
+    {"id": "r16-02", "stage": "round_of_16", "sources": ["r32-01", "r32-04"], "starts_at": "2026-07-04T17:00:00+00:00", "city": "Хьюстон"},
+    {"id": "r16-03", "stage": "round_of_16", "sources": ["r32-02", "r32-05"], "starts_at": "2026-07-05T20:00:00+00:00", "city": "Нью-Йорк / Нью-Джерси"},
+    {"id": "r16-04", "stage": "round_of_16", "sources": ["r32-07", "r32-08"], "starts_at": "2026-07-06T00:00:00+00:00", "city": "Мехико"},
+    {"id": "r16-05", "stage": "round_of_16", "sources": ["r32-12", "r32-11"], "starts_at": "2026-07-06T19:00:00+00:00", "city": "Арлингтон"},
+    {"id": "r16-06", "stage": "round_of_16", "sources": ["r32-10", "r32-09"], "starts_at": "2026-07-07T00:00:00+00:00", "city": "Сиэтл"},
+    {"id": "r16-07", "stage": "round_of_16", "sources": ["r32-15", "r32-14"], "starts_at": "2026-07-07T16:00:00+00:00", "city": "Атланта"},
+    {"id": "r16-08", "stage": "round_of_16", "sources": ["r32-13", "r32-16"], "starts_at": "2026-07-07T20:00:00+00:00", "city": "Ванкувер"},
+    # Quarter-finals.
+    {"id": "qf-01", "stage": "quarterfinal", "sources": ["r16-01", "r16-02"], "starts_at": "2026-07-09T20:00:00+00:00", "city": "Фоксборо"},
+    {"id": "qf-02", "stage": "quarterfinal", "sources": ["r16-05", "r16-06"], "starts_at": "2026-07-10T19:00:00+00:00", "city": "Лос-Анджелес"},
+    {"id": "qf-03", "stage": "quarterfinal", "sources": ["r16-03", "r16-04"], "starts_at": "2026-07-11T21:00:00+00:00", "city": "Майами"},
+    {"id": "qf-04", "stage": "quarterfinal", "sources": ["r16-07", "r16-08"], "starts_at": "2026-07-12T01:00:00+00:00", "city": "Канзас-Сити"},
+    # Semi-finals, final and third place.
+    {"id": "sf-01", "stage": "semifinal", "sources": ["qf-01", "qf-02"], "starts_at": "2026-07-14T20:00:00+00:00", "city": "Арлингтон"},
+    {"id": "sf-02", "stage": "semifinal", "sources": ["qf-03", "qf-04"], "starts_at": "2026-07-15T20:00:00+00:00", "city": "Атланта"},
+    {"id": "third-01", "stage": "third_place", "sources": ["sf-01", "sf-02"], "starts_at": "2026-07-18T20:00:00+00:00", "city": "Майами", "route": "loser"},
+    {"id": "final-01", "stage": "final", "sources": ["sf-01", "sf-02"], "starts_at": "2026-07-19T20:00:00+00:00", "city": "Нью-Йорк / Нью-Джерси"},
+)
+
+
+def _wc2026_team_key(value: str | None) -> str:
+    """Normalise Russian/English provider names for canonical-draw matching."""
+    raw = str(value or "").lower().replace("ё", "е")
+    compact = re.sub(r"[^a-zа-я0-9]+", "", raw)
+    aliases = {
+        "юар": "southafrica", "southafrica": "southafrica",
+        "сша": "usa", "usa": "usa", "unitedstates": "usa", "unitedstatesofamerica": "usa",
+        "д р конго": "drcongo", "дрконго": "drcongo", "drcongo": "drcongo", "democraticrepublicofcongo": "drcongo", "congodr": "drcongo",
+        "котдивуар": "ivorycoast", "cotedivoire": "ivorycoast", "ivorycoast": "ivorycoast",
+        "боснияигерцеговина": "bosnia", "bosniaandherzegovina": "bosnia", "bosniaherzegovina": "bosnia",
+        "кабоверде": "capeverde", "capeverde": "capeverde",
+    }
+    return aliases.get(compact, compact)
+
+
+def _build_knockout_bracket(db: Session) -> dict:
+    """Return the full official draw even when future API fixtures are absent.
+
+    The former implementation only emitted stages which already existed as
+    database rows.  API-Football may publish later-round records after the
+    round-of-32; that produced a single-column 'tree' and also made the route
+    finder incorrectly report unknown paths.  This implementation models the
+    fixed draw as logical nodes and layers real API fixtures onto those nodes.
+    """
+    stage_meta = {key: (label, short) for key, label, short in KNOCKOUT_STAGE_META}
+    definitions = [dict(item) for item in WC2026_CANONICAL_DRAW]
+    definition_by_id = {item["id"]: item for item in definitions}
+    stage_order = ["round_of_32", "round_of_16", "quarterfinal", "semifinal", "final", "third_place"]
+
+    playoff_matches = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.stage.in_(stage_order),
+        )
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+
+    def names_for_match(match: Match) -> set[str]:
+        values = [
+            match.home_team, match.away_team,
+            match.home_team_api_name, match.away_team_api_name,
+        ]
+        return {_wc2026_team_key(get_team_name_ru(value)) for value in values if str(value or "").strip()}
+
+    real_by_logical: dict[str, Match] = {}
+    used_real_ids: set[int] = set()
+    # First, bind round-of-32 fixtures by their resolved pair. This is immune
+    # to API fixture-id changes and to a different chronological order.
+    for definition in definitions:
+        if definition["stage"] != "round_of_32":
+            continue
+        expected = {_wc2026_team_key(definition["home"]), _wc2026_team_key(definition["away"])}
+        for match in playoff_matches:
+            if match.id in used_real_ids or match.stage != "round_of_32":
+                continue
+            if expected.issubset(names_for_match(match)):
+                real_by_logical[definition["id"]] = match
+                used_real_ids.add(match.id)
+                break
+
+    # Later-stage feeds often have TBD teams.  City and scheduled date identify
+    # those fixtures reliably; a narrow time window is used as a fallback.
+    for definition in definitions:
+        if definition["id"] in real_by_logical or definition["stage"] == "round_of_32":
+            continue
+        expected_time = datetime.fromisoformat(definition["starts_at"])
+        candidates = [
+            match for match in playoff_matches
+            if match.id not in used_real_ids and match.stage == definition["stage"]
+        ]
+        if not candidates:
+            continue
+        city_key = _wc2026_team_key(definition.get("city"))
+        city_matches = [
+            match for match in candidates
+            if city_key and city_key[:6] and city_key[:6] in _wc2026_team_key(match.city)
+        ]
+        pool = city_matches or candidates
+        selected = min(
+            pool,
+            key=lambda match: abs((_ensure_utc(match.starts_at) - expected_time).total_seconds()),
+        )
+        if abs((_ensure_utc(selected.starts_at) - expected_time).total_seconds()) <= 48 * 3600:
+            real_by_logical[definition["id"]] = selected
+            used_real_ids.add(selected.id)
+
+    def static_team(name: str | None) -> dict:
+        display_name = get_team_name_ru(name or "")
+        known = bool(display_name)
+        return {
+            "name": display_name if known else None,
+            "raw_name": display_name or None,
+            "team_id": None,
+            "flag": get_team_flag(display_name, None) if known else None,
+            "flag_code": get_team_flag_code(display_name, None) if known else None,
+            "known": known,
+            "label": display_name if known else "Соперник определится",
+            "candidates": [],
+        }
+
+    nodes: dict[str, dict] = {}
+    for definition in definitions:
+        real = real_by_logical.get(definition["id"])
+        label, short_label = stage_meta[definition["stage"]]
+        if real:
+            base = _knockout_match_base(real)
+            home = dict(base["home"])
+            away = dict(base["away"])
+            starts_at = base["starts_at"]
+            city = base.get("city") or definition.get("city")
+            venue = base.get("venue")
+            is_finished = bool(base.get("is_finished"))
+            score_home = base.get("score_home")
+            score_away = base.get("score_away")
+            winner_side = base.get("winner_side")
+        else:
+            home = static_team(definition.get("home")) if definition["stage"] == "round_of_32" else static_team(None)
+            away = static_team(definition.get("away")) if definition["stage"] == "round_of_32" else static_team(None)
+            starts_at = definition["starts_at"]
+            city = definition.get("city")
+            venue = None
+            is_finished = False
+            score_home = None
+            score_away = None
+            winner_side = None
+        nodes[definition["id"]] = {
+            "id": definition["id"],
+            "logical_id": definition["id"],
+            "db_match_id": real.id if real else None,
+            "external_fixture_id": str(real.external_fixture_id) if real and real.external_fixture_id is not None else None,
+            "is_virtual": real is None,
+            "stage": definition["stage"],
+            "stage_label": label,
+            "stage_short_label": short_label,
+            "starts_at": starts_at,
+            "venue": venue,
+            "city": city,
+            "is_finished": is_finished,
+            "score_home": score_home,
+            "score_away": score_away,
+            "winner_side": winner_side,
+            "home": home,
+            "away": away,
+            "source_match_ids": list(definition.get("sources") or []),
+            "route": definition.get("route") or "winner",
+        }
+
+    # Derive the unresolved side of every future fixture from the complete
+    # preceding branch.  Real provider teams always win over placeholders.
+    def candidate_teams(logical_id: str, visited: set[str] | None = None) -> list[dict]:
+        visited = set(visited or set())
+        if logical_id in visited:
+            return []
+        visited.add(logical_id)
+        node = nodes.get(logical_id)
+        if not node:
+            return []
+        candidates: list[dict] = []
+        for slot in (node["home"], node["away"]):
+            if slot.get("known"):
+                candidates.append(slot)
+        for source_id in node.get("source_match_ids") or []:
+            candidates.extend(candidate_teams(source_id, visited))
+        unique: dict[str, dict] = {}
+        for item in candidates:
+            key = str(item.get("team_id") or item.get("name") or "")
+            if key:
+                unique.setdefault(key, item)
+        return list(unique.values())
+
+    for definition in definitions:
+        node = nodes[definition["id"]]
+        sources = list(definition.get("sources") or [])
+        if not sources:
+            continue
+        for index, side in enumerate(("home", "away")):
+            slot = node[side]
+            source_id = sources[index] if index < len(sources) else None
+            if slot.get("known"):
+                slot["label"] = slot.get("name")
+                slot["candidates"] = []
+                continue
+            source_node = nodes.get(source_id) if source_id else None
+            source_stage_label = source_node.get("stage_label") if source_node else "предыдущего матча"
+            slot["source_match_id"] = source_id
+            slot["label"] = f"{'Проигравший' if definition.get('route') == 'loser' else 'Победитель'} {source_stage_label}"
+            slot["candidates"] = candidate_teams(source_id)[:16] if source_id else []
+
+    next_by_id: dict[str, str] = {}
+    loser_next_by_id: dict[str, str] = {}
+    for definition in definitions:
+        for source_id in definition.get("sources") or []:
+            if definition.get("route") == "loser":
+                loser_next_by_id[source_id] = definition["id"]
+            else:
+                next_by_id[source_id] = definition["id"]
+    for logical_id, node in nodes.items():
+        target = nodes.get(next_by_id.get(logical_id))
+        node["next_match_id"] = target["id"] if target else None
+        node["next_stage"] = target["stage"] if target else None
+        node["next_stage_label"] = target["stage_label"] if target else None
+        node["next_stage_short_label"] = target["stage_short_label"] if target else None
+        loser_target = nodes.get(loser_next_by_id.get(logical_id))
+        node["loser_next_match_id"] = loser_target["id"] if loser_target else None
+        node["loser_next_stage"] = loser_target["stage"] if loser_target else None
+        node["loser_next_stage_label"] = loser_target["stage_label"] if loser_target else None
+
+    stage_nodes: dict[str, list[dict]] = {stage: [] for stage in stage_order}
+    for definition in definitions:
+        stage_nodes[definition["stage"]].append(nodes[definition["id"]])
+
+    stages = [
+        {
+            "key": stage,
+            "label": stage_meta[stage][0],
+            "short_label": stage_meta[stage][1],
+            "matches": stage_nodes.get(stage, []),
+        }
+        for stage in stage_order
+    ]
+
+    tree_stages = ["round_of_32", "round_of_16", "quarterfinal", "semifinal", "final"]
+    tree_positions = {
+        "round_of_32": {"start": 1, "step": 4},
+        "round_of_16": {"start": 3, "step": 8},
+        "quarterfinal": {"start": 7, "step": 16},
+        "semifinal": {"start": 15, "step": 32},
+        "final": {"start": 31, "step": 64},
+    }
+    columns = []
+    for column, stage in enumerate(tree_stages):
+        layout = tree_positions[stage]
+        matches = []
+        for index, node in enumerate(stage_nodes.get(stage, [])):
+            item = dict(node)
+            item["tree_position"] = {"column": column, "row": layout["start"] + layout["step"] * index, "span": 3}
+            matches.append(item)
+        columns.append({
+            "key": stage,
+            "label": stage_meta[stage][0],
+            "short_label": stage_meta[stage][1],
+            "column": column,
+            "matches": matches,
+        })
+    edges = [
+        {"from": source_id, "to": target_id, "kind": "winner"}
+        for source_id, target_id in next_by_id.items()
+        if source_id in nodes and target_id in nodes
+    ]
+
+    # Every round-of-32 team has a fixed leaf after the group stage.  Thus path
+    # answers are deterministic: Portugal and Brazil, for example, meet only
+    # in the final; Germany and France can meet in the round of 16.
+    team_paths: dict[str, dict] = {}
+    for node in stage_nodes["round_of_32"]:
+        for slot in (node["home"], node["away"]):
+            if not slot.get("known"):
+                continue
+            key = str(slot.get("team_id") or slot.get("name"))
+            team_paths[key] = {
+                "id": key,
+                "name": slot.get("name"),
+                "team_id": slot.get("team_id"),
+                "flag": slot.get("flag"),
+                "flag_code": slot.get("flag_code"),
+                "leaf_id": node["id"],
+                "is_confirmed_path": True,
+            }
+
+    def ancestors(leaf_id: str) -> list[str]:
+        result = [leaf_id]
+        current = leaf_id
+        while next_by_id.get(current):
+            current = next_by_id[current]
+            result.append(current)
+        return result
+
+    stage_rank = {stage: index for index, stage in enumerate(tree_stages + ["third_place"])}
+    meeting_map: dict[str, dict] = {}
+    team_items = sorted(team_paths.values(), key=lambda item: str(item["name"]))
+    for index, left in enumerate(team_items):
+        for right in team_items[index + 1:]:
+            common = [node_id for node_id in ancestors(left["leaf_id"]) if node_id in set(ancestors(right["leaf_id"]))]
+            if not common:
+                continue
+            target = nodes[common[0]]
+            pair_key = "|".join(sorted((str(left["id"]), str(right["id"]))))
+            meeting_map[pair_key] = {
+                "stage": target["stage"],
+                "label": target["stage_label"],
+                "short_label": target["stage_short_label"],
+                "all_stages": [target["stage"]],
+                "is_confirmed": True,
+            }
+
+    return {
+        "has_matches": True,
+        "stages": stages,
+        "bracket": {
+            "grid_rows": 64,
+            "columns": columns,
+            "edges": edges,
+            "third_place_matches": stage_nodes.get("third_place", []),
+            "team_options": team_items,
+            "meeting_map": meeting_map,
+        },
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/tournament/overview")
 def get_tournament_overview(
     db: Session = Depends(get_db),

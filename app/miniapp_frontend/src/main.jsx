@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.68';
+const APP_VERSION = '2.8.69';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2518,7 +2518,8 @@ function KnockoutTeamLine({ slot, score, winner = false }) {
 
 function KnockoutMatchCard({ match, onOpenMatch, onFollowNext, highlighted = false, compact = false }) {
   if (!match) return null;
-  const canOpen = Boolean(match.id && onOpenMatch);
+  const detailMatchId = match.db_match_id ?? (typeof match.id === 'number' ? match.id : null);
+  const canOpen = Boolean(detailMatchId && onOpenMatch);
   const canFollow = Boolean(!compact && match.next_match_id && onFollowNext);
   const scoreHome = match.is_finished ? match.score_home : null;
   const scoreAway = match.is_finished ? match.score_away : null;
@@ -2531,7 +2532,7 @@ function KnockoutMatchCard({ match, onOpenMatch, onFollowNext, highlighted = fal
   const className = `knockout-match-card ${compact ? 'compact' : ''} ${highlighted ? 'highlighted' : ''} ${canFollow ? 'linked' : ''} ${canOpen ? 'has-open' : ''}`.trim();
   if (!canOpen && !canFollow) return <article className={className} data-knockout-match-id={match.id || undefined}>{content}</article>;
   return <article className={className} data-knockout-match-id={match.id || undefined}>
-    {canOpen ? <button type="button" className="knockout-match-open" onClick={() => onOpenMatch(match)}>{content}</button> : <div className="knockout-match-open static">{content}</div>}
+    {canOpen ? <button type="button" className="knockout-match-open" onClick={() => onOpenMatch({ ...match, id: detailMatchId })}>{content}</button> : <div className="knockout-match-open static">{content}</div>}
     {canFollow && <button type="button" className="knockout-next-link" onClick={() => onFollowNext(match.next_match_id)} aria-label={`Открыть ${match.next_stage_label || 'следующий матч'}`}>
       <span>Победитель → {match.next_stage_short_label || 'далее'}</span><b>›</b>
     </button>}
@@ -2567,7 +2568,8 @@ function KnockoutTreeTeamLine({ slot, score, winner = false }) {
 
 function KnockoutTreeMatchCard({ match, onOpenMatch }) {
   if (!match?.tree_position) return null;
-  const canOpen = Boolean(match.id && onOpenMatch);
+  const detailMatchId = match.db_match_id ?? (typeof match.id === 'number' ? match.id : null);
+  const canOpen = Boolean(detailMatchId && onOpenMatch);
   const position = match.tree_position;
   const left = position.column * (KNOCKOUT_TREE_COLUMN_WIDTH + KNOCKOUT_TREE_COLUMN_GAP);
   const top = (position.row - 1) * KNOCKOUT_TREE_ROW_UNIT;
@@ -2578,7 +2580,7 @@ function KnockoutTreeMatchCard({ match, onOpenMatch }) {
   </>;
   const style = { left: `${left}px`, top: `${top}px` };
   if (!canOpen) return <article className="knockout-tree-match" style={style}>{content}</article>;
-  return <button type="button" className="knockout-tree-match clickable" style={style} onClick={() => onOpenMatch(match)}>{content}</button>;
+  return <button type="button" className="knockout-tree-match clickable" style={style} onClick={() => onOpenMatch({ ...match, id: detailMatchId })}>{content}</button>;
 }
 
 function KnockoutPathFinder({ bracket }) {
@@ -2768,7 +2770,7 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
             <div className="knockout-stage-tabs" role="tablist" aria-label="Стадии плей-офф">
               {knockoutStages.map((stage) => <button key={stage.key} type="button" className={currentStage?.key === stage.key ? 'active' : ''} onClick={() => { setFocusedKnockoutMatchId(null); setSelectedKnockoutStage(stage.key); }} role="tab" aria-selected={currentStage?.key === stage.key}>{stage.short_label || stage.label}</button>)}
             </div>
-            <div className="knockout-stage-note"><i>⌘</i><span>Карточка открывает матч. Нажмите «Победитель →», чтобы перейти к следующей паре по официальной сетке.</span></div>
+            <div className="knockout-stage-note"><i>⌘</i><span>Нажмите карточку известного матча, чтобы открыть детали. «Победитель →» ведёт по фиксированной ветке к следующей стадии.</span></div>
             <div className="knockout-stage-match-list">{(currentStage?.matches || []).map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} onFollowNext={followKnockoutMatch} highlighted={String(match.id) === String(focusedKnockoutMatchId)} />)}</div>
           </section>
           <KnockoutBracket bracket={data.knockout?.bracket} onOpenMatch={onOpenMatch} />
