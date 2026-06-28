@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.66';
+const APP_VERSION = '2.8.67';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2531,21 +2531,137 @@ function KnockoutMatchCard({ match, onOpenMatch, compact = false }) {
   return <button type="button" className={`knockout-match-card clickable ${compact ? 'compact' : ''}`.trim()} onClick={() => onOpenMatch(match.id)}>{content}</button>;
 }
 
-function KnockoutBracket({ stages = [], onOpenMatch }) {
-  const columns = stages.filter((stage) => (stage.matches || []).length);
-  if (!columns.length) return null;
-  return <details className="knockout-bracket-details">
-    <summary><span>⌘</span><b>Полная турнирная сетка</b><small>свайпните влево</small><i>⌄</i></summary>
-    <div className="knockout-bracket-scroll">
-      <div className="knockout-bracket-grid" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(176px, 1fr))` }}>
-        {columns.map((stage) => <section key={stage.key} className={`knockout-bracket-column stage-${stage.key}`}>
-          <header><b>{stage.short_label || stage.label}</b><small>{(stage.matches || []).length} {pluralRu((stage.matches || []).length, 'матч', 'матча', 'матчей')}</small></header>
-          <div className="knockout-bracket-match-list">{stage.matches.map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} compact />)}</div>
-        </section>)}
-      </div>
-    </div>
-  </details>;
+const KNOCKOUT_TREE_COLUMN_WIDTH = 184;
+const KNOCKOUT_TREE_COLUMN_GAP = 48;
+const KNOCKOUT_TREE_ROW_UNIT = 16;
+
+function knockoutStageLabel(stage) {
+  return {
+    round_of_32: '1/16 финала',
+    round_of_16: '1/8 финала',
+    quarterfinal: '1/4 финала',
+    semifinal: '1/2 финала',
+    third_place: 'Матч за 3-е место',
+    final: 'Финал',
+  }[stage] || stage || 'следующей стадии';
 }
+
+function KnockoutTreeTeamLine({ slot, score, winner = false }) {
+  if (slot?.known) {
+    return <span className={`knockout-tree-team ${winner ? 'winner' : ''}`.trim()}>
+      <span><TeamFlag code={slot.flag_code} emoji={slot.flag} name={slot.name} size="mini" /><b>{slot.name}</b></span>
+      {score !== null && score !== undefined && <strong>{score}</strong>}
+    </span>;
+  }
+  return <span className="knockout-tree-team unresolved" title={knockoutCandidateNames(slot) || slot?.label || 'Соперник определится'}>
+    <span><i>⌛</i><b>{slot?.label || 'Соперник определится'}</b></span>
+  </span>;
+}
+
+function KnockoutTreeMatchCard({ match, onOpenMatch }) {
+  if (!match?.tree_position) return null;
+  const canOpen = Boolean(match.id && onOpenMatch);
+  const position = match.tree_position;
+  const left = position.column * (KNOCKOUT_TREE_COLUMN_WIDTH + KNOCKOUT_TREE_COLUMN_GAP);
+  const top = (position.row - 1) * KNOCKOUT_TREE_ROW_UNIT;
+  const content = <>
+    <span className="knockout-tree-match-meta">{match.is_finished ? 'Итог' : formatDateTime(match.starts_at).replace(/\s·\s.*/, '')}</span>
+    <KnockoutTreeTeamLine slot={match.home} score={match.is_finished ? match.score_home : null} winner={match.is_finished && match.winner_side === 'home'} />
+    <KnockoutTreeTeamLine slot={match.away} score={match.is_finished ? match.score_away : null} winner={match.is_finished && match.winner_side === 'away'} />
+  </>;
+  const style = { left: `${left}px`, top: `${top}px` };
+  if (!canOpen) return <article className="knockout-tree-match" style={style}>{content}</article>;
+  return <button type="button" className="knockout-tree-match clickable" style={style} onClick={() => onOpenMatch(match.id)}>{content}</button>;
+}
+
+function KnockoutPathFinder({ bracket }) {
+  const teams = bracket?.team_options || [];
+  const [teamA, setTeamA] = useState('');
+  const [teamB, setTeamB] = useState('');
+  if (teams.length < 2) return null;
+  const byId = new Map(teams.map((team) => [String(team.id), team]));
+  const left = byId.get(String(teamA));
+  const right = byId.get(String(teamB));
+  const pairKey = teamA && teamB ? [String(teamA), String(teamB)].sort().join('|') : '';
+  const meeting = pairKey ? bracket?.meeting_map?.[pairKey] : null;
+  const alternatives = (meeting?.all_stages || []).slice(1).map(knockoutStageLabel);
+
+  return <section className="knockout-path-finder">
+    <header>
+      <div><span className="section-label">Путь в сетке</span><h3>Когда могут встретиться?</h3></div>
+      <span aria-hidden="true">⌘</span>
+    </header>
+    <div className="knockout-path-selects">
+      <label>
+        <span>Первая сборная</span>
+        <select value={teamA} onChange={(event) => setTeamA(event.target.value)}>
+          <option value="">Выберите сборную</option>
+          {teams.map((team) => <option key={team.id} value={team.id}>{team.flag || '⚽'} {team.name}</option>)}
+        </select>
+      </label>
+      <span className="knockout-path-vs">×</span>
+      <label>
+        <span>Вторая сборная</span>
+        <select value={teamB} onChange={(event) => setTeamB(event.target.value)}>
+          <option value="">Выберите сборную</option>
+          {teams.map((team) => <option key={team.id} value={team.id} disabled={String(team.id) === String(teamA)}>{team.flag || '⚽'} {team.name}</option>)}
+        </select>
+      </label>
+    </div>
+    {left && right && (meeting ? <div className={`knockout-path-result ${meeting.is_confirmed ? 'confirmed' : ''}`.trim()}>
+      <div className="knockout-path-result-teams"><TeamFlag code={left.flag_code} emoji={left.flag} name={left.name} size="mini" /><b>{left.name}</b><i>×</i><b>{right.name}</b><TeamFlag code={right.flag_code} emoji={right.flag} name={right.name} size="mini" /></div>
+      <strong>{meeting.is_confirmed ? `Могут встретиться в ${meeting.label}` : `Самая ранняя встреча — ${meeting.label}`}</strong>
+      <small>{meeting.is_confirmed ? 'Их позиции в сетке уже определены.' : alternatives.length ? `При других раскладах возможны также: ${alternatives.join(', ')}.` : 'Точная позиция зависит от ещё не закрытых квалификационных мест.'}</small>
+    </div> : <div className="knockout-path-result muted-result"><strong>Прямой путь между этими командами пока не определён</strong><small>Одна из сборных ещё не попадает в опубликованные слоты плей-офф.</small></div>)}
+  </section>;
+}
+
+function KnockoutBracket({ bracket, onOpenMatch }) {
+  const columns = bracket?.columns || [];
+  if (!columns.length) return null;
+  const gridRows = Number(bracket?.grid_rows || 64);
+  const maxColumn = Math.max(...columns.map((column) => Number(column.column || 0)));
+  const width = (maxColumn + 1) * KNOCKOUT_TREE_COLUMN_WIDTH + maxColumn * KNOCKOUT_TREE_COLUMN_GAP;
+  const height = gridRows * KNOCKOUT_TREE_ROW_UNIT;
+  const positions = new Map(columns.flatMap((column) => (column.matches || []).map((match) => [match.id, match.tree_position])));
+  const edgePath = (edge) => {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) return null;
+    const fromX = (from.column + 1) * KNOCKOUT_TREE_COLUMN_WIDTH + from.column * KNOCKOUT_TREE_COLUMN_GAP;
+    const toX = to.column * (KNOCKOUT_TREE_COLUMN_WIDTH + KNOCKOUT_TREE_COLUMN_GAP);
+    const fromY = (from.row - 1) * KNOCKOUT_TREE_ROW_UNIT + (from.span * KNOCKOUT_TREE_ROW_UNIT) / 2;
+    const toY = (to.row - 1) * KNOCKOUT_TREE_ROW_UNIT + (to.span * KNOCKOUT_TREE_ROW_UNIT) / 2;
+    const middleX = fromX + (toX - fromX) / 2;
+    return `M ${fromX} ${fromY} H ${middleX} V ${toY} H ${toX}`;
+  };
+  const thirdPlaceMatches = bracket?.third_place_matches || [];
+
+  return <>
+    <KnockoutPathFinder bracket={bracket} />
+    <details className="knockout-bracket-details" open>
+      <summary><span>⌘</span><b>Полная турнирная сетка</b><small>свайпните влево</small><i>⌄</i></summary>
+      <div className="knockout-tree-scroll">
+        <div className="knockout-tree-canvas" style={{ width: `${width}px` }}>
+          <div className="knockout-tree-headings">
+            {columns.map((stage) => <div key={stage.key} style={{ left: `${stage.column * (KNOCKOUT_TREE_COLUMN_WIDTH + KNOCKOUT_TREE_COLUMN_GAP)}px`, width: `${KNOCKOUT_TREE_COLUMN_WIDTH}px` }}><b>{stage.short_label || stage.label}</b><small>{(stage.matches || []).length} {pluralRu((stage.matches || []).length, 'матч', 'матча', 'матчей')}</small></div>)}
+          </div>
+          <div className="knockout-tree-board" style={{ width: `${width}px`, height: `${height}px` }}>
+            <svg className="knockout-tree-lines" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+              {(bracket?.edges || []).map((edge) => {
+                const d = edgePath(edge);
+                return d ? <path key={`${edge.from}-${edge.to}`} d={d} /> : null;
+              })}
+            </svg>
+            {columns.flatMap((stage) => stage.matches || []).map((match) => <KnockoutTreeMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} />)}
+          </div>
+          {thirdPlaceMatches.length > 0 && <section className="knockout-third-place"><header><span>🥉</span><b>Матч за 3-е место</b></header>{thirdPlaceMatches.map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} compact />)}</section>}
+        </div>
+      </div>
+    </details>
+  </>;
+}
+
 
 function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenTeam, onOpenPlayer }) {
   const [data, setData] = useState(null);
@@ -2630,7 +2746,7 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
             <div className="knockout-stage-note"><i>⌛</i><span>Если команда ещё не определена, показываем, кто может попасть в этот слот по сетке.</span></div>
             <div className="knockout-stage-match-list">{(currentStage?.matches || []).map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} />)}</div>
           </section>
-          <KnockoutBracket stages={knockoutStages} onOpenMatch={onOpenMatch} />
+          <KnockoutBracket bracket={data.knockout?.bracket} onOpenMatch={onOpenMatch} />
         </>}
       </>}
     </> : <section className="hub-scorers-card"><header><div><h2>Топ бомбардиров</h2></div><small>{data.top_scorers?.source === 'match-events' ? 'по событиям матчей' : 'обновляется из статистики'}</small></header><div className="hub-scorers-list">{scorers.length ? <><TournamentScorerHeader />{scorers.map((item, index) => <TournamentScorerRow key={item.player_id || item.name} item={item} rank={index + 1} onOpenPlayer={onOpenPlayer} onOpenTeam={onOpenTeam} />)}</> : <DetailEmpty title="Бомбардиры появятся после первых голов" text="Данные автоматически обновляются из матчей турнира." />}</div></section>}

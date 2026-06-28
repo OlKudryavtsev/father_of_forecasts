@@ -4978,11 +4978,13 @@ def _knockout_match_base(match: Match) -> dict:
 
 
 def _build_knockout_bracket(db: Session) -> dict:
-    """Build a mobile-friendly knockout list and a connected bracket graph.
+    """Build a real knockout tree, not merely stage-by-stage match lists.
 
-    The source may publish a fixture before both participants are resolved. We
-    preserve that fixture and derive candidate teams from predecessor matches,
-    which is more useful than rendering a bare "TBD — TBD" card.
+    Every Round-of-32 fixture is a leaf of a fixed bracket tree.  Downstream
+    edges are derived from the official fixture map when it is available and
+    fall back to schedule order only for fixtures the provider has not linked
+    yet.  The response keeps both a compact stage list and coordinates/edges
+    for a connected, horizontally scrollable tree in the Mini App.
     """
     playoff_matches = (
         db.query(Match)
@@ -5012,8 +5014,8 @@ def _build_knockout_bracket(db: Session) -> dict:
         for group in _build_group_standings(db)
     }
 
+    # source match -> next match.  The map is the canonical bracket topology.
     next_match_by_source_id: dict[int, int] = {}
-    # Prefer official published edges for the Round of 32.
     for source_fixture, target_fixture in WC2026_R32_TO_R16_FIXTURE.items():
         source = by_fixture_id.get(source_fixture)
         target = by_fixture_id.get(target_fixture)
@@ -5021,6 +5023,7 @@ def _build_knockout_bracket(db: Session) -> dict:
             next_match_by_source_id[source.id] = target.id
 
     def pair_to_next(source_stage: str, target_stage: str) -> None:
+        """Use deterministic schedule order only for not-yet-mapped edges."""
         source_matches = by_stage.get(source_stage, [])
         target_matches = by_stage.get(target_stage, [])
         if not source_matches or not target_matches:
@@ -5035,17 +5038,50 @@ def _build_knockout_bracket(db: Session) -> dict:
     pair_to_next("round_of_16", "quarterfinal")
     pair_to_next("quarterfinal", "semifinal")
 
-    # Both semifinals feed the final and the bronze match. The UI distinguishes
-    # winner and loser slots in their labels; candidate teams remain the same
-    # until the semi-finals are played.
-    semis = by_stage.get("semifinal", [])
-
     source_ids_by_target: dict[int, list[int]] = {}
     for source_id, target_id in next_match_by_source_id.items():
         source_ids_by_target.setdefault(target_id, []).append(source_id)
+
+    semis = by_stage.get("semifinal", [])
     for stage in ("final", "third_place"):
         for target in by_stage.get(stage, []):
             source_ids_by_target[target.id] = [semi.id for semi in semis]
+
+    r32_index_by_id = {match.id: index for index, match in enumerate(by_stage.get("round_of_32", []))}
+
+    def root_leaf_indexes(match_id: int, visited: set[int] | None = None) -> list[int]:
+        visited = set(visited or set())
+        if match_id in visited:
+            return []
+        visited.add(match_id)
+        if match_id in r32_index_by_id:
+            return [r32_index_by_id[match_id]]
+        roots: list[int] = []
+        for source_id in source_ids_by_target.get(match_id, []):
+            roots.extend(root_leaf_indexes(source_id, visited))
+        return sorted(set(roots))
+
+    # Sort every later round by its real position in the tree.  This is what
+    # makes, for example, the two winners of neighbouring Round-of-32 matches
+    # appear as one Round-of-16 branch instead of a chronological list.
+    for stage, _label, _short_label in KNOCKOUT_STAGE_META:
+        if stage == "round_of_32":
+            continue
+        by_stage[stage].sort(
+            key=lambda match: (
+                min(root_leaf_indexes(match.id) or [10_000]),
+                _ensure_utc(match.starts_at),
+                match.id,
+            )
+        )
+
+    # Keep incoming sources in left-to-right bracket order so unresolved slots
+    # get the correct "winner of ..." label and candidates.
+    for target_id, source_ids in list(source_ids_by_target.items()):
+        source_ids_by_target[target_id] = sorted(
+            source_ids,
+            key=lambda source_id: (min(root_leaf_indexes(source_id) or [10_000]), source_id),
+        )
 
     def direct_teams(match_id: int) -> list[dict]:
         match = all_by_id.get(match_id)
@@ -5139,18 +5175,180 @@ def _build_knockout_bracket(db: Session) -> dict:
         return payload
 
     stages = []
+    serialized_by_id: dict[int, dict] = {}
     for stage, label, short_label in KNOCKOUT_STAGE_META:
-        matches = by_stage.get(stage, [])
+        serialized_matches = []
+        for match in by_stage.get(stage, []):
+            serialized = serialize_bracket_match(match)
+            serialized_matches.append(serialized)
+            serialized_by_id[match.id] = serialized
         stages.append({
             "key": stage,
             "label": label,
             "short_label": short_label,
-            "matches": [serialize_bracket_match(match) for match in matches],
+            "matches": serialized_matches,
         })
+
+    # Tree positions use a 64-row grid.  A leaf match occupies three units; the
+    # next round begins halfway between the two predecessor cards.  This gives a
+    # true visual bracket with aligned connector lines rather than stacked lists.
+    tree_stage_order = ["round_of_32", "round_of_16", "quarterfinal", "semifinal", "final"]
+    tree_layout = {
+        "round_of_32": {"start": 1, "step": 4},
+        "round_of_16": {"start": 3, "step": 8},
+        "quarterfinal": {"start": 7, "step": 16},
+        "semifinal": {"start": 15, "step": 32},
+        "final": {"start": 31, "step": 64},
+    }
+    tree_columns = []
+    tree_match_positions: dict[int, dict] = {}
+    for column_index, stage in enumerate(tree_stage_order):
+        meta = _knockout_stage_meta(stage)
+        matches = by_stage.get(stage, [])
+        layout = tree_layout[stage]
+        items = []
+        for index, match in enumerate(matches):
+            serialized = dict(serialized_by_id.get(match.id) or serialize_bracket_match(match))
+            position = {
+                "column": column_index,
+                "row": layout["start"] + layout["step"] * index,
+                "span": 3,
+            }
+            serialized["tree_position"] = position
+            tree_match_positions[match.id] = position
+            items.append(serialized)
+        if items:
+            tree_columns.append({
+                "key": stage,
+                "label": meta[0] if meta else stage,
+                "short_label": meta[1] if meta else stage,
+                "column": column_index,
+                "matches": items,
+            })
+
+    tree_edges = []
+    for source_id, target_id in next_match_by_source_id.items():
+        source_position = tree_match_positions.get(source_id)
+        target_position = tree_match_positions.get(target_id)
+        if not source_position or not target_position:
+            continue
+        tree_edges.append({"from": source_id, "to": target_id, "kind": "winner"})
+
+    # Third-place is fed by the same semis but belongs under the tree rather
+    # than inside the champion path.
+    third_place_matches = [serialized_by_id[match.id] for match in by_stage.get("third_place", []) if match.id in serialized_by_id]
+
+    # Build an answer for "when can these two teams meet?".  A team may have
+    # several provisional Round-of-32 leaves while third-place qualification is
+    # unresolved; therefore return the earliest and all currently possible
+    # encounter stages instead of pretending one path is guaranteed.
+    def option_key(item: dict) -> str:
+        return str(item.get("team_id") or item.get("name") or "").strip()
+
+    team_paths: dict[str, dict] = {}
+    for leaf in by_stage.get("round_of_32", []):
+        for side in ("home", "away"):
+            slot = _knockout_team_payload(
+                leaf.home_team if side == "home" else leaf.away_team,
+                leaf.home_team_api_name if side == "home" else leaf.away_team_api_name,
+                leaf.home_external_team_id if side == "home" else leaf.away_external_team_id,
+            )
+            options = [slot] if slot.get("known") else group_slot_candidates(leaf, side)
+            for option in options:
+                key = option_key(option)
+                if not key:
+                    continue
+                record = team_paths.setdefault(key, {
+                    "id": key,
+                    "name": option.get("name"),
+                    "team_id": option.get("team_id"),
+                    "flag": option.get("flag"),
+                    "flag_code": option.get("flag_code"),
+                    "leaf_ids": set(),
+                    "confirmed_leaf_ids": set(),
+                })
+                record["leaf_ids"].add(leaf.id)
+                if slot.get("known"):
+                    record["confirmed_leaf_ids"].add(leaf.id)
+
+    def ancestors_for_leaf(leaf_id: int) -> list[int]:
+        result = [leaf_id]
+        current = leaf_id
+        visited: set[int] = {leaf_id}
+        while current in next_match_by_source_id:
+            current = next_match_by_source_id[current]
+            if current in visited:
+                break
+            visited.add(current)
+            result.append(current)
+        return result
+
+    stage_rank = {key: index for index, (key, _label, _short) in enumerate(KNOCKOUT_STAGE_META)}
+
+    def meeting_for_leaves(left_leaf: int, right_leaf: int) -> str | None:
+        right_ancestors = set(ancestors_for_leaf(right_leaf))
+        for candidate in ancestors_for_leaf(left_leaf):
+            if candidate in right_ancestors:
+                match = all_by_id.get(candidate)
+                return match.stage if match else None
+        return None
+
+    meeting_map: dict[str, dict] = {}
+    team_keys = sorted(team_paths)
+    for left_index, left_key in enumerate(team_keys):
+        for right_key in team_keys[left_index + 1:]:
+            left = team_paths[left_key]
+            right = team_paths[right_key]
+            stages_for_pair = {
+                stage
+                for left_leaf in left["leaf_ids"]
+                for right_leaf in right["leaf_ids"]
+                for stage in [meeting_for_leaves(left_leaf, right_leaf)]
+                if stage
+            }
+            if not stages_for_pair:
+                continue
+            ordered_stages = sorted(stages_for_pair, key=lambda item: stage_rank.get(item, 99))
+            first_stage = ordered_stages[0]
+            label, short_label = _knockout_stage_meta(first_stage) or (first_stage, first_stage)
+            certainty = bool(
+                left["leaf_ids"]
+                and right["leaf_ids"]
+                and left["leaf_ids"] == left["confirmed_leaf_ids"]
+                and right["leaf_ids"] == right["confirmed_leaf_ids"]
+                and len(ordered_stages) == 1
+            )
+            meeting_map[f"{left_key}|{right_key}"] = {
+                "stage": first_stage,
+                "label": label,
+                "short_label": short_label,
+                "all_stages": ordered_stages,
+                "is_confirmed": certainty,
+            }
+
+    team_options = []
+    for record in team_paths.values():
+        team_options.append({
+            "id": record["id"],
+            "name": record["name"],
+            "team_id": record["team_id"],
+            "flag": record["flag"],
+            "flag_code": record["flag_code"],
+            "is_confirmed_path": record["leaf_ids"] == record["confirmed_leaf_ids"],
+        })
+    team_options.sort(key=lambda item: str(item.get("name") or ""))
 
     return {
         "has_matches": bool(playoff_matches),
         "stages": stages,
+        "bracket": {
+            "grid_rows": 64,
+            "columns": tree_columns,
+            "edges": tree_edges,
+            "third_place_matches": third_place_matches,
+            "team_options": team_options,
+            "meeting_map": meeting_map,
+        },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
