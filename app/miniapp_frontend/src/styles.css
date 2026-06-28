@@ -11568,3 +11568,47 @@ body,
   .knockout-path-result-teams b { max-width: 84px; }
   .knockout-tree-scroll { padding-left: 9px; padding-right: 9px; }
 }
+
+
+/* v2.8.68 — official knockout topology + Flashscore-style route navigation */
+.knockout-match-card.linked,
+.knockout-match-card.has-open { padding: 0; overflow: visible; }
+.knockout-match-card.highlighted { border-color: rgba(22,199,132,.72); box-shadow: 0 0 0 2px rgba(22,199,132,.13), 0 8px 24px rgba(2,6,23,.20); }
+.knockout-match-open {
+  width: 100%;
+  display: grid;
+  gap: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+.knockout-match-open:not(.static) { cursor: pointer; }
+.knockout-match-open:not(.static):active { transform: scale(.99); }
+.knockout-match-card.compact .knockout-match-open { padding: 7px 8px; }
+.knockout-next-link {
+  width: calc(100% - 16px);
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 8px 8px;
+  padding: 0 9px 0 10px;
+  border: 1px solid rgba(90,141,255,.30);
+  border-radius: 10px;
+  color: #cfe0ff;
+  background: linear-gradient(90deg, rgba(90,141,255,.11), rgba(22,199,132,.08));
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  text-align: left;
+}
+.knockout-next-link b { color: var(--green); font-size: 21px; font-weight: 600; line-height: 1; }
+.knockout-next-link:active { transform: scale(.985); }
+.app.theme-light .knockout-next-link { color: #1d4f9a; border-color: rgba(37,99,235,.27); background: linear-gradient(90deg, rgba(37,99,235,.09), rgba(5,150,105,.08)); }
+@media (max-width: 520px) {
+  .knockout-next-link { min-height: 28px; font-size: 8.5px; }
+}

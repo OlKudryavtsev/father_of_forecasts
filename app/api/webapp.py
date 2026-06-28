@@ -4852,31 +4852,43 @@ KNOCKOUT_STAGE_META = (
     ("round_of_16", "1/8 финала", "1/8"),
     ("quarterfinal", "1/4 финала", "1/4"),
     ("semifinal", "1/2 финала", "1/2"),
-    ("third_place", "Матч за 3-е место", "3-е место"),
     ("final", "Финал", "Финал"),
+    ("third_place", "Матч за 3-е место", "3-е место"),
 )
 
-# API-Football keeps World Cup fixture ids stable after the schedule is published.
-# The map makes the early part of the 2026 bracket deterministic even before the
-# next round teams are known. Remaining rounds use chronological bracket pairing
-# as a safe fallback, so the UI does not become empty if the provider adds a new id.
-WC2026_R32_TO_R16_FIXTURE = {
-    "53452541": "53452509",
-    "53452543": "53452509",
-    "53452545": "53452511",
-    "53452547": "53452511",
-    "53452557": "53452517",
-    "53452561": "53452517",
-    "53452563": "53452519",
-    "53452565": "53452519",
-    "53452555": "53452515",
-    "53452553": "53452515",
-    "53452551": "53452513",
-    "53452549": "53452513",
-    "53452505": "53452523",
-    "53452507": "53452523",
-    "53452503": "53452521",
-    "53452569": "53452521",
+# API-Football supplies the published fixtures and their rounds, but its Football
+# API does not expose parent/child draw edges.  The 2026 World Cup has a fixed
+# knockout route, so we keep that official route as fixture-id topology and let
+# API-Football remain the source of teams, dates, venues and results.  This is
+# deliberately complete through the final rather than relying on chronology.
+#
+# winner fixture -> next fixture
+WC2026_KNOCKOUT_WINNER_TO_NEXT_FIXTURE = {
+    # 1/16 -> 1/8
+    "53452541": "53452509", "53452543": "53452509",
+    "53452545": "53452511", "53452547": "53452511",
+    "53452557": "53452517", "53452561": "53452517",
+    "53452563": "53452519", "53452565": "53452519",
+    "53452555": "53452515", "53452553": "53452515",
+    "53452551": "53452513", "53452549": "53452513",
+    "53452505": "53452523", "53452507": "53452523",
+    "53452503": "53452521", "53452569": "53452521",
+    # 1/8 -> 1/4
+    "53452509": "53452525", "53452511": "53452525",
+    "53452513": "53452527", "53452515": "53452527",
+    "53452517": "53452529", "53452519": "53452529",
+    "53452521": "53452531", "53452523": "53452531",
+    # 1/4 -> 1/2
+    "53452525": "53452533", "53452527": "53452533",
+    "53452529": "53452535", "53452531": "53452535",
+    # 1/2 -> final
+    "53452533": "53452539", "53452535": "53452539",
+}
+
+# losers of both semifinals play for third place.
+WC2026_KNOCKOUT_LOSER_TO_NEXT_FIXTURE = {
+    "53452533": "53452537",
+    "53452535": "53452537",
 }
 
 WC2026_R32_BRACKET_ORDER = [
@@ -5014,13 +5026,22 @@ def _build_knockout_bracket(db: Session) -> dict:
         for group in _build_group_standings(db)
     }
 
-    # source match -> next match.  The map is the canonical bracket topology.
+    # Winner and loser routes are the canonical bracket topology.  We first use
+    # the complete published fixture map; the chronological fallback below is
+    # only a resilience measure if the provider has not created a future fixture
+    # in its feed yet.
     next_match_by_source_id: dict[int, int] = {}
-    for source_fixture, target_fixture in WC2026_R32_TO_R16_FIXTURE.items():
+    loser_next_match_by_source_id: dict[int, int] = {}
+    for source_fixture, target_fixture in WC2026_KNOCKOUT_WINNER_TO_NEXT_FIXTURE.items():
         source = by_fixture_id.get(source_fixture)
         target = by_fixture_id.get(target_fixture)
         if source and target:
             next_match_by_source_id[source.id] = target.id
+    for source_fixture, target_fixture in WC2026_KNOCKOUT_LOSER_TO_NEXT_FIXTURE.items():
+        source = by_fixture_id.get(source_fixture)
+        target = by_fixture_id.get(target_fixture)
+        if source and target:
+            loser_next_match_by_source_id[source.id] = target.id
 
     def pair_to_next(source_stage: str, target_stage: str) -> None:
         """Use deterministic schedule order only for not-yet-mapped edges."""
@@ -5043,9 +5064,12 @@ def _build_knockout_bracket(db: Session) -> dict:
         source_ids_by_target.setdefault(target_id, []).append(source_id)
 
     semis = by_stage.get("semifinal", [])
-    for stage in ("final", "third_place"):
-        for target in by_stage.get(stage, []):
-            source_ids_by_target[target.id] = [semi.id for semi in semis]
+    # If API-Football has not yet exposed the final/third-place fixture ids,
+    # still make unresolved labels and candidate pools meaningful.
+    for target in by_stage.get("final", []):
+        source_ids_by_target.setdefault(target.id, [semi.id for semi in semis])
+    for target in by_stage.get("third_place", []):
+        source_ids_by_target.setdefault(target.id, [semi.id for semi in semis])
 
     r32_index_by_id = {match.id: index for index, match in enumerate(by_stage.get("round_of_32", []))}
 
@@ -5172,6 +5196,30 @@ def _build_knockout_bracket(db: Session) -> dict:
             slot["label"] = unresolved_slot_label(match, side, source_id)
             slot["source_match_id"] = source_id
             slot["candidates"] = source_candidates[:8]
+
+        # The stage list uses this to provide Flashscore-like arrows: follow a
+        # winner from this card straight into the corresponding next-stage card.
+        next_match_id = next_match_by_source_id.get(match.id)
+        next_match = all_by_id.get(next_match_id) if next_match_id else None
+        if next_match:
+            next_meta = _knockout_stage_meta(next_match.stage)
+            payload["next_match_id"] = next_match.id
+            payload["next_stage"] = next_match.stage
+            payload["next_stage_label"] = next_meta[0] if next_meta else (next_match.match_round or next_match.stage)
+            payload["next_stage_short_label"] = next_meta[1] if next_meta else (next_match.match_round or next_match.stage)
+        else:
+            payload["next_match_id"] = None
+
+        loser_next_match_id = loser_next_match_by_source_id.get(match.id)
+        loser_next_match = all_by_id.get(loser_next_match_id) if loser_next_match_id else None
+        if loser_next_match:
+            loser_meta = _knockout_stage_meta(loser_next_match.stage)
+            payload["loser_next_match_id"] = loser_next_match.id
+            payload["loser_next_stage"] = loser_next_match.stage
+            payload["loser_next_stage_label"] = loser_meta[0] if loser_meta else (loser_next_match.match_round or loser_next_match.stage)
+        else:
+            payload["loser_next_match_id"] = None
+        payload["source_match_ids"] = list(sources)
         return payload
 
     stages = []

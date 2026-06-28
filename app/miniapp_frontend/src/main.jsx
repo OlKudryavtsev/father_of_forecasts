@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.67';
+const APP_VERSION = '2.8.68';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -2516,9 +2516,10 @@ function KnockoutTeamLine({ slot, score, winner = false }) {
   </div>;
 }
 
-function KnockoutMatchCard({ match, onOpenMatch, compact = false }) {
+function KnockoutMatchCard({ match, onOpenMatch, onFollowNext, highlighted = false, compact = false }) {
   if (!match) return null;
   const canOpen = Boolean(match.id && onOpenMatch);
+  const canFollow = Boolean(!compact && match.next_match_id && onFollowNext);
   const scoreHome = match.is_finished ? match.score_home : null;
   const scoreAway = match.is_finished ? match.score_away : null;
   const meta = [formatDateTime(match.starts_at), match.city].filter(Boolean).join(' · ');
@@ -2527,8 +2528,14 @@ function KnockoutMatchCard({ match, onOpenMatch, compact = false }) {
     <KnockoutTeamLine slot={match.home} score={scoreHome} winner={match.is_finished && match.winner_side === 'home'} />
     <KnockoutTeamLine slot={match.away} score={scoreAway} winner={match.is_finished && match.winner_side === 'away'} />
   </>;
-  if (!canOpen) return <article className={`knockout-match-card ${compact ? 'compact' : ''}`.trim()}>{content}</article>;
-  return <button type="button" className={`knockout-match-card clickable ${compact ? 'compact' : ''}`.trim()} onClick={() => onOpenMatch(match.id)}>{content}</button>;
+  const className = `knockout-match-card ${compact ? 'compact' : ''} ${highlighted ? 'highlighted' : ''} ${canFollow ? 'linked' : ''} ${canOpen ? 'has-open' : ''}`.trim();
+  if (!canOpen && !canFollow) return <article className={className} data-knockout-match-id={match.id || undefined}>{content}</article>;
+  return <article className={className} data-knockout-match-id={match.id || undefined}>
+    {canOpen ? <button type="button" className="knockout-match-open" onClick={() => onOpenMatch(match)}>{content}</button> : <div className="knockout-match-open static">{content}</div>}
+    {canFollow && <button type="button" className="knockout-next-link" onClick={() => onFollowNext(match.next_match_id)} aria-label={`Открыть ${match.next_stage_label || 'следующий матч'}`}>
+      <span>Победитель → {match.next_stage_short_label || 'далее'}</span><b>›</b>
+    </button>}
+  </article>;
 }
 
 const KNOCKOUT_TREE_COLUMN_WIDTH = 184;
@@ -2571,7 +2578,7 @@ function KnockoutTreeMatchCard({ match, onOpenMatch }) {
   </>;
   const style = { left: `${left}px`, top: `${top}px` };
   if (!canOpen) return <article className="knockout-tree-match" style={style}>{content}</article>;
-  return <button type="button" className="knockout-tree-match clickable" style={style} onClick={() => onOpenMatch(match.id)}>{content}</button>;
+  return <button type="button" className="knockout-tree-match clickable" style={style} onClick={() => onOpenMatch(match)}>{content}</button>;
 }
 
 function KnockoutPathFinder({ bracket }) {
@@ -2669,6 +2676,7 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
   const [selectedGroups, setSelectedGroups] = useState([]);
   const [tournamentView, setTournamentView] = useState('groups');
   const [selectedKnockoutStage, setSelectedKnockoutStage] = useState(null);
+  const [focusedKnockoutMatchId, setFocusedKnockoutMatchId] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -2687,6 +2695,15 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
     }).catch((err) => { if (active) setError(err); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!focusedKnockoutMatchId) return undefined;
+    const timer = window.setTimeout(() => {
+      const node = document.querySelector(`[data-knockout-match-id="${focusedKnockoutMatchId}"]`);
+      node?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    }, 40);
+    return () => window.clearTimeout(timer);
+  }, [focusedKnockoutMatchId, selectedKnockoutStage]);
 
   function toggleGroup(code) {
     setSelectedGroups((current) => {
@@ -2707,6 +2724,14 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
   const selectedLabel = visibleGroups.length ? visibleGroups.map((item) => item.group_code).join(', ') : 'не выбраны';
   const knockoutStages = (data.knockout?.stages || []).filter((stage) => (stage.matches || []).length);
   const currentStage = knockoutStages.find((stage) => stage.key === selectedKnockoutStage) || knockoutStages[0];
+  const knockoutMatchById = new Map(knockoutStages.flatMap((stage) => stage.matches || []).map((match) => [String(match.id), match]));
+  const followKnockoutMatch = (nextMatchId) => {
+    const target = knockoutMatchById.get(String(nextMatchId));
+    if (!target) return;
+    setFocusedKnockoutMatchId(target.id);
+    setSelectedKnockoutStage(target.stage);
+    trackAnalytics('knockout_follow_path', { screen: 'matches', properties: { from_stage: currentStage?.key || '', to_stage: target.stage || '', match_id: target.id } });
+  };
 
   return <div className="tournament-hub">
     {mode === 'tournament' ? <>
@@ -2741,10 +2766,10 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
           <section className="knockout-stage-card">
             <header><div><span className="section-label">Плей-офф</span><h2>{currentStage?.label || 'Сетка'}</h2></div><small>{(currentStage?.matches || []).length} {pluralRu((currentStage?.matches || []).length, 'матч', 'матча', 'матчей')}</small></header>
             <div className="knockout-stage-tabs" role="tablist" aria-label="Стадии плей-офф">
-              {knockoutStages.map((stage) => <button key={stage.key} type="button" className={currentStage?.key === stage.key ? 'active' : ''} onClick={() => setSelectedKnockoutStage(stage.key)} role="tab" aria-selected={currentStage?.key === stage.key}>{stage.short_label || stage.label}</button>)}
+              {knockoutStages.map((stage) => <button key={stage.key} type="button" className={currentStage?.key === stage.key ? 'active' : ''} onClick={() => { setFocusedKnockoutMatchId(null); setSelectedKnockoutStage(stage.key); }} role="tab" aria-selected={currentStage?.key === stage.key}>{stage.short_label || stage.label}</button>)}
             </div>
-            <div className="knockout-stage-note"><i>⌛</i><span>Если команда ещё не определена, показываем, кто может попасть в этот слот по сетке.</span></div>
-            <div className="knockout-stage-match-list">{(currentStage?.matches || []).map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} />)}</div>
+            <div className="knockout-stage-note"><i>⌘</i><span>Карточка открывает матч. Нажмите «Победитель →», чтобы перейти к следующей паре по официальной сетке.</span></div>
+            <div className="knockout-stage-match-list">{(currentStage?.matches || []).map((match) => <KnockoutMatchCard key={match.id} match={match} onOpenMatch={onOpenMatch} onFollowNext={followKnockoutMatch} highlighted={String(match.id) === String(focusedKnockoutMatchId)} />)}</div>
           </section>
           <KnockoutBracket bracket={data.knockout?.bracket} onOpenMatch={onOpenMatch} />
         </>}
@@ -2934,8 +2959,12 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
   const selectedStanding = group ? data?.standings?.[0] : null;
   const leagueName = activeLeagueLabel(leagues, activeLeagueId);
   const openMatch = (match) => {
-    trackAnalytics('match_open', { screen: 'matches', properties: { match_id: match?.id || 0, league_id: activeLeagueId || 0, entry_point: 'match_center' } });
-    setTeamId(null); setPlayerId(null); setDetailsMatch(match);
+    const normalizedMatch = (match && typeof match === 'object')
+      ? match
+      : { id: Number(match) || 0 };
+    if (!normalizedMatch.id) return;
+    trackAnalytics('match_open', { screen: 'matches', properties: { match_id: normalizedMatch.id, league_id: activeLeagueId || 0, entry_point: 'match_center' } });
+    setTeamId(null); setPlayerId(null); setDetailsMatch(normalizedMatch);
   };
   const openTeam = (id) => { if (!id) return; setDetailsMatch(null); setPlayerId(null); setTeamId(id); };
   const openPlayer = (id) => { if (!id) return; setDetailsMatch(null); setTeamId(null); setPlayerId(id); };
