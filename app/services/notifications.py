@@ -165,20 +165,41 @@ def _is_default_league_member(user: User) -> bool:
         return False
 
 
-async def _notify_default_group_chat_if_default_member(db, user: User, text: str) -> None:
+async def _notify_default_group_chat_if_default_member(db, user: User, text: str) -> set[str]:
+    """Send a legacy default-group notification and return its chat id for dedupe."""
     if not _is_default_league_member(user):
-        return
+        return set()
+
+    from app.services.misc import get_group_chat_id
+
+    group_chat_id = get_group_chat_id()
+    if not group_chat_id:
+        return set()
+
     await notify_group_chat(text)
+    return {str(group_chat_id)}
 
 
-async def _notify_actor_league_chats(db, user: User, text: str) -> None:
+async def _notify_actor_league_chats(
+    db,
+    user: User,
+    text: str,
+    skip_chat_ids: set[str] | None = None,
+) -> set[str]:
+    """Notify every relevant league chat once, even with duplicate chat ids."""
+    sent_chat_ids = set(skip_chat_ids or set())
     try:
-        from app.services.leagues import get_user_active_leagues_with_chat
+        from app.services.leagues import get_user_active_leagues_with_chat, normalize_telegram_chat_id
 
         for league in get_user_active_leagues_with_chat(db, user):
-            await notify_league_chat(league, text)
+            chat_id = normalize_telegram_chat_id(getattr(league, "chat_id", None))
+            if not chat_id or chat_id in sent_chat_ids:
+                continue
+            if await notify_league_chat(league, text):
+                sent_chat_ids.add(chat_id)
     except Exception as error:
         print(f"Failed to send actor league chat notifications: {error}")
+    return sent_chat_ids
 
 
 async def notify_group_prediction_saved(
@@ -212,8 +233,8 @@ async def notify_group_prediction_saved(
             text=text,
             exclude_user_id=user.id,
         )
-        await _notify_default_group_chat_if_default_member(db, db_user, text)
-        await _notify_actor_league_chats(db, db_user, text)
+        sent_chat_ids = await _notify_default_group_chat_if_default_member(db, db_user, text)
+        await _notify_actor_league_chats(db, db_user, text, skip_chat_ids=sent_chat_ids)
     finally:
         db.close()
 
@@ -247,8 +268,8 @@ async def notify_group_tournament_prediction_saved(
             text=text,
             exclude_user_id=user.id,
         )
-        await _notify_default_group_chat_if_default_member(db, db_user, text)
-        await _notify_actor_league_chats(db, db_user, text)
+        sent_chat_ids = await _notify_default_group_chat_if_default_member(db, db_user, text)
+        await _notify_actor_league_chats(db, db_user, text, skip_chat_ids=sent_chat_ids)
     finally:
         db.close()
 

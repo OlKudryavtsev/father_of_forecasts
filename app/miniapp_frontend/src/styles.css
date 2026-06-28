@@ -4668,6 +4668,22 @@ body {
   font-size: 15px;
 }
 
+.participant-pick {
+  min-width: 0;
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.participant-advancement-pick {
+  max-width: 168px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.15;
+  text-align: right;
+}
+
 .participant-row em {
   color: var(--muted);
   font-style: normal;
@@ -11614,6 +11630,8 @@ body,
 }
 
 /* v2.8.70 — keep admin self-actions out of product analytics by default */
+
+/* v2.8.71 — expose playoff advancement picks in match participants */
 .admin-analytics-controls {
   display: flex;
   flex-direction: column;

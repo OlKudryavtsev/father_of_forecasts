@@ -132,11 +132,11 @@ async def send_daily_match_summary_to_group(db):
 
 
 async def send_daily_match_summary_to_league_chats(db):
-    """Send one shared daily story to every configured league chat."""
-    from app.services.leagues import get_active_league_chat_targets
+    """Send one daily story per unique chat, including the legacy default chat."""
+    from app.services.leagues import get_unique_league_chat_destinations
     from app.services.notifications import notify_league_chat
 
-    for league in get_active_league_chat_targets(db):
+    for league, _chat_id in get_unique_league_chat_destinations(db):
         text = await _daily_league_message(db, league)
         await notify_league_chat(league, text)
 
@@ -416,12 +416,10 @@ async def daily_facts_loop():
                 # Since the tournament has started, the morning rubric is now a daily
                 # match/prognosis summary instead of Fact of the Day + archive.
                 if DAILY_FACT_TARGET == "group":
-                    await send_daily_match_summary_to_group(db)
                     await send_daily_match_summary_to_league_chats(db)
                     await send_daily_match_summary_to_private_users(db)
 
                 elif DAILY_FACT_TARGET == "both":
-                    await send_daily_match_summary_to_group(db)
                     await send_daily_match_summary_to_league_chats(db)
                     await send_daily_match_summary_to_private_users(db)
 

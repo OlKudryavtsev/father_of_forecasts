@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.70';
+const APP_VERSION = '2.8.71';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1670,6 +1670,15 @@ function MatchVideoBlock({ match }) {
   );
 }
 
+function participantAdvancementLabel(participant, match) {
+  if (!match?.is_playoff) return null;
+  if (!participant?.advancement_bet_enabled || !participant?.predicted_advancing_side) {
+    return 'Проход: не указан';
+  }
+  const team = participant.predicted_advancing_side === 'home' ? match.home_team : match.away_team;
+  return `Проход: ${team || 'не указан'}`;
+}
+
 function MatchParticipantsInline({ match, leagueId = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -1736,16 +1745,22 @@ function MatchParticipantsInline({ match, leagueId = null }) {
                   <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
                 </div>
               )}
-              {participants.map((participant) => (
-                <div className={`participant-row ${participant.result_class ? `result-${participant.result_class}` : ''}`} key={participant.user_id}>
-                  <span>{participant.display_name}</span>
-                  {data.has_started ? (
-                    <b>{participant.pred_home}:{participant.pred_away}</b>
-                  ) : (
-                    <em>прогноз сделан</em>
-                  )}
-                </div>
-              ))}
+              {participants.map((participant) => {
+                const advancementLabel = participantAdvancementLabel(participant, data.match || match);
+                return (
+                  <div className={`participant-row ${participant.result_class ? `result-${participant.result_class}` : ''}`} key={participant.user_id}>
+                    <span>{participant.display_name}</span>
+                    {data.has_started ? (
+                      <div className="participant-pick">
+                        <b>{participant.pred_home}:{participant.pred_away}</b>
+                        {advancementLabel && <small className="participant-advancement-pick">{advancementLabel}</small>}
+                      </div>
+                    ) : (
+                      <em>прогноз сделан</em>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </>

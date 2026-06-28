@@ -353,6 +353,55 @@ def get_user_active_leagues_with_chat(db, user: User) -> list[League]:
     )
     return [league for league in leagues if str(getattr(league, "chat_id", "") or "").strip()]
 
+
+def normalize_telegram_chat_id(value: object | None) -> str:
+    """Return a stable non-empty chat-id string for Telegram destination comparisons."""
+    return str(value or "").strip()
+
+
+def get_unique_league_chat_destinations(
+    db,
+    include_legacy_default: bool = True,
+) -> list[tuple[League, str]]:
+    """Return one league context per Telegram chat destination.
+
+    A legacy ``GROUP_CHAT_ID`` may intentionally point to the same Telegram chat
+    as a league's ``chat_id``.  The previous implementation delivered the same
+    message twice in that situation.  A configured league takes precedence over
+    the legacy destination so that the content keeps the correct league scope.
+    When the legacy chat is not configured on a league, the default league
+    remains its context for backwards compatibility.
+    """
+    selected_by_chat: dict[str, League] = {}
+    order: list[str] = []
+
+    for league in get_active_league_chat_targets(db):
+        chat_id = normalize_telegram_chat_id(getattr(league, "chat_id", None))
+        if not chat_id:
+            continue
+        existing = selected_by_chat.get(chat_id)
+        if existing is None:
+            selected_by_chat[chat_id] = league
+            order.append(chat_id)
+        elif league.name == DEFAULT_LEAGUE_NAME and existing.name != DEFAULT_LEAGUE_NAME:
+            # Prefer the default league when two configured leagues accidentally
+            # share a chat; it preserves legacy default-group semantics.
+            selected_by_chat[chat_id] = league
+
+    if include_legacy_default:
+        try:
+            from app.runtime import GROUP_CHAT_ID_RAW
+
+            legacy_chat_id = normalize_telegram_chat_id(GROUP_CHAT_ID_RAW)
+        except Exception:
+            legacy_chat_id = ""
+        default_league = get_default_league(db)
+        if legacy_chat_id and default_league and legacy_chat_id not in selected_by_chat:
+            selected_by_chat[legacy_chat_id] = default_league
+            order.insert(0, legacy_chat_id)
+
+    return [(selected_by_chat[chat_id], chat_id) for chat_id in order if chat_id in selected_by_chat]
+
 def generate_invite_code(db, length: int = 8) -> str:
     """Generate a unique invite code for a league."""
     alphabet = string.ascii_uppercase + string.digits

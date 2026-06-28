@@ -694,6 +694,17 @@ def _get_match_predictions_with_users(db, match: Match, league: League | None = 
     )
 
 
+def _advancement_pick_text(prediction: Prediction, match: Match) -> str:
+    """Render one explicit playoff advancement choice, including an omitted pick."""
+    if not is_playoff_match(match):
+        return ""
+    if prediction.advancement_bet_enabled and prediction.predicted_advancing_side == "home":
+        return f"проход: {match.home_team}"
+    if prediction.advancement_bet_enabled and prediction.predicted_advancing_side == "away":
+        return f"проход: {match.away_team}"
+    return "проход: не указан"
+
+
 def _format_participant_prediction_lines(db, match: Match, with_points: bool = False, league: League | None = None) -> list[str]:
     rows = _get_match_predictions_with_users(db, match, league=league)
 
@@ -704,11 +715,8 @@ def _format_participant_prediction_lines(db, match: Match, with_points: bool = F
     for prediction, user in rows:
         text = f"— {user.display_name}: {prediction.pred_home}:{prediction.pred_away}"
 
-        if is_playoff_match(match) and prediction.advancement_bet_enabled:
-            if prediction.predicted_advancing_side == "home":
-                text += f" · проход {match.home_team}"
-            elif prediction.predicted_advancing_side == "away":
-                text += f" · проход {match.away_team}"
+        if is_playoff_match(match):
+            text += f" · {_advancement_pick_text(prediction, match)}"
 
         if with_points and match.is_finished:
             points = prediction.points
@@ -1381,6 +1389,7 @@ def build_league_pregame_analysis_context(db, league: League, matches: list[Matc
                 "name": user.display_name,
                 "score": score,
                 "outcome": outcome,
+                "advancement": _advancement_pick_text(prediction, match) if is_playoff_match(match) else None,
             })
             score_groups.setdefault(score, []).append(user.display_name)
             outcome_counts[outcome] = int(outcome_counts.get(outcome, 0)) + 1
@@ -1401,6 +1410,7 @@ def build_league_pregame_analysis_context(db, league: League, matches: list[Matc
         match_contexts.append({
             "match_id": match.id,
             "label": f"{match.home_team} — {match.away_team}",
+            "is_playoff": is_playoff_match(match),
             "predictions": predictions,
             "score_groups": [
                 {"score": score, "count": len(names), "names": names}
@@ -1499,7 +1509,10 @@ async def build_league_pregame_analysis_text(db, league: League, matches: list[M
         predictions = match_data.get("predictions") or []
         if predictions:
             for prediction in predictions:
-                lines.append(f"— {prediction['name']}: {prediction['score']}")
+                line = f"— {prediction['name']}: {prediction['score']}"
+                if match_data.get("is_playoff"):
+                    line += f" · {prediction.get('advancement') or 'проход: не указан'}"
+                lines.append(line)
         else:
             lines.append("— прогнозов нет. Лига выбрала путь молчаливого наблюдателя.")
 
@@ -1593,33 +1606,40 @@ async def _send_league_pregame_analyses(db, now):
         key = key_time.astimezone(timezone.utc).strftime("%Y%m%d%H%M")
         slots.setdefault(key, []).append(match)
 
-    from app.services.leagues import get_active_league_chat_targets, get_default_league
+    from app.services.leagues import (
+        get_active_league_chat_targets,
+        get_default_league,
+        get_unique_league_chat_destinations,
+        normalize_telegram_chat_id,
+    )
 
-    default_league = get_default_league(db)
+    destinations = get_unique_league_chat_destinations(db)
     configured_leagues = get_active_league_chat_targets(db)
+    default_league = get_default_league(db)
 
     for slot_matches in slots.values():
         slot_key = _pregame_slot_key(slot_matches)
-        destinations: list[tuple[League, str]] = []
-        seen_destinations: set[str] = set()
-
-        if GROUP_CHAT_ID_RAW and default_league:
-            chat_id = str(GROUP_CHAT_ID_RAW).strip()
-            if chat_id:
-                destinations.append((default_league, chat_id))
-                seen_destinations.add(chat_id)
-
-        for league in configured_leagues:
-            chat_id = str(getattr(league, "chat_id", "") or "").strip()
-            if not chat_id or chat_id in seen_destinations:
-                continue
-            destinations.append((league, chat_id))
-            seen_destinations.add(chat_id)
 
         for league, chat_id in destinations:
-            event_key = f"pregame_analysis:{league.id}:{slot_key}:{chat_id}"
-            if _app_event_sent(db, event_key):
+            # Older releases used one event key for GROUP_CHAT_ID and another one
+            # for the same league chat. Respect either legacy key when a release
+            # is deployed shortly after kickoff, so the chat is not replayed.
+            compatible_league_ids = {
+                item.id
+                for item in configured_leagues
+                if normalize_telegram_chat_id(getattr(item, "chat_id", None)) == chat_id
+            }
+            if default_league and normalize_telegram_chat_id(GROUP_CHAT_ID_RAW) == chat_id:
+                compatible_league_ids.add(default_league.id)
+            compatible_league_ids.add(league.id)
+            compatible_keys = {
+                f"pregame_analysis:{league_id}:{slot_key}:{chat_id}"
+                for league_id in compatible_league_ids
+            }
+            if any(_app_event_sent(db, key) for key in compatible_keys):
                 continue
+
+            event_key = f"pregame_analysis:{league.id}:{slot_key}:{chat_id}"
             try:
                 text = await build_league_pregame_analysis_text(db, league, slot_matches)
                 await bot.send_message(chat_id=chat_id, text=text)
@@ -1713,14 +1733,13 @@ async def _send_match_finished_notifications(db):
         return
 
     from app.services.leagues import (
-        get_active_league_chat_targets,
-        get_default_league,
+        get_unique_league_chat_destinations,
         get_user_active_leagues_for_match,
+        normalize_telegram_chat_id,
     )
     from app.services.notifications import notify_league_chat, notify_private_user
 
-    default_league = get_default_league(db)
-    league_chat_targets = get_active_league_chat_targets(db)
+    league_chat_destinations = get_unique_league_chat_destinations(db)
     approved_users = db.query(User).filter(User.access_status == "approved").all()
 
     for match in matches:
@@ -1768,23 +1787,20 @@ async def _send_match_finished_notifications(db):
                         print(f"Failed to send private match-finish notification to {user.telegram_id} for league {league.id}: {error}")
                     finally:
                         _mark_app_event_sent(db, private_key)
-        if GROUP_CHAT_ID_RAW and default_league:
-            key = f"group_match_finished:{match.id}"
-            if not _app_event_sent(db, key):
-                text = build_match_finished_group_notification_text(db, match, league=default_league)
-                try:
-                    await bot.send_message(chat_id=int(GROUP_CHAT_ID_RAW), text=text)
-                    _mark_app_event_sent(db, key)
-                except Exception as error:
-                    print(f"Failed to send default group match-finish notification: {error}")
-
-        for league in league_chat_targets:
-            key = f"league_match_finished:{league.id}:{match.id}"
-            if _app_event_sent(db, key):
+        for league, chat_id in league_chat_destinations:
+            generic_key = f"league_chat_match_finished:{chat_id}:{match.id}"
+            legacy_keys = {
+                generic_key,
+                f"league_match_finished:{league.id}:{match.id}",
+            }
+            if normalize_telegram_chat_id(GROUP_CHAT_ID_RAW) == chat_id:
+                legacy_keys.add(f"group_match_finished:{match.id}")
+            if any(_app_event_sent(db, key) for key in legacy_keys):
                 continue
+
             text = build_match_finished_group_notification_text(db, match, league=league)
             if await notify_league_chat(league, text):
-                _mark_app_event_sent(db, key)
+                _mark_app_event_sent(db, generic_key)
 
 async def send_match_reminders_once():
     """Handle asynchronous bot workflow for send_match_reminders_once."""
