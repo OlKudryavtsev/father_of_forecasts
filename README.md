@@ -1397,3 +1397,8 @@ Scorer aliases and cached event fallback keep tournament-prediction status and t
 - Полная топология плей-офф ЧМ-2026 до финала и матч за третье место.
 - Навигация по пути победителя между карточками стадий.
 - Исправлено открытие матчей из турнирной сетки.
+
+
+## v2.8.72
+
+Father forecasts support optional playoff advancement picks; apply migration `022_add_father_advancement_predictions.sql`.

@@ -616,10 +616,55 @@ def _parse_father_score_from_text(text: str) -> tuple[int, int] | None:
     return None
 
 
+def _father_advancement_from_text(
+    text: str | None,
+    match: Match,
+    pred_home: int,
+    pred_away: int,
+) -> tuple[bool, str | None]:
+    if not is_playoff_match(match):
+        return False, None
+    marker_found = False
+    found = re.search(r"Прогноз на проход:\s*([^\n\r]+)", text or "", flags=re.IGNORECASE)
+    if found:
+        marker_found = True
+        value = found.group(1).strip().casefold()
+        if value in {"", "не указан", "не ставил", "нет", "—", "-"}:
+            return False, None
+        if value == str(match.home_team or "").strip().casefold():
+            return True, "home"
+        if value == str(match.away_team or "").strip().casefold():
+            return True, "away"
+    if marker_found:
+        return False, None
+    if pred_home > pred_away:
+        return True, "home"
+    if pred_away > pred_home:
+        return True, "away"
+    return False, None
+
+
+def _father_advancement_pick_text(prediction: FatherMatchPrediction, match: Match) -> str:
+    if not is_playoff_match(match):
+        return ""
+    if prediction.advancement_bet_enabled and prediction.predicted_advancing_side == "home":
+        return f"проход: {match.home_team}"
+    if prediction.advancement_bet_enabled and prediction.predicted_advancing_side == "away":
+        return f"проход: {match.away_team}"
+    return "проход: не указан"
+
+
 def _ensure_father_match_prediction_for_notifications(db, match: Match) -> FatherMatchPrediction:
     """Get or create Father's match prediction for notifications without importing webapp router."""
     existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
     if existing:
+        if is_playoff_match(match) and not existing.advancement_bet_enabled and not existing.predicted_advancing_side:
+            enabled, side = _father_advancement_from_text(existing.forecast_text, match, existing.pred_home, existing.pred_away)
+            if enabled:
+                existing.advancement_bet_enabled = True
+                existing.predicted_advancing_side = side
+                db.commit()
+                db.refresh(existing)
         return existing
 
     score = _father_builtin_score(db, match)
@@ -651,11 +696,15 @@ def _ensure_father_match_prediction_for_notifications(db, match: Match) -> Fathe
             "Зафиксировано автоматически и больше не меняется после старта матча."
         )
 
+    advancement_bet_enabled, predicted_advancing_side = _father_advancement_from_text(text, match, pred_home, pred_away)
+
     prediction = FatherMatchPrediction(
         match_id=match.id,
         pred_home=pred_home,
         pred_away=pred_away,
         outcome=_prediction_score_outcome(pred_home, pred_away),
+        advancement_bet_enabled=advancement_bet_enabled,
+        predicted_advancing_side=predicted_advancing_side,
         confidence=None,
         source=source,
         forecast_text=text,
@@ -668,7 +717,10 @@ def _ensure_father_match_prediction_for_notifications(db, match: Match) -> Fathe
 
 def _format_father_prediction_line(db, match: Match) -> str:
     father = _ensure_father_match_prediction_for_notifications(db, match)
-    return f"🤖 Отец прогнозов: {father.pred_home}:{father.pred_away}"
+    line = f"🤖 Отец прогнозов: {father.pred_home}:{father.pred_away}"
+    if is_playoff_match(match):
+        line += f" · {_father_advancement_pick_text(father, match)}"
+    return line
 
 
 def _get_match_predictions_with_users(db, match: Match, league: League | None = None):
@@ -1423,6 +1475,7 @@ def build_league_pregame_analysis_context(db, league: League, matches: list[Matc
                 "score": f"{father_prediction.pred_home}:{father_prediction.pred_away}",
                 "outcome": father_prediction.outcome,
                 "source": father_prediction.source,
+                "advancement": _father_advancement_pick_text(father_prediction, match) if is_playoff_match(match) else None,
             },
         })
 
@@ -1505,7 +1558,10 @@ async def build_league_pregame_analysis_text(db, league: League, matches: list[M
         father_prediction = match_data.get("father_prediction") or {}
         father_score = father_prediction.get("score")
         if father_score:
-            lines.append(f"🤖 Отец прогнозов: {father_score}")
+            father_line = f"🤖 Отец прогнозов: {father_score}"
+            if match_data.get("is_playoff"):
+                father_line += f" · {father_prediction.get('advancement') or 'проход: не указан'}"
+            lines.append(father_line)
         predictions = match_data.get("predictions") or []
         if predictions:
             for prediction in predictions:

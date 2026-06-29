@@ -1,3 +1,7 @@
+# v2.8.72
+
+- Father forecasts now include optional playoff advancement picks, with display and scoring parity.
+
 ## v2.8.71 — Проход в раскрытых прогнозах и защита от дублей чатов
 
 - Дедупликация групповых Telegram-доставок при совпадении `GROUP_CHAT_ID` и `league.chat_id`.

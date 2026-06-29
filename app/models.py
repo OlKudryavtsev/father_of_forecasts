@@ -378,6 +378,10 @@ class FatherMatchPrediction(Base):
     pred_home = Column(Integer, nullable=False)
     pred_away = Column(Integer, nullable=False)
     outcome = Column(String, nullable=False)
+    # Father follows the same playoff rule as participants: an optional pick for
+    # the team that advances after extra time / penalties.
+    advancement_bet_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    predicted_advancing_side = Column(String, nullable=True)
     confidence = Column(Integer, nullable=True)
     source = Column(String, nullable=False, default="ai")
     forecast_text = Column(Text, nullable=True)

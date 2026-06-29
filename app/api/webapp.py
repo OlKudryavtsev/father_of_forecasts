@@ -46,6 +46,7 @@ from app.models import (
     WorldCupNewsItem,
 )
 from app.runtime import TOURNAMENT_CODE
+from app.scoring import score_match_prediction
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.rating_history import build_rating_history
@@ -578,21 +579,91 @@ def _parse_father_score_from_text(text: str) -> tuple[int, int] | None:
     return None
 
 
+def _father_advancement_from_text(
+    text: str | None,
+    match: Match,
+    pred_home: int,
+    pred_away: int,
+) -> tuple[bool, str | None]:
+    """Read Father's optional playoff advancement pick from the frozen forecast text.
+
+    Old Father records did not persist a separate choice. For those legacy records
+    only, a decisive 90-minute score safely implies the same side for advancement.
+    An explicit "не указан" remains an intentional abstention.
+    """
+    if not is_playoff_match(match):
+        return False, None
+
+    value = None
+    marker_found = False
+    found = re.search(r"Прогноз на проход:\s*([^\n\r]+)", text or "", flags=re.IGNORECASE)
+    if found:
+        marker_found = True
+        value = found.group(1).strip().casefold()
+        if value in {"", "не указан", "не ставил", "нет", "—", "-"}:
+            return False, None
+        if value == str(match.home_team or "").strip().casefold():
+            return True, "home"
+        if value == str(match.away_team or "").strip().casefold():
+            return True, "away"
+
+    if marker_found:
+        return False, None
+    if pred_home > pred_away:
+        return True, "home"
+    if pred_away > pred_home:
+        return True, "away"
+    return False, None
+
+
+def _father_advancement_label(prediction: FatherMatchPrediction, match: Match) -> str | None:
+    if not is_playoff_match(match):
+        return None
+    if prediction.advancement_bet_enabled and prediction.predicted_advancing_side == "home":
+        return f"Проход: {match.home_team}"
+    if prediction.advancement_bet_enabled and prediction.predicted_advancing_side == "away":
+        return f"Проход: {match.away_team}"
+    return "Проход: не указан"
+
+
+def _father_forecast_text_with_advancement(prediction: FatherMatchPrediction, match: Match) -> str:
+    text = prediction.forecast_text or f"Прогноз счета: {prediction.pred_home}:{prediction.pred_away}"
+    if is_playoff_match(match) and "Прогноз на проход:" not in text:
+        label = _father_advancement_label(prediction, match) or "Проход: не указан"
+        text = text.replace(
+            f"Прогноз счета: {prediction.pred_home}:{prediction.pred_away}",
+            f"Прогноз счета: {prediction.pred_home}:{prediction.pred_away}\nПрогноз на проход: {label.replace('Проход: ', '')}",
+            1,
+        )
+    return text
+
+
 def _serialize_father_prediction(prediction: FatherMatchPrediction | None, match: Match | None = None) -> dict | None:
     if not prediction:
         return None
 
     points = None
+    score_points = 0
+    advancement_points = 0
     result_class = None
     if match and match.is_finished and match.score_home is not None and match.score_away is not None:
-        if prediction.pred_home == match.score_home and prediction.pred_away == match.score_away:
-            points = 3
+        result = score_match_prediction(
+            pred_home=prediction.pred_home,
+            pred_away=prediction.pred_away,
+            actual_home=match.score_home,
+            actual_away=match.score_away,
+            advancement_bet_enabled=bool(prediction.advancement_bet_enabled),
+            predicted_advancing_side=prediction.predicted_advancing_side,
+            actual_winner_side=match.winner_side,
+        )
+        score_points = int(result["score_points"] or 0)
+        advancement_points = int(result["advancement_points"] or 0)
+        points = int(result["total_points"] or 0)
+        if score_points == 3:
             result_class = "exact"
-        elif _score_outcome(prediction.pred_home, prediction.pred_away) == _score_outcome(match.score_home, match.score_away):
-            points = 1
+        elif score_points == 1:
             result_class = "outcome"
         else:
-            points = 0
             result_class = "miss"
 
     return {
@@ -603,7 +674,12 @@ def _serialize_father_prediction(prediction: FatherMatchPrediction | None, match
         "outcome": prediction.outcome,
         "confidence": prediction.confidence,
         "source": prediction.source,
-        "forecast_text": prediction.forecast_text,
+        "forecast_text": _father_forecast_text_with_advancement(prediction, match) if match else prediction.forecast_text,
+        "advancement_bet_enabled": bool(prediction.advancement_bet_enabled),
+        "predicted_advancing_side": prediction.predicted_advancing_side,
+        "advancement_label": _father_advancement_label(prediction, match) if match else None,
+        "score_points": score_points,
+        "advancement_points": advancement_points,
         "points": points,
         "result_class": result_class,
     }
@@ -612,6 +688,15 @@ def _serialize_father_prediction(prediction: FatherMatchPrediction | None, match
 def _ensure_father_match_prediction(db: Session, match: Match, allow_ai: bool = True) -> FatherMatchPrediction:
     existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
     if existing:
+        # Safety for databases where the schema migration is applied after this
+        # code: infer a legacy pick only when no explicit playoff marker existed.
+        if is_playoff_match(match) and not existing.advancement_bet_enabled and not existing.predicted_advancing_side:
+            enabled, side = _father_advancement_from_text(existing.forecast_text, match, existing.pred_home, existing.pred_away)
+            if enabled:
+                existing.advancement_bet_enabled = True
+                existing.predicted_advancing_side = side
+                db.commit()
+                db.refresh(existing)
         return existing
 
     score = _father_builtin_score(db, match)
@@ -642,11 +727,15 @@ def _ensure_father_match_prediction(db: Session, match: Match, allow_ai: bool = 
             "Зафиксировано автоматически и больше не меняется после старта матча."
         )
 
+    advancement_bet_enabled, predicted_advancing_side = _father_advancement_from_text(text, match, pred_home, pred_away)
+
     prediction = FatherMatchPrediction(
         match_id=match.id,
         pred_home=pred_home,
         pred_away=pred_away,
         outcome=_score_outcome(pred_home, pred_away),
+        advancement_bet_enabled=advancement_bet_enabled,
+        predicted_advancing_side=predicted_advancing_side,
         confidence=None,
         source=source,
         forecast_text=text,
@@ -1902,7 +1991,7 @@ async def get_forecast_for_match(
     prediction = _ensure_father_match_prediction(db, match, allow_ai=True)
     return {
         "match_id": match.id,
-        "text": prediction.forecast_text or f"Прогноз счета: {prediction.pred_home}:{prediction.pred_away}",
+        "text": _father_forecast_text_with_advancement(prediction, match),
         "father_prediction": _serialize_father_prediction(prediction, match),
     }
 
@@ -2035,6 +2124,8 @@ def get_table(
     father_points = 0
     father_exact = 0
     father_outcomes = 0
+    father_advancement_plus = 0
+    father_advancement_minus = 0
     father_finished_total = 0
 
     for fp in father_predictions:
@@ -2044,12 +2135,24 @@ def get_table(
 
         father_finished_total += 1
 
-        if fp.pred_home == match.score_home and fp.pred_away == match.score_away:
-            father_points += 3
+        result = score_match_prediction(
+            pred_home=fp.pred_home,
+            pred_away=fp.pred_away,
+            actual_home=match.score_home,
+            actual_away=match.score_away,
+            advancement_bet_enabled=bool(fp.advancement_bet_enabled),
+            predicted_advancing_side=fp.predicted_advancing_side,
+            actual_winner_side=match.winner_side,
+        )
+        father_points += int(result["total_points"] or 0)
+        if int(result["score_points"] or 0) == 3:
             father_exact += 1
-        elif _score_outcome(fp.pred_home, fp.pred_away) == _score_outcome(match.score_home, match.score_away):
-            father_points += 1
+        elif int(result["score_points"] or 0) == 1:
             father_outcomes += 1
+        if int(result["advancement_points"] or 0) == 1:
+            father_advancement_plus += 1
+        elif int(result["advancement_points"] or 0) == -1:
+            father_advancement_minus += 1
 
     father_successful = father_exact + father_outcomes
     father_row = {
@@ -2065,8 +2168,8 @@ def get_table(
         "match_predictions_progress": f"{len(father_predictions)}/{total_matches_count}" if total_matches_count else str(len(father_predictions)),
         "exact_scores": father_exact,
         "outcomes": father_outcomes,
-        "advancement_plus": 0,
-        "advancement_minus": 0,
+        "advancement_plus": father_advancement_plus,
+        "advancement_minus": father_advancement_minus,
         "successful_predictions": father_successful,
         "accuracy_base": father_finished_total,
         "accuracy_percent": round(father_successful * 100 / father_finished_total) if father_finished_total else 0,
@@ -2365,22 +2468,30 @@ def get_father_finished_predictions(
         if not match or match.score_home is None or match.score_away is None:
             continue
 
-        if prediction.pred_home == match.score_home and prediction.pred_away == match.score_away:
+        result = score_match_prediction(
+            pred_home=prediction.pred_home,
+            pred_away=prediction.pred_away,
+            actual_home=match.score_home,
+            actual_away=match.score_away,
+            advancement_bet_enabled=bool(prediction.advancement_bet_enabled),
+            predicted_advancing_side=prediction.predicted_advancing_side,
+            actual_winner_side=match.winner_side,
+        )
+        score_points = int(result["score_points"] or 0)
+        advancement_points = int(result["advancement_points"] or 0)
+        if score_points == 3:
             result_type = "exact"
             result_label = "Точный счет"
-            score_points = 3
             exact_count += 1
-        elif _score_outcome(prediction.pred_home, prediction.pred_away) == _score_outcome(match.score_home, match.score_away):
+        elif score_points == 1:
             result_type = "outcome"
             result_label = "Угадан исход"
-            score_points = 1
             outcome_count += 1
         else:
             result_type = "miss"
             result_label = "Не угадан"
-            score_points = 0
 
-        total_match_points += score_points
+        total_match_points += int(result["total_points"] or 0)
         home_name = get_team_name_ru(match.home_team)
         away_name = get_team_name_ru(match.away_team)
         rows.append(
@@ -2400,9 +2511,11 @@ def get_father_finished_predictions(
                 "result_type": result_type,
                 "result_label": result_label,
                 "score_points": score_points,
-                "advancement_points": 0,
+                "advancement_points": advancement_points,
+                "advancement_bet_enabled": bool(prediction.advancement_bet_enabled),
+                "predicted_advancing_side": prediction.predicted_advancing_side,
                 "is_playoff": is_playoff_match(match),
-                "points": score_points,
+                "points": int(result["total_points"] or 0),
             }
         )
 

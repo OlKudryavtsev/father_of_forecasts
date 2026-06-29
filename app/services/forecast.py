@@ -12,6 +12,7 @@ from app.formatters.matches import (
     format_short_matches_fact,
 )
 from app.runtime import Match, User, build_wc2026_openai_context, generate_openai_forecast
+from app.constants.categories import PLAYOFF_STAGES
 
 
 def is_forecast_bot_user(user: User) -> bool:
@@ -131,6 +132,22 @@ def build_forecast_text(db, match: Match) -> str:
     pred_home = int(forecast["pred_home"])
     pred_away = int(forecast["pred_away"])
 
+    is_playoff = str(getattr(match, "stage", "") or "").lower() in PLAYOFF_STAGES
+    advancement_enabled = bool(forecast.get("advancement_bet_enabled")) if is_playoff else False
+    advancing_side = str(forecast.get("predicted_advancing_side") or "").lower().strip()
+    if advancing_side not in {"home", "away"}:
+        advancing_side = ""
+    if not advancement_enabled or not advancing_side:
+        advancement_enabled = False
+        advancing_side = ""
+    advancement_text = ""
+    if is_playoff:
+        if advancement_enabled:
+            advancing_team = match.home_team if advancing_side == "home" else match.away_team
+            advancement_text = f"Прогноз на проход: {advancing_team}\n"
+        else:
+            advancement_text = "Прогноз на проход: не указан\n"
+
     outcome_text = {
         "home": f"победа {match.home_team}",
         "away": f"победа {match.away_team}",
@@ -188,6 +205,7 @@ def build_forecast_text(db, match: Match) -> str:
         f"{format_match_label(match, include_id=True)}\n"
         f"Старт: {format_datetime(match.starts_at)}\n\n"
         f"Прогноз счета: {pred_home}:{pred_away}\n"
+        f"{advancement_text}"
         f"Исход: {outcome_text}\n"
         f"Уверенность: {confidence}%\n"
         f"Качество данных: {data_confidence}\n\n"

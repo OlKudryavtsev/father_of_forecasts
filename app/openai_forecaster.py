@@ -31,6 +31,15 @@ FORECAST_JSON_SCHEMA = {
                 "type": "string",
                 "enum": ["home", "draw", "away"],
             },
+            "advancement_bet_enabled": {
+                "type": "boolean",
+            },
+            "predicted_advancing_side": {
+                "anyOf": [
+                    {"type": "string", "enum": ["home", "away"]},
+                    {"type": "null"},
+                ],
+            },
             "confidence": {
                 "type": "number",
                 "minimum": 0,
@@ -70,6 +79,8 @@ FORECAST_JSON_SCHEMA = {
             "pred_home",
             "pred_away",
             "outcome",
+            "advancement_bet_enabled",
+            "predicted_advancing_side",
             "confidence",
             "data_confidence",
             "reason",
@@ -111,6 +122,12 @@ def build_forecast_prompt(context: dict[str, Any]) -> str:
 - 3 очка за точный счет;
 - 1 очко за угаданный исход;
 - поэтому лучше быть достаточно точным по исходу, но не ставить всегда 1:1.
+- Для плей-офф дополнительно можно выбрать команду, которая пройдет дальше:
+  advancement_bet_enabled=true и predicted_advancing_side=home/away.
+- Этот выбор независим от счета за 90 минут: при ничьей можно выбрать проход
+  по дополнительному времени или пенальти. Если уверенности недостаточно,
+  верни advancement_bet_enabled=false и predicted_advancing_side=null.
+- Для группового этапа всегда верни advancement_bet_enabled=false и predicted_advancing_side=null.
 
 Подсказки по счетам:
 - Для сильного фаворита часто разумны 2:0, 2:1, 1:0.

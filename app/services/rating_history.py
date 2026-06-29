@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import FatherMatchPrediction, League, LeagueMember, Match, Prediction, TournamentPrediction, User
 from app.runtime import TOURNAMENT_CODE
-from app.scoring import score_match_result_points
+from app.scoring import score_match_prediction
 from app.services.leagues import league_scoring_start_at
 
 
@@ -180,16 +180,20 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
 
         father_prediction = father_predictions.get(match.id)
         if father_prediction and match.score_home is not None and match.score_away is not None:
-            father_points = score_match_result_points(
-                father_prediction.pred_home,
-                father_prediction.pred_away,
-                match.score_home,
-                match.score_away,
+            father_result = score_match_prediction(
+                pred_home=father_prediction.pred_home,
+                pred_away=father_prediction.pred_away,
+                actual_home=match.score_home,
+                actual_away=match.score_away,
+                advancement_bet_enabled=bool(father_prediction.advancement_bet_enabled),
+                predicted_advancing_side=father_prediction.predicted_advancing_side,
+                actual_winner_side=match.winner_side,
             )
+            father_points = int(father_result["total_points"] or 0)
             state[FATHER_USER_ID]["points"] += father_points
-            if father_points == 3:
+            if int(father_result["score_points"] or 0) == 3:
                 state[FATHER_USER_ID]["exact_scores"] += 1
-            elif father_points == 1:
+            elif int(father_result["score_points"] or 0) == 1:
                 state[FATHER_USER_ID]["outcomes"] += 1
 
         # Tournament-prediction points become relevant only after every match of

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.71';
+const APP_VERSION = '2.8.72';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1742,7 +1742,14 @@ function MatchParticipantsInline({ match, leagueId = null }) {
               {data.father_prediction && (
                 <div className={`participant-row father-row ${data.father_prediction.result_class ? `result-${data.father_prediction.result_class}` : ''}`}>
                   <span>🤖 Отец прогнозов</span>
-                  <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
+                  <div className="participant-pick">
+                    <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
+                    {participantAdvancementLabel(data.father_prediction, data.match || match) && (
+                      <small className="participant-advancement-pick">
+                        {participantAdvancementLabel(data.father_prediction, data.match || match)}
+                      </small>
+                    )}
+                  </div>
                 </div>
               )}
               {participants.map((participant) => {
@@ -3434,19 +3441,32 @@ function MatchParticipantsModal({ match, onClose }) {
                 {data.father_prediction && (
                   <div className={`participant-row father-row ${data.father_prediction.result_class ? `result-${data.father_prediction.result_class}` : ''}`}>
                     <span>🤖 Отец прогнозов</span>
-                    <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
+                    <div className="participant-pick">
+                      <b>{data.father_prediction.pred_home}:{data.father_prediction.pred_away}</b>
+                      {participantAdvancementLabel(data.father_prediction, data.match || match) && (
+                        <small className="participant-advancement-pick">
+                          {participantAdvancementLabel(data.father_prediction, data.match || match)}
+                        </small>
+                      )}
+                    </div>
                   </div>
                 )}
-                {participants.map((participant) => (
-                  <div className={`participant-row ${participant.result_class ? `result-${participant.result_class}` : ''}`} key={participant.user_id}>
-                    <span>{participant.display_name}</span>
-                    {data.has_started ? (
-                      <b>{participant.pred_home}:{participant.pred_away}</b>
-                    ) : (
-                      <em>ставка сделана</em>
-                    )}
-                  </div>
-                ))}
+                {participants.map((participant) => {
+                  const advancementLabel = participantAdvancementLabel(participant, data.match || match);
+                  return (
+                    <div className={`participant-row ${participant.result_class ? `result-${participant.result_class}` : ''}`} key={participant.user_id}>
+                      <span>{participant.display_name}</span>
+                      {data.has_started ? (
+                        <div className="participant-pick">
+                          <b>{participant.pred_home}:{participant.pred_away}</b>
+                          {advancementLabel && <small className="participant-advancement-pick">{advancementLabel}</small>}
+                        </div>
+                      ) : (
+                        <em>ставка сделана</em>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>
