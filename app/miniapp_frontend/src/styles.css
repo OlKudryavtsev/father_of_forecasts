@@ -11739,3 +11739,71 @@ body,
     text-align: left;
   }
 }
+
+/* v2.8.74 — completed-match prediction correction in administrator panel */
+.admin-prediction-editor-card {
+  border-color: rgba(22, 199, 132, 0.28);
+}
+
+.admin-field-label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-field-label select {
+  margin-top: 1px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-editor-match-note,
+.admin-editor-current {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.admin-editor-match-note b,
+.admin-editor-current b {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.admin-editor-match-note span,
+.admin-editor-current span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.32;
+}
+
+.admin-editor-current {
+  background: rgba(22, 199, 132, 0.08);
+  border-color: rgba(22, 199, 132, 0.20);
+}
+
+.admin-score-row.with-advancement {
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1.6fr);
+}
+
+.app.theme-light .admin-editor-match-note {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+.app.theme-light .admin-editor-current {
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(22, 163, 74, 0.20);
+}
+
+@media (max-width: 390px) {
+  .admin-score-row.with-advancement {
+    grid-template-columns: 1fr;
+  }
+}

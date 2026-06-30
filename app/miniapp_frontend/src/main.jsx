@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.73';
+const APP_VERSION = '2.8.74';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5917,9 +5917,14 @@ function AdminPanel() {
   const [adminSection, setAdminSection] = useState('overview');
   const [data, setData] = useState(null);
   const [selectedMatchId, setSelectedMatchId] = useState('');
-  const [scoreHome, setScoreHome] = useState('');
-  const [scoreAway, setScoreAway] = useState('');
-  const [winnerSide, setWinnerSide] = useState('');
+  const [editorMatchId, setEditorMatchId] = useState('');
+  const [editorUserId, setEditorUserId] = useState('');
+  const [editorPrediction, setEditorPrediction] = useState(null);
+  const [editorScoreHome, setEditorScoreHome] = useState('');
+  const [editorScoreAway, setEditorScoreAway] = useState('');
+  const [editorAdvancingSide, setEditorAdvancingSide] = useState('');
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorRevision, setEditorRevision] = useState(0);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -5932,6 +5937,13 @@ function AdminPanel() {
       if (!selectedMatchId && result.matches?.length) {
         setSelectedMatchId(String(result.matches[0].id));
       }
+      if (!editorMatchId) {
+        const firstFinished = [...(result.matches || [])].reverse().find((match) => match.is_finished && match.score_home !== null && match.score_away !== null);
+        if (firstFinished) setEditorMatchId(String(firstFinished.id));
+      }
+      if (!editorUserId && result.participants?.length) {
+        setEditorUserId(String(result.participants[0].id));
+      }
     } catch (err) {
       setError(err);
     }
@@ -5939,11 +5951,41 @@ function AdminPanel() {
 
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEditorPrediction() {
+      if (!editorMatchId || !editorUserId) return;
+      setEditorLoading(true);
+      try {
+        const result = await api(`/api/webapp/admin/prediction-editor?user_id=${encodeURIComponent(editorUserId)}&match_id=${encodeURIComponent(editorMatchId)}`);
+        if (cancelled) return;
+        const prediction = result.prediction || null;
+        setEditorPrediction(prediction);
+        setEditorScoreHome(prediction ? String(prediction.pred_home) : '');
+        setEditorScoreAway(prediction ? String(prediction.pred_away) : '');
+        setEditorAdvancingSide(prediction?.predicted_advancing_side || '');
+      } catch (err) {
+        if (!cancelled) setError(err);
+      } finally {
+        if (!cancelled) setEditorLoading(false);
+      }
+    }
+
+    loadEditorPrediction();
+    return () => { cancelled = true; };
+  }, [editorMatchId, editorUserId, editorRevision]);
 
   const matches = data?.matches || [];
+  const participants = data?.participants || [];
   const selectedMatch = matches.find((match) => String(match.id) === String(selectedMatchId));
+  const finishedMatches = matches
+    .filter((match) => match.is_finished && match.score_home !== null && match.score_away !== null)
+    .sort((left, right) => new Date(right.starts_at).getTime() - new Date(left.starts_at).getTime());
+  const selectedEditorMatch = finishedMatches.find((match) => String(match.id) === String(editorMatchId));
+  const isEditorPlayoff = Boolean(selectedEditorMatch && selectedEditorMatch.stage !== 'group');
 
-  async function runAction(action) {
+  async function runAction(action, options = {}) {
     setBusy(true);
     setError(null);
     setMessage('');
@@ -5952,6 +5994,7 @@ function AdminPanel() {
       const result = await action();
       setMessage(result.message || JSON.stringify(result, null, 2));
       await load();
+      if (options.refreshEditor) setEditorRevision((value) => value + 1);
     } catch (err) {
       setError(err);
     } finally {
@@ -5959,16 +6002,22 @@ function AdminPanel() {
     }
   }
 
-  async function saveManualResult() {
-    if (!selectedMatchId) throw new Error('Выберите матч.');
-    if (scoreHome === '' || scoreAway === '') throw new Error('Укажите счет.');
+  async function saveAdminPrediction() {
+    if (!editorMatchId || !editorUserId) throw new Error('Выберите участника и завершённый матч.');
+    if (editorScoreHome === '' || editorScoreAway === '') throw new Error('Укажите прогнозируемый счёт.');
+    if (isEditorPlayoff && editorAdvancingSide && !['home', 'away'].includes(editorAdvancingSide)) {
+      throw new Error('Некорректно указана команда на проход.');
+    }
 
-    return api(`/api/webapp/admin/matches/${selectedMatchId}/result`, {
+    return api('/api/webapp/admin/predictions', {
       method: 'POST',
       body: JSON.stringify({
-        score_home: Number(scoreHome),
-        score_away: Number(scoreAway),
-        winner_side: winnerSide || null,
+        user_id: Number(editorUserId),
+        match_id: Number(editorMatchId),
+        pred_home: Number(editorScoreHome),
+        pred_away: Number(editorScoreAway),
+        advancement_bet_enabled: Boolean(isEditorPlayoff && editorAdvancingSide),
+        predicted_advancing_side: isEditorPlayoff && editorAdvancingSide ? editorAdvancingSide : null,
       }),
     });
   }
@@ -5990,7 +6039,6 @@ function AdminPanel() {
     return api('/api/webapp/admin/push/test', { method: 'POST' });
   }
 
-
   async function toggleGlobalSetting(key, checked) {
     const result = await api(`/api/webapp/admin/settings/${key}`, {
       method: 'POST',
@@ -6008,6 +6056,10 @@ function AdminPanel() {
 
   if (error && !data) return <ErrorCard error={error} onRetry={load} />;
   if (!data) return <LoadingCard text="Открываю админку..." />;
+
+  const editorPoints = editorPrediction
+    ? `${editorPrediction.points || 0} очк. (${editorPrediction.score_points || 0} за счёт/исход${editorPrediction.advancement_points ? ` ${editorPrediction.advancement_points > 0 ? '+' : ''}${editorPrediction.advancement_points} за проход` : ''})`
+    : 'Прогноза ещё нет';
 
   return (
     <main className="screen-content admin-screen">
@@ -6027,8 +6079,41 @@ function AdminPanel() {
         <div><b>{data.summary?.push_users_count || 0}</b><span>push-пользователей</span></div>
       </section>
 
+      <section className="card admin-card admin-prediction-editor-card">
+        <div className="admin-card-head">
+          <div><h2>1. Исправление прогнозов участников</h2><p>Добавьте пропущенный прогноз или исправьте уже внесённый по завершённому матчу. Очки и рейтинг пересчитываются сразу.</p></div>
+        </div>
+        <label className="admin-field-label">Участник
+          <select value={editorUserId} onChange={(event) => setEditorUserId(event.target.value)} disabled={busy || editorLoading}>
+            {participants.map((participant) => <option key={participant.id} value={participant.id}>{participant.display_name}{participant.username ? ` (@${participant.username})` : ''}</option>)}
+          </select>
+        </label>
+        <label className="admin-field-label">Завершённый матч
+          <select value={editorMatchId} onChange={(event) => setEditorMatchId(event.target.value)} disabled={busy || editorLoading}>
+            {finishedMatches.map((match) => <option key={match.id} value={match.id}>#{match.id} {match.home_team} — {match.away_team} ({match.score_home}:{match.score_away}) · {match.match_round || match.stage}</option>)}
+          </select>
+        </label>
+        {selectedEditorMatch && <div className="admin-editor-match-note">
+          <b>{selectedEditorMatch.home_team} {selectedEditorMatch.score_home}:{selectedEditorMatch.score_away} {selectedEditorMatch.away_team}</b>
+          <span>{selectedEditorMatch.match_round || selectedEditorMatch.stage}{isEditorPlayoff && selectedEditorMatch.winner_side === 'home' ? ` · прошли ${selectedEditorMatch.home_team}` : ''}{isEditorPlayoff && selectedEditorMatch.winner_side === 'away' ? ` · прошли ${selectedEditorMatch.away_team}` : ''}</span>
+        </div>}
+        {editorLoading ? <p className="muted small">Загружаю текущий прогноз…</p> : <>
+          <div className="admin-editor-current"><b>{editorPrediction ? 'Текущий прогноз' : 'Прогноз отсутствует'}</b><span>{editorPrediction ? `${editorPrediction.pred_home}:${editorPrediction.pred_away}${editorPrediction.advancement_label ? ` · проход: ${editorPrediction.advancement_label}` : ''} · ${editorPoints}` : 'Можно добавить его задним числом.'}</span></div>
+          <div className={`admin-score-row ${isEditorPlayoff ? 'with-advancement' : ''}`}>
+            <input type="number" min="0" max="20" value={editorScoreHome} onChange={(event) => setEditorScoreHome(event.target.value)} placeholder={selectedEditorMatch?.home_team || 'Хозяева'} disabled={busy} />
+            <input type="number" min="0" max="20" value={editorScoreAway} onChange={(event) => setEditorScoreAway(event.target.value)} placeholder={selectedEditorMatch?.away_team || 'Гости'} disabled={busy} />
+            {isEditorPlayoff && <select value={editorAdvancingSide} onChange={(event) => setEditorAdvancingSide(event.target.value)} disabled={busy}>
+              <option value="">Проход: не указан</option>
+              <option value="home">Пройдёт {selectedEditorMatch?.home_team}</option>
+              <option value="away">Пройдёт {selectedEditorMatch?.away_team}</option>
+            </select>}
+          </div>
+          <button className="primary full" disabled={busy || !editorMatchId || !editorUserId} onClick={() => runAction(saveAdminPrediction, { refreshEditor: true })}>{editorPrediction ? 'Сохранить исправление и пересчитать' : 'Добавить прогноз и пересчитать'}</button>
+        </>}
+      </section>
+
       <section className="card admin-card">
-        <h2>Матч</h2>
+        <h2>Матч для синхронизации</h2>
         <select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)}>
           {matches.map((match) => (
             <option key={match.id} value={match.id}>
@@ -6040,21 +6125,8 @@ function AdminPanel() {
       </section>
 
       <section className="card admin-card">
-        <h2>1. Ручное выставление результата</h2>
-        <div className="admin-score-row">
-          <input type="number" min="0" value={scoreHome} onChange={(event) => setScoreHome(event.target.value)} placeholder="Хозяева" />
-          <input type="number" min="0" value={scoreAway} onChange={(event) => setScoreAway(event.target.value)} placeholder="Гости" />
-          <select value={winnerSide} onChange={(event) => setWinnerSide(event.target.value)}>
-            <option value="">winner не нужен</option>
-            <option value="home">прошли хозяева</option>
-            <option value="away">прошли гости</option>
-          </select>
-        </div>
-        <button className="primary full" disabled={busy} onClick={() => runAction(saveManualResult)}>Сохранить результат</button>
-      </section>
-
-      <section className="card admin-card">
         <h2>2. Обновление результата через API-Football</h2>
+        <p className="muted">Основной способ обновления результата. После получения финального счёта сервис пересчитывает прогнозы автоматически.</p>
         <div className="admin-actions-row">
           <button disabled={busy} onClick={() => runAction(syncSelectedResult)}>Обновить выбранный матч</button>
           <button disabled={busy} onClick={() => runAction(syncAllResults)}>Обновить все сыгранные</button>
@@ -6106,7 +6178,6 @@ function AdminPanel() {
     </main>
   );
 }
-
 
 function NotificationSettingsCard({ embedded = false }) {
   const [data, setData] = useState(null);

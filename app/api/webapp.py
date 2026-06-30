@@ -216,6 +216,17 @@ class PredictionPayload(BaseModel):
     predicted_advancing_side: str | None = None
 
 
+class AdminPredictionEditPayload(BaseModel):
+    """Administrator correction or backfill for a completed match prediction."""
+
+    user_id: int
+    match_id: int
+    pred_home: int = Field(ge=0, le=20)
+    pred_away: int = Field(ge=0, le=20)
+    advancement_bet_enabled: bool = False
+    predicted_advancing_side: str | None = None
+
+
 class TournamentPredictionPayload(BaseModel):
     """Payload for saving the user's tournament prediction."""
 
@@ -3809,6 +3820,32 @@ def _serialize_admin_match(match: Match) -> dict:
     }
 
 
+def _serialize_admin_prediction_editor(prediction: Prediction, match: Match) -> dict:
+    """Serialize a participant prediction for the completed-match editor."""
+    advancing_side = str(prediction.predicted_advancing_side or "").lower()
+    if advancing_side == "home":
+        advancement_label = get_team_name_ru(match.home_team)
+    elif advancing_side == "away":
+        advancement_label = get_team_name_ru(match.away_team)
+    else:
+        advancement_label = None
+
+    return {
+        "id": prediction.id,
+        "user_id": prediction.user_id,
+        "match_id": prediction.match_id,
+        "pred_home": prediction.pred_home,
+        "pred_away": prediction.pred_away,
+        "advancement_bet_enabled": bool(prediction.advancement_bet_enabled),
+        "predicted_advancing_side": prediction.predicted_advancing_side,
+        "advancement_label": advancement_label,
+        "score_points": int(prediction.score_points or 0),
+        "advancement_points": int(prediction.advancement_points or 0),
+        "points": int(prediction.points or 0),
+        "updated_at": prediction.updated_at.isoformat() if prediction.updated_at else None,
+    }
+
+
 def _calculate_fantasy_points_for_stat(player: FantasyPlayer, stat: dict) -> int:
     """Calculate fantasy points using current Mini App scoring rules."""
     minutes = int(stat.get("minutes") or 0)
@@ -3929,6 +3966,151 @@ def _recalculate_fantasy_team_points(db: Session) -> int:
     return updated
 
 
+@router.get("/admin/prediction-editor")
+def get_admin_prediction_editor(
+    user_id: int = Query(..., ge=1),
+    match_id: int = Query(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Load one existing prediction for the completed-match admin editor."""
+    _require_miniapp_admin(current_user)
+
+    participant = (
+        db.query(User)
+        .filter(User.id == user_id, User.access_status == "approved")
+        .first()
+    )
+    if not participant:
+        raise HTTPException(status_code=404, detail="Участник не найден или не одобрен.")
+
+    match = (
+        db.query(Match)
+        .filter(Match.id == match_id, Match.tournament_code == TOURNAMENT_CODE)
+        .first()
+    )
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден.")
+    if not match.is_finished or match.score_home is None or match.score_away is None:
+        raise HTTPException(status_code=400, detail="Редактор доступен только для завершённых матчей с сохранённым счётом.")
+
+    prediction = (
+        db.query(Prediction)
+        .filter(Prediction.user_id == participant.id, Prediction.match_id == match.id)
+        .first()
+    )
+
+    return {
+        "user": {
+            "id": participant.id,
+            "display_name": participant.display_name,
+            "username": participant.username,
+        },
+        "match": _serialize_admin_match(match),
+        "prediction": _serialize_admin_prediction_editor(prediction, match) if prediction else None,
+    }
+
+
+@router.post("/admin/predictions")
+def admin_save_completed_match_prediction(
+    payload: AdminPredictionEditPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create or correct a participant prediction after a match has finished."""
+    _require_miniapp_admin(current_user)
+
+    participant = (
+        db.query(User)
+        .filter(User.id == payload.user_id, User.access_status == "approved")
+        .first()
+    )
+    if not participant:
+        raise HTTPException(status_code=404, detail="Участник не найден или не одобрен.")
+
+    match = (
+        db.query(Match)
+        .filter(Match.id == payload.match_id, Match.tournament_code == TOURNAMENT_CODE)
+        .first()
+    )
+    if not match:
+        raise HTTPException(status_code=404, detail="Матч не найден.")
+    if not match.is_finished or match.score_home is None or match.score_away is None:
+        raise HTTPException(status_code=400, detail="Вносить и исправлять прогнозы можно только по завершённому матчу с сохранённым счётом.")
+
+    advancing_side = str(payload.predicted_advancing_side or "").lower().strip() or None
+    if advancing_side not in {None, "home", "away"}:
+        raise HTTPException(status_code=400, detail="Некорректно указана команда на проход.")
+
+    playoff = is_playoff_match(match)
+    has_advancement_pick = bool(payload.advancement_bet_enabled) or advancing_side in {"home", "away"}
+
+    if not playoff and has_advancement_pick:
+        raise HTTPException(status_code=400, detail="Ставка на проход доступна только в матчах плей-офф.")
+
+    if playoff and has_advancement_pick and advancing_side not in {"home", "away"}:
+        raise HTTPException(status_code=400, detail="Для ставки на проход выберите прошедшую команду.")
+
+    if playoff and has_advancement_pick and match.winner_side not in {"home", "away"}:
+        raise HTTPException(
+            status_code=400,
+            detail="У завершённого матча не определён прошедший участник. Сначала обновите результат через API-Football.",
+        )
+
+    existing = (
+        db.query(Prediction)
+        .filter(Prediction.user_id == participant.id, Prediction.match_id == match.id)
+        .first()
+    )
+    created = existing is None
+    prediction = existing or Prediction(user_id=participant.id, match_id=match.id)
+
+    prediction.pred_home = payload.pred_home
+    prediction.pred_away = payload.pred_away
+    prediction.advancement_bet_enabled = bool(playoff and has_advancement_pick)
+    prediction.predicted_advancing_side = advancing_side if playoff and has_advancement_pick else None
+
+    result = score_match_prediction(
+        pred_home=prediction.pred_home,
+        pred_away=prediction.pred_away,
+        actual_home=match.score_home,
+        actual_away=match.score_away,
+        advancement_bet_enabled=prediction.advancement_bet_enabled,
+        predicted_advancing_side=prediction.predicted_advancing_side,
+        actual_winner_side=match.winner_side if playoff else None,
+    )
+    prediction.score_points = result["score_points"]
+    prediction.advancement_points = result["advancement_points"]
+    prediction.points = result["total_points"]
+    prediction.updated_at = datetime.now(timezone.utc)
+
+    if created:
+        db.add(prediction)
+
+    db.commit()
+    db.refresh(prediction)
+
+    score_text = f"{prediction.pred_home}:{prediction.pred_away}"
+    if prediction.predicted_advancing_side == "home":
+        advancement_text = f" · проход: {get_team_name_ru(match.home_team)}"
+    elif prediction.predicted_advancing_side == "away":
+        advancement_text = f" · проход: {get_team_name_ru(match.away_team)}"
+    else:
+        advancement_text = ""
+
+    return {
+        "ok": True,
+        "created": created,
+        "match": _serialize_admin_match(match),
+        "prediction": _serialize_admin_prediction_editor(prediction, match),
+        "message": (
+            f"Прогноз {'добавлен' if created else 'исправлен'}: {participant.display_name} — {score_text}{advancement_text}. "
+            f"Очки пересчитаны: {prediction.score_points} за счёт/исход, "
+            f"{prediction.advancement_points:+d} за проход, итого {prediction.points}."
+        ),
+    }
+
+
 @router.get("/admin/overview")
 def get_admin_overview(
     db: Session = Depends(get_db),
@@ -3951,6 +4133,12 @@ def get_admin_overview(
         .count()
     )
     fantasy_stats_count = db.query(FantasyPlayerMatchStat).count()
+    participants = (
+        db.query(User)
+        .filter(User.access_status == "approved")
+        .order_by(User.display_name.asc(), User.id.asc())
+        .all()
+    )
     active_push_subscriptions = (
         db.query(PushSubscription)
         .filter(PushSubscription.is_active == True)
@@ -3965,6 +4153,14 @@ def get_admin_overview(
 
     return {
         "matches": [_serialize_admin_match(match) for match in recent_matches],
+        "participants": [
+            {
+                "id": participant.id,
+                "display_name": participant.display_name,
+                "username": participant.username,
+            }
+            for participant in participants
+        ],
         "summary": {
             "matches_total": len(recent_matches),
             "finished": sum(1 for match in recent_matches if match.is_finished),
