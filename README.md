@@ -1399,6 +1399,12 @@ Scorer aliases and cached event fallback keep tournament-prediction status and t
 - Исправлено открытие матчей из турнирной сетки.
 
 
+## v2.8.73
+
+- Исправлено начисление за проход в плей-офф: при точном счёте и неверном проходе теперь получается `3 − 1 = 2` очка.
+- Автосинхронизация определяет победителя и по результату серии пенальти / дополнительного времени, даже когда API временно не заполнил флаг победителя команды.
+- В шапке Mini App и на карточках матчей стадия `Round of 32 / 1/16` отображается как `1/16 финала`, а не `1/8 финала`.
+
 ## v2.8.72
 
 Father forecasts support optional playoff advancement picks; apply migration `022_add_father_advancement_predictions.sql`.

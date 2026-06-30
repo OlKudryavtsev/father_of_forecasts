@@ -152,6 +152,29 @@ def get_fixture_score(api_fixture: dict) -> tuple[int | None, int | None]:
     return goals.get("home"), goals.get("away")
 
 
+def _score_side(score_block: dict | None) -> str | None:
+    """Return the side with a larger numeric score in one API score block.
+
+    API-Football usually fills ``teams.*.winner``.  For some finished penalty
+    fixtures that flag can arrive later than the score payload, while
+    ``score.penalty`` is already available.  This helper keeps advancement
+    scoring deterministic in that interim state.
+    """
+    score_block = score_block or {}
+    home = score_block.get("home")
+    away = score_block.get("away")
+    try:
+        home_value = int(home) if home is not None else None
+        away_value = int(away) if away is not None else None
+    except (TypeError, ValueError):
+        return None
+
+    if home_value is None or away_value is None or home_value == away_value:
+        return None
+
+    return "home" if home_value > away_value else "away"
+
+
 def get_winner_side(api_fixture: dict) -> str | None:
     teams = api_fixture.get("teams") or {}
 
@@ -164,7 +187,12 @@ def get_winner_side(api_fixture: dict) -> str | None:
     if away.get("winner") is True:
         return "away"
 
-    return None
+    # First resolve the final winner from a penalty shoot-out, then from extra
+    # time.  ``goals`` deliberately stays untouched because match-score points
+    # are calculated for 90 minutes only; this is only the separate +1 / -1
+    # advancement outcome.
+    score = api_fixture.get("score") or {}
+    return _score_side(score.get("penalty")) or _score_side(score.get("extratime"))
 
 
 def normalize_api_fixture(

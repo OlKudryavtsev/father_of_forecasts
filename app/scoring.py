@@ -39,10 +39,16 @@ def score_advancement_points(
     если ставил и не угадал — -1
     """
 
-    if not advancement_bet_enabled:
+    # ``predicted_advancing_side`` is the authoritative user choice.  Early
+    # playoff rows created during the rollout can contain the side while the
+    # auxiliary Boolean remains false; treating those as “no bet” silently
+    # drops a deserved +1 / -1 during recalculation.
+    has_advancement_pick = bool(advancement_bet_enabled) or predicted_advancing_side in {"home", "away"}
+
+    if not has_advancement_pick:
         return 0
 
-    if not predicted_advancing_side or not actual_winner_side:
+    if predicted_advancing_side not in {"home", "away"} or actual_winner_side not in {"home", "away"}:
         return 0
 
     if predicted_advancing_side == actual_winner_side:

@@ -363,7 +363,9 @@ def _stage_label_for_match(match: Match | None) -> str:
         number = _parse_round_number(match.match_round) or _parse_round_number(match.api_league_round) or 1
         return f"{number} тур"
 
-    if "round of 16" in joined or "1/8" in joined or "16" in joined or stage in {"r16", "round_16", "last_16"}:
+    if "round of 32" in joined or "1/16" in joined or stage in {"r32", "round_of_32", "round_32", "last_32"}:
+        return "1/16 финала"
+    if "round of 16" in joined or "1/8" in joined or stage in {"r16", "round_of_16", "round_16", "last_16"}:
         return "1/8 финала"
     if "quarter" in joined or "1/4" in joined or stage in {"quarter", "quarterfinal", "quarter-final"}:
         return "1/4 финала"

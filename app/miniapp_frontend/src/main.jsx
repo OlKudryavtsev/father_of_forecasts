@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.72';
+const APP_VERSION = '2.8.73';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -439,7 +439,8 @@ function formatRoundLabel(match) {
 
   const normalized = String(round).toLowerCase();
 
-  if (normalized.includes('round of 16') || normalized.includes('1/8')) return '1/8 финала';
+  if (normalized.includes('round of 32') || normalized.includes('round_of_32') || normalized.includes('1/16')) return '1/16 финала';
+  if (normalized.includes('round of 16') || normalized.includes('round_of_16') || normalized.includes('1/8')) return '1/8 финала';
   if (normalized.includes('quarter') || normalized.includes('1/4')) return '1/4 финала';
   if (normalized.includes('semi') || normalized.includes('1/2')) return '1/2 финала';
   if (normalized.includes('third') || normalized.includes('3')) return 'Матч за 3 место';
