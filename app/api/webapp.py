@@ -1557,6 +1557,63 @@ def get_admin_analytics(
         .all()
     )
 
+    # A daily cross-section by participant makes it possible to see not just
+    # overall traffic, but how many tracked Mini App actions each person made
+    # on each day of the selected period. It deliberately uses the exact same
+    # filters as every other analytics block, including the optional exclusion
+    # of the administrator who opened the report.
+    user_daily_rows = (
+        db.query(
+            User.id.label("user_id"),
+            User.display_name.label("user_name"),
+            func.date(AnalyticsEvent.created_at).label("day"),
+            func.count(AnalyticsEvent.id).label("events"),
+            func.max(AnalyticsEvent.created_at).label("last_active_at"),
+        )
+        .join(User, User.id == AnalyticsEvent.user_id)
+        .filter(*analytics_filters)
+        .group_by(User.id, User.display_name, func.date(AnalyticsEvent.created_at))
+        .order_by(User.display_name.asc(), func.date(AnalyticsEvent.created_at).asc())
+        .all()
+    )
+
+    user_activity_days: set[str] = set()
+    user_activity_by_id: dict[int, dict] = {}
+    for row in user_daily_rows:
+        day = row.day.isoformat() if row.day else ""
+        if not day:
+            continue
+
+        events = int(row.events or 0)
+        user_activity_days.add(day)
+        user = user_activity_by_id.setdefault(
+            int(row.user_id),
+            {
+                "user_id": int(row.user_id),
+                "user_name": row.user_name or "Пользователь",
+                "total_events": 0,
+                "active_days": 0,
+                "last_active_at": None,
+                "daily": {},
+            },
+        )
+        user["daily"][day] = events
+        user["total_events"] += events
+        user["active_days"] += 1
+
+        if row.last_active_at:
+            last_active_at = _ensure_utc(row.last_active_at).isoformat()
+            if not user["last_active_at"] or last_active_at > user["last_active_at"]:
+                user["last_active_at"] = last_active_at
+
+    user_daily_activity = {
+        "days": sorted(user_activity_days),
+        "users": sorted(
+            user_activity_by_id.values(),
+            key=lambda item: (-item["total_events"], -item["active_days"], item["user_name"].casefold()),
+        ),
+    }
+
     feature_definitions = [
         ("Матч-центр", ["match_open"]),
         ("Турнир", ["tournament_mode_open"]),
@@ -1631,6 +1688,7 @@ def get_admin_analytics(
             }
             for row in daily_rows
         ],
+        "user_daily_activity": user_daily_activity,
         "recent": [
             {
                 "id": event.id,

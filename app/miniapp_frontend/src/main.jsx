@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.74';
+const APP_VERSION = '2.8.75';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5823,6 +5823,9 @@ function AdminAnalytics() {
   const funnel = data?.funnel || [];
   const activity = data?.activity || [];
   const recent = data?.recent || [];
+  const userDailyActivity = data?.user_daily_activity || {};
+  const userActivityDays = userDailyActivity.days || [];
+  const userActivityUsers = userDailyActivity.users || [];
   const maxScreenEvents = Math.max(1, ...screens.map((item) => item.events || 0));
   const maxFeatureUsers = Math.max(1, ...features.map((item) => item.users || 0));
   const maxActivityEvents = Math.max(1, ...activity.map((item) => item.events || 0));
@@ -5831,6 +5834,12 @@ function AdminAnalytics() {
     if (!value) return '';
     const date = new Date(`${value}T12:00:00`);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  };
+
+  const formatDayShort = (value) => {
+    if (!value) return '';
+    const date = new Date(`${value}T12:00:00`);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
   };
 
   return (
@@ -5895,6 +5904,45 @@ function AdminAnalytics() {
           <section className="card admin-analytics-card">
             <div className="admin-card-head"><div><h2>Активность по дням</h2><p>События и активные пользователи</p></div></div>
             {activity.length ? <div className="analytics-days">{activity.map((item) => <div key={item.date} className="analytics-day"><div className="analytics-day-bar"><span style={{ height: `${Math.max(6, Math.round((item.events || 0) * 100 / maxActivityEvents))}%` }} /></div><strong>{item.events || 0}</strong><small>{formatDay(item.date)}</small></div>)}</div> : <p className="muted">Пока нет активности за выбранный период.</p>}
+          </section>
+
+          <section className="card admin-analytics-card analytics-user-days-card">
+            <div className="admin-card-head">
+              <div>
+                <h2>Активность пользователей по дням</h2>
+                <p>Количество отслеживаемых действий в приложении. Строки отсортированы по общему числу действий.</p>
+              </div>
+            </div>
+            {userActivityUsers.length ? (
+              <div className="analytics-user-days-scroll" tabIndex="0" aria-label="Дневная активность пользователей">
+                <table className="analytics-user-days-table">
+                  <thead>
+                    <tr>
+                      <th scope="col" className="analytics-user-days-person">Участник</th>
+                      <th scope="col" className="analytics-user-days-total">Всего</th>
+                      <th scope="col" className="analytics-user-days-active">Дней</th>
+                      {userActivityDays.map((day) => <th key={day} scope="col" title={formatDayTitle(day)}>{formatDayShort(day)}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userActivityUsers.map((user) => (
+                      <tr key={user.user_id}>
+                        <th scope="row" className="analytics-user-days-person">
+                          <strong>{user.user_name}</strong>
+                          {user.last_active_at && <small>Последнее: {formatDateTime(user.last_active_at)}</small>}
+                        </th>
+                        <td className="analytics-user-days-total"><b>{user.total_events || 0}</b></td>
+                        <td className="analytics-user-days-active">{user.active_days || 0}</td>
+                        {userActivityDays.map((day) => {
+                          const events = user.daily?.[day] || 0;
+                          return <td key={day} className={events ? 'has-events' : ''}>{events || '—'}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="muted">Пока нет записанных действий пользователей за выбранный период.</p>}
           </section>
 
           <section className="card admin-analytics-card">
