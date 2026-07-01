@@ -12047,3 +12047,13 @@ body,
   .quiz-option-editor label { grid-template-columns: 1fr; gap: 4px; }
   .quiz-bank-options { grid-template-columns: 1fr; }
 }
+
+
+/* v3.0.2: quiz runtime safety and one-click WC-2026 sample bank */
+.app-render-error { min-height: 100vh; padding: 26px 16px 104px; }
+.quiz-seed-card { display: grid; gap: 9px; padding: 13px; border: 1px solid rgba(96,165,250,.26); border-radius: 14px; background: linear-gradient(145deg, rgba(37,99,235,.12), rgba(139,92,246,.09)); }
+.quiz-seed-card b { font-size: 14px; }
+.quiz-seed-card p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.quiz-seed-card .quiz-primary-button { margin-top: 0; }
+.quiz-seed-card small { color: #bce7cb; font-size: 11px; font-weight: 750; }
+.app.theme-light .quiz-seed-card { background: linear-gradient(145deg, rgba(37,99,235,.07), rgba(139,92,246,.06)); }

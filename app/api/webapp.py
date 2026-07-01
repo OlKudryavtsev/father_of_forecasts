@@ -95,6 +95,7 @@ from app.services.league_quiz import (
     register_for_quiz,
     resume_quiz_session,
     serialize_bank_question,
+    seed_wc2026_stage_one_questions,
     start_quiz_session,
     submit_choice_answer,
 )
@@ -4981,6 +4982,25 @@ def create_league_quiz_bank_question(
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.post("/quiz-bank/seed-wc2026")
+def seed_league_quiz_wc2026_questions(
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create the approved, duplicate-safe WC-2026 starter set for one league."""
+    try:
+        result = seed_wc2026_stage_one_questions(db, current_user, league_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {
+        "ok": True,
+        "created_count": result["created_count"],
+        "existing_count": result["existing_count"],
+        "questions": [serialize_bank_question(question, include_correct=True) for question in result["created"]],
+    }
 
 
 @router.post("/quiz-bank/questions/{question_id}/approve")

@@ -1,11 +1,11 @@
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.0.1';
+const APP_VERSION = '3.0.2';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6543,6 +6543,7 @@ function QuizScreen({ activeLeagueId, leaguesData }) {
   const [scheduledStart, setScheduledStart] = useState('');
   const [secondsPerQuestion, setSecondsPerQuestion] = useState('30');
   const [revealSeconds, setRevealSeconds] = useState('12');
+  const [seedMessage, setSeedMessage] = useState('');
 
   const loadList = useCallback(async () => {
     if (!activeLeagueId) {
@@ -6710,6 +6711,24 @@ function QuizScreen({ activeLeagueId, leaguesData }) {
     }
   }
 
+  async function seedWc2026Questions() {
+    if (!activeLeagueId) return;
+    setBusy(true);
+    setSeedMessage('');
+    try {
+      const result = await api(`/api/webapp/quiz-bank/seed-wc2026?league_id=${activeLeagueId}`, { method: 'POST' });
+      const created = Number(result.created_count || 0);
+      const existing = Number(result.existing_count || 0);
+      setSeedMessage(created ? `Добавлено тестовых вопросов: ${created}.` : `Все тестовые вопросы уже есть в банке (${existing}).`);
+      await loadBank();
+      trackAnalytics('quiz_seed_wc2026', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, created } });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function approveQuestion(questionId) {
     setBusy(true);
     try {
@@ -6856,6 +6875,14 @@ function QuizScreen({ activeLeagueId, leaguesData }) {
                 <span><b>Управление квизом</b><small>вопросы, одобрение и планирование игры</small></span><span>{bankOpen ? '⌃' : '⌄'}</span>
               </button>
               {bankOpen && <div className="quiz-admin-body">
+                <section className="quiz-seed-card">
+                  <div>
+                    <b>Тестовый набор ЧМ‑2026</b>
+                    <p>Добавит 4 одобренных вопроса: «4 варианта», «Правда/ложь», «Больше/меньше» и «Да/нет».</p>
+                  </div>
+                  <button type="button" className="quiz-primary-button" disabled={busy} onClick={seedWc2026Questions}>Загрузить вопросы ЧМ‑2026</button>
+                  {seedMessage && <small>{seedMessage}</small>}
+                </section>
                 <form className="quiz-form" onSubmit={createQuestion}>
                   <h3>Новый вопрос в банк</h3>
                   <label>Тип<select value={questionType} onChange={(event) => changeQuestionType(event.target.value)}><option value="choice_4">4 варианта</option><option value="choice_2">2 варианта</option></select></label>
@@ -7135,6 +7162,36 @@ function RulesModal({ onClose }) {
   );
 }
 
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    // Keep a useful diagnostic in the client console. A render failure must not
+    // leave players on an empty black screen.
+    console.error('Mini App render failure', error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="app app-render-error">
+        <section className="card error-card">
+          <h2>Не удалось открыть экран</h2>
+          <p>{this.state.error?.message || 'Ошибка интерфейса.'}</p>
+          <button type="button" onClick={() => window.location.reload()}>Обновить приложение</button>
+        </section>
+      </div>
+    );
+  }
+}
+
 function App() {
   const updateInfo = usePwaUpdateCheck();
   const [tab, setTab] = useState('matches');
@@ -7325,4 +7382,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(<AppErrorBoundary><App /></AppErrorBoundary>);

@@ -49,6 +49,59 @@ QUESTION_REVEALED = "revealed"
 QUESTION_CLOSED = "closed"
 
 
+# A compact, idempotent starter pack for the first usable quiz formats. These
+# facts are verified against FIFA match reports current on 2026-07-01. The
+# records are intentionally created only after an administrator presses the
+# explicit seed action for a particular league.
+WC2026_STAGE_ONE_SEED_PREFIX = "seed:wc2026-stage-one:3.0.2"
+WC2026_STAGE_ONE_SAMPLE_QUESTIONS: tuple[dict[str, Any], ...] = (
+    {
+        "seed_key": "four-options-france-sweden",
+        "question_type": "choice_4",
+        "question_text": "ЧМ‑2026, 1/16 финала: кто оформил дубль в матче Франция — Швеция (3:0)?",
+        "options": ("Килиан Мбаппе", "Брэдли Баркола", "Усман Дембеле", "Антуан Гризманн"),
+        "correct_index": 0,
+        "points": 100,
+        "explanation": "Килиан Мбаппе забил на 45-й и 74-й минутах. Ещё один мяч Франции забил Брэдли Баркола.",
+        "source_title": "FIFA: France 3-0 Sweden | Match report and highlights",
+        "source_url": "https://www.fifa.com/en/articles/france-sweden-review-highlights",
+    },
+    {
+        "seed_key": "true-false-brazil-japan",
+        "question_type": "choice_2",
+        "question_text": "Правда или ложь: Бразилия обыграла Японию 2:1 в 1/16 финала ЧМ‑2026.",
+        "options": ("Правда", "Ложь"),
+        "correct_index": 0,
+        "points": 100,
+        "explanation": "Правда. Бразилия победила 2:1; решающий гол в концовке забил Габриэл Мартинелли.",
+        "source_title": "FIFA: Brazil 2-1 Japan | Match report and highlights",
+        "source_url": "https://www.fifa.com/en/articles/brazil-japan-review-highlights",
+    },
+    {
+        "seed_key": "more-less-england-congo",
+        "question_type": "choice_2",
+        "question_text": "Больше или меньше: в матче Англия — ДР Конго (2:1) Харри Кейн забил больше голов, чем Брайан Чипенга.",
+        "options": ("Больше", "Меньше"),
+        "correct_index": 0,
+        "points": 100,
+        "explanation": "Больше. Чипенга забил один мяч за ДР Конго, а Кейн ответил дублем на 75-й и 86-й минутах.",
+        "source_title": "FIFA: England 2-1 Congo DR | Match report and highlights",
+        "source_url": "https://www.fifa.com/en/articles/england-congo-dr-review-highlights",
+    },
+    {
+        "seed_key": "yes-no-morocco-netherlands",
+        "question_type": "choice_2",
+        "question_text": "Да или нет: Марокко вышло в 1/8 финала ЧМ‑2026, обыграв Нидерланды в серии пенальти.",
+        "options": ("Да", "Нет"),
+        "correct_index": 0,
+        "points": 100,
+        "explanation": "Да. Основное время завершилось со счётом 1:1, а в серии пенальти Марокко победило 3:2.",
+        "source_title": "FIFA: Netherlands 1-1 Morocco (PSO 2-3)",
+        "source_url": "https://www.fifa.com/en/articles/netherlands-morocco-review-highlights",
+    },
+)
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -138,6 +191,86 @@ def _validate_question_payload(payload: dict[str, Any]) -> tuple[str, list[dict[
         raise ValueError("Укажите правильный вариант ответа")
 
     return question_type, clean_options, correct_index
+
+
+def seed_wc2026_stage_one_questions(
+    db: Session,
+    actor: User,
+    league_id: int,
+) -> dict[str, Any]:
+    """Add one approved WC-2026 test question for every implemented choice format.
+
+    The operation is idempotent per league: pressing the button again does not
+    duplicate questions. It intentionally does not start a quiz or notify users.
+    """
+    require_quiz_manager(db, actor, league_id)
+
+    existing_rows = (
+        db.query(LeagueQuizQuestion)
+        .filter(
+            LeagueQuizQuestion.league_id == league_id,
+            LeagueQuizQuestion.tags.like(f"{WC2026_STAGE_ONE_SEED_PREFIX}:%"),
+        )
+        .all()
+    )
+    existing_keys = {
+        str(question.tags).rsplit(":", 1)[-1]
+        for question in existing_rows
+        if question.tags
+    }
+
+    created: list[LeagueQuizQuestion] = []
+    now = utcnow()
+    for item in WC2026_STAGE_ONE_SAMPLE_QUESTIONS:
+        seed_key = item["seed_key"]
+        if seed_key in existing_keys:
+            continue
+
+        question = LeagueQuizQuestion(
+            league_id=league_id,
+            created_by_user_id=actor.id,
+            approved_by_user_id=actor.id,
+            question_type=item["question_type"],
+            status=QUESTION_STATUS_APPROVED,
+            question_text=item["question_text"],
+            explanation=item["explanation"],
+            default_points=int(item["points"]),
+            tags=f"{WC2026_STAGE_ONE_SEED_PREFIX}:{seed_key}",
+            approved_at=now,
+        )
+        db.add(question)
+        db.flush()
+
+        for index, option_text in enumerate(item["options"], start=1):
+            db.add(
+                LeagueQuizQuestionOption(
+                    question_id=question.id,
+                    option_key=chr(64 + index),
+                    option_text=option_text,
+                    position=index,
+                    is_correct=(index - 1) == int(item["correct_index"]),
+                )
+            )
+
+        db.add(
+            LeagueQuizQuestionSource(
+                question_id=question.id,
+                source_title=item["source_title"],
+                source_url=item["source_url"],
+                source_note="Проверено для тестового набора v3.0.2 1 июля 2026 года.",
+            )
+        )
+        created.append(question)
+
+    db.commit()
+    for question in created:
+        db.refresh(question)
+
+    return {
+        "created": created,
+        "created_count": len(created),
+        "existing_count": len(WC2026_STAGE_ONE_SAMPLE_QUESTIONS) - len(created),
+    }
 
 
 def create_bank_question(db: Session, actor: User, league_id: int, payload: dict[str, Any]) -> LeagueQuizQuestion:
