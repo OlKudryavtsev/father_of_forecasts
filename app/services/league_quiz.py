@@ -2256,3 +2256,333 @@ def serialize_bank_question(question: LeagueQuizQuestion, include_correct: bool 
             for source in sorted(question.sources, key=lambda item: item.id)
         ],
     }
+
+# =============================================================================
+# v3.4.2 — readiness layer: scoped roles, repeat protection and test runs.
+# =============================================================================
+from app.services.leagues import (
+    is_quiz_admin,
+    require_quiz_host,
+)
+
+
+def require_quiz_manager(db: Session, user: User, league_id: int):  # noqa: F811
+    """Compatibility name for live-game operations; now requires host rights."""
+    return require_quiz_host(db, user, league_id)
+
+
+def _is_manager(db: Session, user: User, league_id: int) -> bool:  # noqa: F811
+    try:
+        require_quiz_host(db, user, league_id)
+        return True
+    except (ValueError, PermissionError):
+        return False
+
+
+def _quiz_test_access_allowed(db: Session, quiz_session: LeagueQuizSession, actor: User) -> bool:
+    if not bool(getattr(quiz_session, "is_test_run", False)):
+        return True
+    if int(getattr(quiz_session, "test_host_user_id", 0) or 0) == int(actor.id):
+        return True
+    league = quiz_session.league or db.query(League).filter(League.id == quiz_session.league_id).first()
+    return bool(league and is_quiz_admin(db, actor, league))
+
+
+def _enforce_repeat_policy(db: Session, actor: User, league_id: int, questions: list[LeagueQuizQuestion], payload: dict[str, Any]) -> None:
+    """Block accidental live reuse while retaining an explicit admin override."""
+    if not bool(payload.get("enforce_repeat_policy", True)):
+        league = db.query(League).filter(League.id == league_id).first()
+        if not league or not is_quiz_admin(db, actor, league):
+            raise PermissionError("Отключить защиту от повторов может только администратор лиги")
+        return
+    now = utcnow()
+    blocked: list[str] = []
+    for question in questions:
+        cooldown_days = max(0, min(365, int(getattr(question, "repeat_after_days", 14) or 0)))
+        last_used = ensure_utc(getattr(question, "last_used_at", None))
+        if cooldown_days and last_used and last_used + timedelta(days=cooldown_days) > now:
+            available_at = (last_used + timedelta(days=cooldown_days)).strftime("%d.%m %H:%M")
+            blocked.append(f"#{question.id} до {available_at}")
+    if blocked:
+        raise ValueError(
+            "Защита от повторов не позволяет использовать вопрос слишком рано: "
+            + ", ".join(blocked[:5])
+            + ". Администратор может создать квиз с отключённой защитой от повторов."
+        )
+
+
+def create_quiz_session(db: Session, actor: User, payload: dict[str, Any]) -> LeagueQuizSession:  # noqa: F811
+    league_id = int(payload.get("league_id") or 0)
+    require_quiz_host(db, actor, league_id)
+    title = " ".join(str(payload.get("title") or "").strip().split())
+    if not 2 <= len(title) <= 160:
+        raise ValueError("Название квиза должно содержать от 2 до 160 символов")
+
+    candidate_ids: list[int] = []
+    for raw in (payload.get("rounds") or []):
+        if isinstance(raw, dict):
+            candidate_ids.extend(int(value) for value in (raw.get("question_ids") or []))
+    if not candidate_ids:
+        candidate_ids = [int(value) for value in (payload.get("question_ids") or [])]
+    if not candidate_ids:
+        raise ValueError("Выберите хотя бы один одобренный вопрос")
+    if len(set(candidate_ids)) != len(candidate_ids):
+        raise ValueError("Один вопрос нельзя добавить в квиз дважды")
+
+    questions = (
+        db.query(LeagueQuizQuestion)
+        .filter(
+            LeagueQuizQuestion.id.in_(candidate_ids),
+            LeagueQuizQuestion.league_id == league_id,
+            LeagueQuizQuestion.status == QUESTION_STATUS_APPROVED,
+        )
+        .all()
+    )
+    if len(questions) != len(candidate_ids):
+        raise ValueError("Можно использовать только одобренные вопросы текущей лиги")
+    by_id = {question.id: question for question in questions}
+    rounds_payload = _normalize_rounds_payload(payload, by_id)
+    is_test_run = bool(payload.get("is_test_run", False))
+    if not is_test_run:
+        _enforce_repeat_policy(db, actor, league_id, questions, payload)
+
+    timer_settings = _normalize_timer_settings(payload)
+    seconds_per_question = int(payload.get("seconds_per_question") or 30)
+    reveal_seconds = int(payload.get("reveal_seconds") or 12)
+    if not 10 <= seconds_per_question <= 300:
+        raise ValueError("Время на вопрос должно быть от 10 до 300 секунд")
+    if not 3 <= reveal_seconds <= 90:
+        raise ValueError("Время показа ответа должно быть от 3 до 90 секунд")
+    scheduled_start_at = ensure_utc(payload.get("scheduled_start_at"))
+    if is_test_run:
+        # Rehearsals must only be started by their host, never from a stale schedule.
+        scheduled_start_at = None
+    elif scheduled_start_at and scheduled_start_at < utcnow() - timedelta(minutes=1):
+        raise ValueError("Нельзя планировать квиз в прошлом")
+    test_chat_id = str(payload.get("test_chat_id") or "").strip() or None
+    if test_chat_id and len(test_chat_id) > 80:
+        raise ValueError("Идентификатор тестового чата слишком длинный")
+
+    quiz_session = LeagueQuizSession(
+        league_id=league_id,
+        created_by_user_id=actor.id,
+        title=title,
+        description=(str(payload.get("description") or "").strip() or None),
+        status=SESSION_REGISTRATION_OPEN,
+        scheduled_start_at=scheduled_start_at,
+        registration_opened_at=utcnow(),
+        seconds_per_question=seconds_per_question,
+        timer_settings=timer_settings,
+        reveal_seconds=reveal_seconds,
+        allow_late_registration=bool(payload.get("allow_late_registration", False)) and not is_test_run,
+        is_test_run=is_test_run,
+        test_host_user_id=actor.id if is_test_run else None,
+        test_chat_id=test_chat_id if is_test_run else None,
+        rounds_total=len(rounds_payload),
+    )
+    db.add(quiz_session)
+    db.flush()
+
+    total = 0
+    for round_order, round_data in enumerate(rounds_payload, start=1):
+        round_type = round_data["round_type"]
+        row = LeagueQuizSessionRound(
+            session_id=quiz_session.id,
+            round_order=round_order,
+            round_type=round_type,
+            title=round_data["title"],
+            status="pending",
+            points_mode="negative" if round_type == "jeopardy" else "positive",
+        )
+        db.add(row)
+        db.flush()
+        for question_order, question_id in enumerate(round_data["question_ids"], start=1):
+            question = by_id[question_id]
+            db.add(
+                LeagueQuizSessionQuestion(
+                    round_id=row.id,
+                    bank_question_id=question.id,
+                    question_order=question_order,
+                    question_type=question.question_type,
+                    question_text_snapshot=question.question_text,
+                    explanation_snapshot=question.explanation,
+                    options_snapshot=_options_snapshot(question),
+                    payload_snapshot=_question_payload_snapshot(question),
+                    runtime_state={},
+                    points=int(question.default_points or 0),
+                    negative_on_wrong=question.question_type == "jeopardy",
+                    status=QUESTION_PENDING,
+                )
+            )
+            if not is_test_run:
+                question.last_used_at = utcnow()
+                question.times_used = int(question.times_used or 0) + 1
+            total += 1
+
+    if is_test_run:
+        # Host is the sole rehearsal participant. This makes answers work in
+        # PWA and Telegram without exposing the session to league members.
+        db.add(
+            LeagueQuizSessionParticipant(
+                session_id=quiz_session.id,
+                user_id=actor.id,
+                status="registered",
+                score_total=0,
+            )
+        )
+    _event(
+        db,
+        quiz_session,
+        "quiz_created",
+        {"questions_total": total, "rounds_total": len(rounds_payload), "is_test_run": is_test_run},
+    )
+    _admin_action(
+        db,
+        quiz_session,
+        actor,
+        "test_run_created" if is_test_run else "quiz_created",
+        {"questions_total": total, "rounds_total": len(rounds_payload), "is_test_run": is_test_run},
+    )
+    db.commit()
+    db.refresh(quiz_session)
+    return quiz_session
+
+
+def register_for_quiz(db: Session, actor: User, session_id: int) -> LeagueQuizSessionParticipant:  # noqa: F811
+    quiz_session = _get_session(db, session_id)
+    if not _quiz_test_access_allowed(db, quiz_session, actor):
+        raise PermissionError("Это тестовый прогон: участвовать может только ведущий")
+    if bool(getattr(quiz_session, "is_test_run", False)) and quiz_session.test_host_user_id == actor.id:
+        row = (
+            db.query(LeagueQuizSessionParticipant)
+            .filter(LeagueQuizSessionParticipant.session_id == quiz_session.id, LeagueQuizSessionParticipant.user_id == actor.id)
+            .first()
+        )
+        if row:
+            return row
+    # Original member/register checks are retained for live quizzes.
+    require_user_league(db, actor, quiz_session.league_id)
+    advance_quiz_state(db, quiz_session, commit=False)
+    if quiz_session.status not in {SESSION_REGISTRATION_OPEN, SESSION_RUNNING}:
+        raise ValueError("Регистрация на этот квиз уже закрыта")
+    if quiz_session.status == SESSION_RUNNING and not quiz_session.allow_late_registration:
+        raise ValueError("Квиз уже начался: позднее подключение отключено")
+    participant = (
+        db.query(LeagueQuizSessionParticipant)
+        .filter(LeagueQuizSessionParticipant.session_id == quiz_session.id, LeagueQuizSessionParticipant.user_id == actor.id)
+        .first()
+    )
+    if participant:
+        participant.status = "registered"
+    else:
+        participant = LeagueQuizSessionParticipant(session_id=quiz_session.id, user_id=actor.id, status="registered")
+        db.add(participant)
+    db.commit()
+    db.refresh(participant)
+    return participant
+
+
+def list_quizzes_for_league(db: Session, actor: User, league_id: int) -> list[dict[str, Any]]:  # noqa: F811
+    league = require_user_league(db, actor, league_id)
+    query = db.query(LeagueQuizSession).filter(LeagueQuizSession.league_id == league_id)
+    if not is_quiz_admin(db, actor, league):
+        query = query.filter(
+            (LeagueQuizSession.is_test_run == False) | (LeagueQuizSession.test_host_user_id == actor.id)  # noqa: E712
+        )
+    sessions = (
+        query.order_by(
+            LeagueQuizSession.status.in_([SESSION_RUNNING, SESSION_PAUSED]).desc(),
+            LeagueQuizSession.scheduled_start_at.desc().nullslast(),
+            LeagueQuizSession.id.desc(),
+        )
+        .limit(30)
+        .all()
+    )
+    for quiz_session in sessions:
+        advance_quiz_state(db, quiz_session, commit=False)
+    if sessions:
+        db.commit()
+    return [serialize_quiz_summary(db, quiz_session, actor) for quiz_session in sessions]
+
+
+# Capture the v3.4.1 serializer before extending it below.
+_serialize_quiz_summary_v342_base = serialize_quiz_summary
+
+def serialize_quiz_summary(db: Session, quiz_session: LeagueQuizSession, user: User) -> dict[str, Any]:  # noqa: F811
+    data = _serialize_quiz_summary_v342_base(db, quiz_session, user)
+    data["is_test_run"] = bool(getattr(quiz_session, "is_test_run", False))
+    data["test_host_user_id"] = getattr(quiz_session, "test_host_user_id", None) if data["is_test_run"] else None
+    data["is_test_host"] = bool(data["is_test_run"] and int(getattr(quiz_session, "test_host_user_id", 0) or 0) == int(user.id))
+    return data
+
+
+def build_quiz_detail(db: Session, actor: User, session_id: int) -> dict[str, Any]:  # noqa: F811
+    quiz_session = _get_session(db, session_id)
+    require_user_league(db, actor, quiz_session.league_id)
+    if not _quiz_test_access_allowed(db, quiz_session, actor):
+        raise PermissionError("Тестовый прогон доступен только ведущему")
+    advance_quiz_state(db, quiz_session)
+    current = _current_session_question(db, quiz_session.id)
+    rounds = (
+        db.query(LeagueQuizSessionRound)
+        .filter(LeagueQuizSessionRound.session_id == quiz_session.id)
+        .order_by(LeagueQuizSessionRound.round_order.asc())
+        .all()
+    )
+    return {
+        "quiz": serialize_quiz_summary(db, quiz_session, actor),
+        "current_question": _serialize_session_question(db, current, actor.id, utcnow()),
+        "rounds": [_serialize_round(db, row) for row in rounds],
+        "scoreboard": build_quiz_scoreboard(db, quiz_session.id),
+        "server_time": utcnow().isoformat(),
+    }
+
+
+# Preserve the immediately preceding summary implementation as a base before
+# its name is overridden. The assignment must happen after the existing v3.4.0
+# definition has loaded, therefore it appears at the end of this module.
+
+_submit_choice_answer_v342_base = submit_choice_answer
+_submit_text_answer_v342_base = submit_text_answer
+
+
+def submit_choice_answer(db: Session, actor: User, session_id: int, session_question_id: int, selected_option_key: str) -> LeagueQuizSessionAnswer:  # noqa: F811
+    quiz_session = _get_session(db, session_id)
+    if not _quiz_test_access_allowed(db, quiz_session, actor):
+        raise PermissionError("Тестовый прогон доступен только ведущему")
+    return _submit_choice_answer_v342_base(db, actor, session_id, session_question_id, selected_option_key)
+
+
+def submit_text_answer(db: Session, actor: User, session_id: int, session_question_id: int, answer_text: str) -> LeagueQuizSessionAnswer:  # noqa: F811
+    quiz_session = _get_session(db, session_id)
+    if not _quiz_test_access_allowed(db, quiz_session, actor):
+        raise PermissionError("Тестовый прогон доступен только ведущему")
+    return _submit_text_answer_v342_base(db, actor, session_id, session_question_id, answer_text)
+
+# v3.4.2: expose question readiness metadata from the canonical quiz serializer.
+_serialize_bank_question_v342_engine_base = serialize_bank_question
+
+def serialize_bank_question(question: LeagueQuizQuestion, include_correct: bool = True) -> dict[str, Any]:  # noqa: F811
+    data = _serialize_bank_question_v342_engine_base(question, include_correct=include_correct)
+    difficulty_labels = {"easy": "Лёгкий", "medium": "Средний", "hard": "Сложный"}
+    data.update({
+        "topics": list(getattr(question, "topics", None) or []),
+        "difficulty": getattr(question, "difficulty", None),
+        "difficulty_label": difficulty_labels.get(getattr(question, "difficulty", None)),
+        "repeat_after_days": int(getattr(question, "repeat_after_days", 14) or 0),
+        "last_used_at": question.last_used_at.isoformat() if question.last_used_at else None,
+    })
+    return data
+
+# Hosts need to browse approved questions for quiz assembly; editors need the
+# same list for content work. Editing/approval remains enforced in the content
+# service separately.
+from app.services.leagues import has_quiz_permission as _has_quiz_permission_v342
+
+def list_bank_questions(db: Session, actor: User, league_id: int, include_archived: bool = False) -> list[LeagueQuizQuestion]:  # noqa: F811
+    if not (_has_quiz_permission_v342(db, actor, league_id, "host") or _has_quiz_permission_v342(db, actor, league_id, "editor")):
+        raise PermissionError("Недостаточно прав для просмотра банка вопросов")
+    query = db.query(LeagueQuizQuestion).filter(LeagueQuizQuestion.league_id == league_id)
+    if not include_archived:
+        query = query.filter(LeagueQuizQuestion.status != QUESTION_STATUS_ARCHIVED)
+    return query.order_by(LeagueQuizQuestion.updated_at.desc(), LeagueQuizQuestion.id.desc()).all()

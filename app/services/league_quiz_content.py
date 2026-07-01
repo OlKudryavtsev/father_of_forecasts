@@ -660,3 +660,473 @@ def seed_wc2026_all_rounds_v4(db: Session, actor: User, league_id: int) -> dict[
         created.append(question)
     db.commit()
     return {"created_count": len(created), "existing_count": len(WC2026_STAGE_FOUR_SAMPLE_QUESTIONS) - len(created), "questions": created}
+
+# =============================================================================
+# v3.4.2 — content readiness: required metadata, repeat governance and roles.
+# =============================================================================
+from sqlalchemy import func
+from app.services.leagues import require_quiz_editor, require_quiz_moderator
+
+QUESTION_DIFFICULTIES = {"easy", "medium", "hard"}
+QUESTION_DIFFICULTY_LABELS = {"easy": "Лёгкий", "medium": "Средний", "hard": "Сложный"}
+
+
+def _clean_tag_list(value: Any, *, label: str, maximum: int = 12) -> list[str]:
+    if isinstance(value, str):
+        raw = value.replace(";", ",").replace("\n", ",").split(",")
+    elif isinstance(value, (list, tuple, set)):
+        raw = list(value)
+    else:
+        raw = []
+    items: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        clean = " ".join(str(item or "").strip().lstrip("#").split())
+        key = clean.casefold()
+        if not clean or key in seen:
+            continue
+        if len(clean) > 48:
+            raise ValueError(f"{label}: один элемент не может быть длиннее 48 символов")
+        items.append(clean)
+        seen.add(key)
+    if len(items) > maximum:
+        raise ValueError(f"{label}: максимум {maximum}")
+    return items
+
+
+def _clean_difficulty(value: Any) -> str | None:
+    clean = str(value or "").strip().lower()
+    if not clean:
+        return None
+    if clean not in QUESTION_DIFFICULTIES:
+        raise ValueError("Сложность вопроса: easy, medium или hard")
+    return clean
+
+
+def _clean_repeat_after_days(value: Any) -> int:
+    try:
+        result = int(14 if value is None or value == "" else value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Интервал повтора должен быть числом дней") from exc
+    if not 0 <= result <= 365:
+        raise ValueError("Интервал повтора должен быть от 0 до 365 дней")
+    return result
+
+
+def _question_payload_for_validation(question: LeagueQuizQuestion) -> dict[str, Any]:
+    options = sorted(question.options, key=lambda item: (item.position, item.id))
+    correct_index = next((index for index, item in enumerate(options) if item.is_correct), None)
+    return {
+        "question_type": question.question_type,
+        "question_text": question.question_text,
+        "options": [{"text": item.option_text} for item in options],
+        "correct_option_index": correct_index,
+        "question_payload": dict(question.question_payload or {}),
+        "default_points": int(question.default_points or 0),
+    }
+
+
+def validate_question_before_approval(question: LeagueQuizQuestion) -> None:
+    """Validate the full publishing contract without blocking unfinished drafts."""
+    # Core + type-specific validation: correct option/aliases, board topic,
+    # three countdown facts and the full 100-to-1 top ten.
+    _validate_stage_three_question_payload(_question_payload_for_validation(question))
+    if not str(question.explanation or "").strip():
+        raise ValueError("Перед одобрением добавьте пояснение правильного ответа")
+    sources = list(question.sources or [])
+    if not any(str(item.source_url or "").strip() for item in sources):
+        raise ValueError("Перед одобрением добавьте хотя бы один источник со ссылкой")
+    topics = _clean_tag_list(getattr(question, "topics", None), label="Темы")
+    if not topics:
+        raise ValueError("Перед одобрением укажите хотя бы одну тему")
+    if not _clean_tag_list(question.tags, label="Теги"):
+        raise ValueError("Перед одобрением укажите хотя бы один тег")
+    if not _clean_difficulty(getattr(question, "difficulty", None)):
+        raise ValueError("Перед одобрением укажите сложность: лёгкий, средний или сложный")
+    _clean_repeat_after_days(getattr(question, "repeat_after_days", None))
+
+
+def _write_question_content(db: Session, question: LeagueQuizQuestion, payload: dict[str, Any]) -> None:  # noqa: F811
+    question_type, options, correct_index, config, points = _validate_stage_three_question_payload(payload)
+    media = _clean_media(payload)
+    sources = _clean_sources(payload)
+    if media:
+        config = {**config, "media": media}
+    question.question_type = question_type
+    question.question_text = " ".join(str(payload.get("question_text") or "").strip().split())
+    question.explanation = (str(payload.get("explanation") or "").strip() or None)
+    question.default_points = int(points)
+    tag_items = _clean_tag_list(payload.get("tags"), label="Теги")
+    question.tags = ", ".join(tag_items) or None
+    question.topics = _clean_tag_list(payload.get("topics"), label="Темы")
+    question.difficulty = _clean_difficulty(payload.get("difficulty"))
+    question.repeat_after_days = _clean_repeat_after_days(payload.get("repeat_after_days"))
+    question.question_payload = config
+
+    for row in list(question.options):
+        db.delete(row)
+    for row in list(question.aliases):
+        db.delete(row)
+    for row in list(question.sources):
+        db.delete(row)
+    db.flush()
+
+    for index, option in enumerate(options):
+        db.add(LeagueQuizQuestionOption(
+            question_id=question.id,
+            option_key=option["option_key"],
+            option_text=option["text"],
+            position=index + 1,
+            is_correct=(correct_index is not None and index == correct_index),
+        ))
+    for alias in config.get("answer_aliases") or []:
+        db.add(LeagueQuizQuestionAlias(
+            question_id=question.id,
+            alias_text=alias,
+            normalized_alias=_normalize_text(alias),
+        ))
+    for item in sources:
+        db.add(LeagueQuizQuestionSource(
+            question_id=question.id,
+            source_title=item["title"] or None,
+            source_url=item["url"] or None,
+            source_note=item["note"] or None,
+        ))
+
+
+def get_bank_question_v4(db: Session, actor: User, league_id: int, question_id: int) -> LeagueQuizQuestion:  # noqa: F811
+    require_quiz_editor(db, actor, league_id)
+    question = db.query(LeagueQuizQuestion).filter(
+        LeagueQuizQuestion.id == question_id,
+        LeagueQuizQuestion.league_id == league_id,
+    ).first()
+    if not question:
+        raise ValueError("Вопрос не найден")
+    return question
+
+
+def list_bank_questions(db: Session, actor: User, league_id: int, include_archived: bool = False) -> list[LeagueQuizQuestion]:  # noqa: F811
+    require_quiz_editor(db, actor, league_id)
+    query = db.query(LeagueQuizQuestion).filter(LeagueQuizQuestion.league_id == league_id)
+    if not include_archived:
+        query = query.filter(LeagueQuizQuestion.status != QUESTION_STATUS_ARCHIVED)
+    return query.order_by(LeagueQuizQuestion.updated_at.desc(), LeagueQuizQuestion.id.desc()).all()
+
+
+def create_bank_question_v4(db: Session, actor: User, league_id: int, payload: dict[str, Any]) -> LeagueQuizQuestion:  # noqa: F811
+    require_quiz_editor(db, actor, league_id)
+    question = LeagueQuizQuestion(
+        league_id=league_id,
+        created_by_user_id=actor.id,
+        question_type="choice_4",
+        status=QUESTION_STATUS_DRAFT,
+        question_text="Черновик",
+        default_points=100,
+        question_payload={},
+        topics=[],
+        repeat_after_days=14,
+    )
+    db.add(question)
+    db.flush()
+    _write_question_content(db, question, payload)
+    db.flush()
+    _audit(db, question=question, actor=actor, action_type="created", after=_question_snapshot(question))
+    db.commit()
+    db.refresh(question)
+    return question
+
+
+def update_bank_question_v4(db: Session, actor: User, league_id: int, question_id: int, payload: dict[str, Any]) -> LeagueQuizQuestion:  # noqa: F811
+    question = get_bank_question_v4(db, actor, league_id, question_id)
+    if question.status == QUESTION_STATUS_ARCHIVED:
+        raise ValueError("Сначала восстановите вопрос из архива")
+    before = _question_snapshot(question)
+    _write_question_content(db, question, payload)
+    if question.status == QUESTION_STATUS_APPROVED:
+        question.status = QUESTION_STATUS_DRAFT
+        question.approved_at = None
+        question.approved_by_user_id = None
+    db.flush()
+    _audit(db, question=question, actor=actor, action_type="updated", before=before, after=_question_snapshot(question))
+    db.commit()
+    db.refresh(question)
+    return question
+
+
+def set_bank_question_status_v4(db: Session, actor: User, league_id: int, question_id: int, status: str) -> LeagueQuizQuestion:  # noqa: F811
+    question = get_bank_question_v4(db, actor, league_id, question_id)
+    before = _question_snapshot(question)
+    if status == QUESTION_STATUS_ARCHIVED:
+        question.status = QUESTION_STATUS_ARCHIVED
+        action = "archived"
+    elif status == QUESTION_STATUS_DRAFT:
+        question.status = QUESTION_STATUS_DRAFT
+        question.approved_at = None
+        question.approved_by_user_id = None
+        action = "restored_to_draft"
+    else:
+        raise ValueError("Недопустимый статус вопроса")
+    db.flush()
+    _audit(db, question=question, actor=actor, action_type=action, before=before, after=_question_snapshot(question))
+    db.commit(); db.refresh(question)
+    return question
+
+
+def approve_bank_question_v4(db: Session, actor: User, league_id: int, question_id: int) -> LeagueQuizQuestion:  # noqa: F811
+    question = get_bank_question_v4(db, actor, league_id, question_id)
+    if question.status == QUESTION_STATUS_ARCHIVED:
+        raise ValueError("Архивный вопрос нельзя одобрить")
+    validate_question_before_approval(question)
+    before = _question_snapshot(question)
+    question.status = QUESTION_STATUS_APPROVED
+    question.approved_at = utcnow()
+    question.approved_by_user_id = actor.id
+    db.flush()
+    _audit(db, question=question, actor=actor, action_type="approved", before=before, after=_question_snapshot(question))
+    db.commit(); db.refresh(question)
+    return question
+
+
+def export_bank_v4(db: Session, actor: User, league_id: int) -> list[dict[str, Any]]:  # noqa: F811
+    require_quiz_editor(db, actor, league_id)
+    rows = db.query(LeagueQuizQuestion).filter(LeagueQuizQuestion.league_id == league_id).order_by(LeagueQuizQuestion.id.asc()).all()
+    result: list[dict[str, Any]] = []
+    for question in rows:
+        data = serialize_bank_question(question, include_correct=True)
+        data.pop("id", None); data.pop("times_used", None); data.pop("last_used_at", None); data.pop("status", None); data.pop("type_label", None)
+        data["sources"] = data.get("sources") or []
+        data["media"] = (data.get("question_payload") or {}).get("media") or []
+        if is_choice_question_type := question.question_type in {"choice_2", "choice_4", "true_false", "more_less", "yes_no"}:
+            for index, option in enumerate(data.get("options") or []):
+                if option.get("is_correct"):
+                    data["correct_option_index"] = index
+                    break
+        result.append(data)
+    return result
+
+
+def import_bank_v4(db: Session, actor: User, league_id: int, questions: list[dict[str, Any]]) -> dict[str, Any]:  # noqa: F811
+    require_quiz_editor(db, actor, league_id)
+    if not questions:
+        raise ValueError("Файл импорта не содержит вопросов")
+    if len(questions) > 100:
+        raise ValueError("За один импорт можно добавить не более 100 вопросов")
+    created: list[LeagueQuizQuestion] = []
+    try:
+        for raw in questions:
+            if not isinstance(raw, dict):
+                raise ValueError("Каждый импортируемый вопрос должен быть объектом")
+            payload = dict(raw)
+            if not payload.get("sources") and raw.get("source_url"):
+                payload["sources"] = [{"title": raw.get("source_title"), "url": raw.get("source_url"), "note": raw.get("source_note")}]
+            question = LeagueQuizQuestion(
+                league_id=league_id, created_by_user_id=actor.id, question_type="choice_4",
+                status=QUESTION_STATUS_DRAFT, question_text="Черновик", default_points=100,
+                question_payload={}, topics=[], repeat_after_days=14,
+            )
+            db.add(question); db.flush()
+            _write_question_content(db, question, payload)
+            _audit(db, question=question, actor=actor, action_type="imported", after=_question_snapshot(question))
+            created.append(question)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"created_count": len(created), "questions": created}
+
+
+def _usage_rows_v42(db: Session, question: LeagueQuizQuestion) -> list[dict[str, Any]]:
+    rows = (
+        db.query(LeagueQuizSessionQuestion, LeagueQuizSessionRound, LeagueQuizSession)
+        .join(LeagueQuizSessionRound, LeagueQuizSessionRound.id == LeagueQuizSessionQuestion.round_id)
+        .join(LeagueQuizSession, LeagueQuizSession.id == LeagueQuizSessionRound.session_id)
+        .filter(
+            LeagueQuizSessionQuestion.bank_question_id == question.id,
+            LeagueQuizSession.is_test_run == False,  # noqa: E712
+        )
+        .order_by(LeagueQuizSession.started_at.desc().nullslast(), LeagueQuizSession.created_at.desc(), LeagueQuizSession.id.desc())
+        .all()
+    )
+    result: list[dict[str, Any]] = []
+    for session_question, round_row, session in rows:
+        participant_count = db.query(func.count(LeagueQuizSessionParticipant.id)).filter(
+            LeagueQuizSessionParticipant.session_id == session.id,
+            LeagueQuizSessionParticipant.status == "registered",
+        ).scalar() or 0
+        answers = db.query(LeagueQuizSessionAnswer).filter(LeagueQuizSessionAnswer.session_question_id == session_question.id).all()
+        answered_count = len(answers)
+        correct_count = sum(1 for answer in answers if answer.is_correct is True)
+        result.append({
+            "session_id": session.id,
+            "quiz_title": session.title,
+            "quiz_status": session.status,
+            "round_order": round_row.round_order,
+            "round_title": round_row.title,
+            "round_type": round_row.round_type,
+            "question_order": session_question.question_order,
+            "used_at": (session.started_at or session.created_at).isoformat() if (session.started_at or session.created_at) else None,
+            "participants_count": int(participant_count),
+            "answered_count": int(answered_count),
+            "correct_count": int(correct_count),
+            "correct_rate": round((correct_count / answered_count) * 100, 1) if answered_count else None,
+        })
+    return result
+
+
+def question_history_v4(db: Session, actor: User, league_id: int, question_id: int) -> dict[str, Any]:  # noqa: F811
+    question = get_bank_question_v4(db, actor, league_id, question_id)
+    audits = (
+        db.query(LeagueQuizQuestionAudit)
+        .filter(LeagueQuizQuestionAudit.question_id == question.id)
+        .order_by(LeagueQuizQuestionAudit.created_at.desc(), LeagueQuizQuestionAudit.id.desc()).all()
+    )
+    audit_rows = [{
+        "id": row.id,
+        "action_type": row.action_type,
+        "actor_user_id": row.actor_user_id,
+        "actor_name": row.actor.display_name if getattr(row, "actor", None) and row.actor.display_name else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "note": row.note,
+        "before": row.before_snapshot,
+        "after": row.after_snapshot,
+    } for row in audits]
+    usage = _usage_rows_v42(db, question)
+    total_answered = sum(int(row["answered_count"]) for row in usage)
+    total_correct = sum(int(row["correct_count"]) for row in usage)
+    return {
+        "history": audit_rows,
+        "usage": usage,
+        "usage_summary": {
+            "live_uses": len(usage),
+            "answered_count": total_answered,
+            "correct_count": total_correct,
+            "correct_rate": round((total_correct / total_answered) * 100, 1) if total_answered else None,
+            "last_used_at": question.last_used_at.isoformat() if question.last_used_at else None,
+            "repeat_after_days": int(getattr(question, "repeat_after_days", 14) or 0),
+        },
+    }
+
+
+def list_answer_reviews_v4(db: Session, actor: User, session_id: int, session_question_id: int) -> list[dict[str, Any]]:  # noqa: F811
+    session, question = _session_question_for_review(db, session_id, session_question_id)
+    require_quiz_moderator(db, actor, session.league_id)
+    if question.status not in {QUESTION_REVEALED, QUESTION_CLOSED}:
+        raise ValueError("Проверять ответы можно после закрытия вопроса")
+    rows = db.query(LeagueQuizSessionAnswer).filter(LeagueQuizSessionAnswer.session_question_id == question.id).order_by(LeagueQuizSessionAnswer.answered_at.asc(), LeagueQuizSessionAnswer.id.asc()).all()
+    reviews = db.query(LeagueQuizAnswerReview).filter(LeagueQuizAnswerReview.session_question_id == question.id).order_by(LeagueQuizAnswerReview.created_at.desc(), LeagueQuizAnswerReview.id.desc()).all()
+    review_map: dict[int, LeagueQuizAnswerReview] = {}
+    for review in reviews:
+        review_map.setdefault(review.answer_id, review)
+    return [{
+        "answer_id": answer.id,
+        "user_id": answer.user_id,
+        "display_name": answer.user.display_name if answer.user and answer.user.display_name else f"Игрок {answer.user_id}",
+        "selected_option_key": answer.selected_option_key,
+        "answer_text": answer.answer_text,
+        "is_correct": answer.is_correct,
+        "points_awarded": int(answer.points_awarded or 0),
+        "answered_at": answer.answered_at.isoformat() if answer.answered_at else None,
+        "manual_review": ({"decision": review_map[answer.id].decision, "reason": review_map[answer.id].reason, "created_at": review_map[answer.id].created_at.isoformat() if review_map[answer.id].created_at else None} if answer.id in review_map else None),
+    } for answer in rows]
+
+
+def review_answer_v4(db: Session, actor: User, session_id: int, session_question_id: int, answer_id: int, accepted: bool, reason: str) -> LeagueQuizSessionAnswer:  # noqa: F811
+    session, question = _session_question_for_review(db, session_id, session_question_id)
+    require_quiz_moderator(db, actor, session.league_id)
+    if question.status not in {QUESTION_REVEALED, QUESTION_CLOSED}:
+        raise ValueError("Проверять ответы можно после закрытия вопроса")
+    clean_reason = _clean_string(reason, 2000, "Комментарий")
+    if not clean_reason:
+        raise ValueError("Для ручного решения укажите комментарий")
+    answer = db.query(LeagueQuizSessionAnswer).filter(LeagueQuizSessionAnswer.id == answer_id, LeagueQuizSessionAnswer.session_question_id == question.id).first()
+    if not answer:
+        raise ValueError("Ответ не найден")
+    previous_correct = answer.is_correct
+    previous_points = int(answer.points_awarded or 0)
+    new_points = int(question.points or 0) if accepted else (-int(question.points or 0) if question.negative_on_wrong else 0)
+    delta = new_points - previous_points
+    answer.is_correct = bool(accepted); answer.points_awarded = new_points; answer.scored_at = utcnow()
+    answer.answer_payload = {**dict(answer.answer_payload or {}), "manual_review": {"accepted": bool(accepted), "reason": clean_reason, "actor_user_id": actor.id}}
+    participant = db.query(LeagueQuizSessionParticipant).filter(LeagueQuizSessionParticipant.session_id == session.id, LeagueQuizSessionParticipant.user_id == answer.user_id).first()
+    if participant:
+        participant.score_total = int(participant.score_total or 0) + delta
+    db.add(LeagueQuizScoreEvent(session_id=session.id, round_id=question.round_id, session_question_id=question.id, user_id=answer.user_id, event_type="manual_review", delta_points=delta, reason=clean_reason, created_at=utcnow()))
+    db.add(LeagueQuizAnswerReview(session_id=session.id, session_question_id=question.id, answer_id=answer.id, actor_user_id=actor.id, decision="accepted" if accepted else "rejected", previous_is_correct=previous_correct, previous_points=previous_points, new_is_correct=bool(accepted), new_points=new_points, reason=clean_reason))
+    db.add(LeagueQuizAdminAction(session_id=session.id, actor_user_id=actor.id, action_type="answer_manually_reviewed", payload={"session_question_id": question.id, "answer_id": answer.id, "accepted": bool(accepted), "delta_points": delta, "reason": clean_reason}))
+    db.commit(); db.refresh(answer)
+    return answer
+
+
+_serialize_bank_question_v342_base = serialize_bank_question
+
+def serialize_bank_question(question: LeagueQuizQuestion, include_correct: bool = True) -> dict[str, Any]:  # noqa: F811
+    data = _serialize_bank_question_v342_base(question, include_correct=include_correct)
+    data["topics"] = list(getattr(question, "topics", None) or [])
+    data["difficulty"] = getattr(question, "difficulty", None)
+    data["difficulty_label"] = QUESTION_DIFFICULTY_LABELS.get(data["difficulty"], None)
+    data["repeat_after_days"] = int(getattr(question, "repeat_after_days", 14) or 0)
+    data["last_used_at"] = question.last_used_at.isoformat() if question.last_used_at else None
+    return data
+
+
+# Keep the stage-4 serializer intact and extend its response only after the
+# content functions above have been rebound.
+
+
+def seed_wc2026_all_rounds_v4(db: Session, actor: User, league_id: int) -> dict[str, Any]:  # noqa: F811
+    """Create the full sample bank with v3.4.2 mandatory metadata."""
+    require_quiz_editor(db, actor, league_id)
+    rows = db.query(LeagueQuizQuestion).filter(
+        LeagueQuizQuestion.league_id == league_id,
+        LeagueQuizQuestion.tags.like(f"{WC2026_STAGE_FOUR_SEED_PREFIX}:%"),
+    ).all()
+    existing = {str(row.tags).rsplit(":", 1)[-1] for row in rows if row.tags}
+    created: list[LeagueQuizQuestion] = []
+    try:
+        for item in WC2026_STAGE_FOUR_SAMPLE_QUESTIONS:
+            if item["seed_key"] in existing:
+                continue
+            payload = dict(item)
+            payload["tags"] = f"{WC2026_STAGE_FOUR_SEED_PREFIX}:{item['seed_key']}"
+            payload["topics"] = ["ЧМ-2026", "Тестовый набор"]
+            payload["difficulty"] = "medium"
+            payload["repeat_after_days"] = 0
+            payload.pop("seed_key", None)
+            question = LeagueQuizQuestion(
+                league_id=league_id,
+                created_by_user_id=actor.id,
+                approved_by_user_id=actor.id,
+                question_type="choice_4",
+                status=QUESTION_STATUS_DRAFT,
+                question_text="Черновик",
+                default_points=100,
+                question_payload={},
+                topics=[],
+                repeat_after_days=0,
+            )
+            db.add(question); db.flush()
+            _write_question_content(db, question, payload)
+            validate_question_before_approval(question)
+            question.status = QUESTION_STATUS_APPROVED
+            question.approved_at = utcnow()
+            question.approved_by_user_id = actor.id
+            db.flush()
+            _audit(db, question=question, actor=actor, action_type="seeded_wc2026", after=_question_snapshot(question), note="Тестовый набор ЧМ‑2026 для всех типов раундов")
+            created.append(question)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"created_count": len(created), "existing_count": len(WC2026_STAGE_FOUR_SAMPLE_QUESTIONS) - len(created), "questions": created}
+
+# A host may select approved questions while composing a quiz but cannot edit
+# or approve them. Editors retain full bank access.
+from app.services.leagues import has_quiz_permission
+
+def list_bank_questions(db: Session, actor: User, league_id: int, include_archived: bool = False) -> list[LeagueQuizQuestion]:  # noqa: F811
+    if not (has_quiz_permission(db, actor, league_id, "editor") or has_quiz_permission(db, actor, league_id, "host")):
+        raise PermissionError("Недостаточно прав для просмотра банка вопросов")
+    query = db.query(LeagueQuizQuestion).filter(LeagueQuizQuestion.league_id == league_id)
+    if not include_archived:
+        query = query.filter(LeagueQuizQuestion.status != QUESTION_STATUS_ARCHIVED)
+    return query.order_by(LeagueQuizQuestion.updated_at.desc(), LeagueQuizQuestion.id.desc()).all()

@@ -109,3 +109,8 @@ db/migrations/023_add_league_quiz_core.sql
 ```
 
 Она создаёт новые таблицы `league_quiz_*` и не меняет старые `quiz_questions`, `quiz_answers`, `group_quiz_*`.
+
+
+## v3.4.2
+
+Apply `030_add_quiz_readiness_roles_and_test_runs.sql` after `029`. It adds scoped quiz roles, question metadata/repeat protection and isolated test-run fields.

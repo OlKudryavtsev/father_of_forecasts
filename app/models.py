@@ -77,6 +77,8 @@ class LeagueMember(Base):
     role = Column(String, nullable=False, default="member", server_default="member", index=True)
     status = Column(String, nullable=False, default="active", server_default="active", index=True)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Scoped quiz roles (host/editor/moderator). Existing role stays for league administration.
+    quiz_roles = Column(JSON, nullable=False, default=list, server_default="[]")
 
     league = relationship("League", back_populates="members")
     user = relationship("User", back_populates="league_memberships", foreign_keys=[user_id])
@@ -995,6 +997,10 @@ class LeagueQuizQuestion(Base):
     explanation = Column(Text, nullable=True)
     default_points = Column(Integer, nullable=False, default=100, server_default="100")
     tags = Column(String(500), nullable=True)
+    # v3.4.2: semantic metadata for content review, repeat protection and future analytics.
+    topics = Column(JSON, nullable=False, default=list, server_default="[]")
+    difficulty = Column(String(16), nullable=True, index=True)
+    repeat_after_days = Column(Integer, nullable=False, default=14, server_default="14")
     # Stage 3 keeps type-specific immutable authoring data here: aliases,
     # Jeopardy topic, countdown facts and the ranked answers of «Сто к одному».
     question_payload = Column(JSON, nullable=False, default=dict, server_default="{}")
@@ -1080,6 +1086,10 @@ class LeagueQuizSession(Base):
     timer_settings = Column(JSON, nullable=False, default=dict, server_default="{}")
     reveal_seconds = Column(Integer, nullable=False, default=12, server_default="12")
     allow_late_registration = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Test runs are isolated from normal player invitations and usage analytics.
+    is_test_run = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    test_host_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    test_chat_id = Column(String(80), nullable=True)
     rounds_total = Column(Integer, nullable=False, default=1, server_default="1")
     current_round_order = Column(Integer, nullable=True)
     current_question_order = Column(Integer, nullable=True)

@@ -773,3 +773,12 @@ CREATE TABLE IF NOT EXISTS league_quiz_admin_actions (
 CREATE INDEX IF NOT EXISTS ix_league_quiz_admin_actions_session_created
     ON league_quiz_admin_actions (session_id, created_at DESC);
 
+
+-- v3.4.2 quiz readiness extensions (also see migration 030).
+ALTER TABLE league_members ADD COLUMN IF NOT EXISTS quiz_roles JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE league_quiz_questions ADD COLUMN IF NOT EXISTS topics JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE league_quiz_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(16);
+ALTER TABLE league_quiz_questions ADD COLUMN IF NOT EXISTS repeat_after_days INTEGER NOT NULL DEFAULT 14;
+ALTER TABLE league_quiz_sessions ADD COLUMN IF NOT EXISTS is_test_run BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE league_quiz_sessions ADD COLUMN IF NOT EXISTS test_host_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE league_quiz_sessions ADD COLUMN IF NOT EXISTS test_chat_id VARCHAR(80);

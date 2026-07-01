@@ -81,6 +81,7 @@ from app.services.leagues import (
     require_user_league,
     set_league_member_role,
     update_league_chat_id,
+    set_league_member_quiz_roles,
 )
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
 from app.services.league_quiz import (
@@ -314,6 +315,9 @@ class LeagueQuizQuestionCreatePayload(BaseModel):
     source_note: str | None = Field(default=None, max_length=6000)
     sources: list[LeagueQuizSourcePayload] = Field(default_factory=list, max_length=10)
     media: list[LeagueQuizMediaPayload] = Field(default_factory=list, max_length=3)
+    topics: list[str] = Field(default_factory=list, max_length=12)
+    difficulty: str | None = Field(default=None, pattern="^(easy|medium|hard)$")
+    repeat_after_days: int = Field(default=14, ge=0, le=365)
 
 
 class LeagueQuizImportPayload(BaseModel):
@@ -344,6 +348,10 @@ class LeagueQuizSessionCreatePayload(BaseModel):
     seconds_per_question: int = Field(default=30, ge=10, le=300)
     reveal_seconds: int = Field(default=12, ge=3, le=90)
     allow_late_registration: bool = False
+    timer_settings: dict = Field(default_factory=dict)
+    is_test_run: bool = False
+    test_chat_id: str | None = Field(default=None, max_length=80)
+    enforce_repeat_policy: bool = True
 
 
 class LeagueQuizAnswerPayload(BaseModel):
@@ -365,6 +373,10 @@ class LeagueJoinPayload(BaseModel):
 
 class LeagueRolePayload(BaseModel):
     role: str = Field(pattern="^(admin|member)$")
+
+
+class LeagueQuizRolesPayload(BaseModel):
+    quiz_roles: list[str] = Field(default_factory=list, max_length=3)
 
 
 class LeagueSettingsPayload(BaseModel):
@@ -918,6 +930,14 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
     role = current_member.role if current_member else None
     if current_user and league.owner_user_id == current_user.id:
         role = "owner"
+    quiz_roles = list(getattr(current_member, "quiz_roles", None) or []) if current_member else []
+    quiz_admin = bool(current_user and (current_user.is_admin or league.owner_user_id == current_user.id or role in {"owner", "admin"}))
+    quiz_permissions = {
+        "admin": quiz_admin,
+        "host": bool(quiz_admin or "host" in quiz_roles),
+        "editor": bool(quiz_admin or "editor" in quiz_roles),
+        "moderator": bool(quiz_admin or "moderator" in quiz_roles),
+    }
     return {
         "id": league.id,
         "name": league.name,
@@ -930,6 +950,8 @@ def _serialize_league(league: League, current_user: User | None = None) -> dict:
         "is_owner": bool(current_user and league.owner_user_id == current_user.id),
         "role": role,
         "can_manage": role in {"owner", "admin"} or bool(current_user and (current_user.is_admin or league.owner_user_id == current_user.id)),
+        "quiz_roles": quiz_roles,
+        "quiz_permissions": quiz_permissions,
         "can_deactivate": bool(current_user and league.league_type != "system" and (current_user.is_admin or league.owner_user_id == current_user.id)),
         "scoring_start_at": _ensure_utc(league_scoring_start_at(league)).isoformat() if league_scoring_start_at(league) else None,
         "members_count": active_members_count,
@@ -1228,6 +1250,7 @@ def _serialize_league_member(member: LeagueMember, league: League) -> dict:
         "username": user.username if user else None,
         "is_bot_admin": bool(user and user.is_admin),
         "role": role,
+        "quiz_roles": list(getattr(member, "quiz_roles", None) or []),
         "status": member.status,
         "is_owner": is_owner,
         "joined_at": member.joined_at.isoformat() if member.joined_at else None,
@@ -1315,6 +1338,25 @@ def update_league_member_endpoint(
     """Promote/demote a league member."""
     try:
         member = set_league_member_role(db, current_user, league_id, user_id, payload.role)
+        league = member.league
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "member": _serialize_league_member(member, league)}
+
+
+@router.patch("/leagues/{league_id}/members/{user_id}/quiz-roles")
+def update_league_member_quiz_roles_endpoint(
+    league_id: int,
+    user_id: int,
+    payload: LeagueQuizRolesPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Assign scoped quiz permissions without changing the member's league role."""
+    try:
+        member = set_league_member_quiz_roles(db, current_user, league_id, user_id, payload.quiz_roles)
         league = member.league
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -5199,7 +5241,7 @@ def get_league_quiz_bank_question_history(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     try:
-        return {"history": question_history_v4(db, current_user, league_id, question_id)}
+        return question_history_v4(db, current_user, league_id, question_id)
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
 

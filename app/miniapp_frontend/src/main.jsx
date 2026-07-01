@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.4.1';
+const APP_VERSION = '3.4.2';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5544,6 +5544,20 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
     }
   }
 
+  async function updateQuizRoles(leagueId, member, role, enabled) {
+    if (!leagueId || !member) return;
+    const current = Array.isArray(member.quiz_roles) ? member.quiz_roles : [];
+    const quiz_roles = enabled ? [...new Set([...current, role])] : current.filter((item) => item !== role);
+    const busyKey = `${leagueId}:${member.user_id}:quiz:${role}`;
+    setMemberActionBusy(busyKey);
+    setError(null);
+    try {
+      await api(`/api/webapp/leagues/${leagueId}/members/${member.user_id}/quiz-roles`, { method: 'PATCH', body: JSON.stringify({ quiz_roles }) });
+      await loadMembers(leagueId);
+      await onLeaguesChanged?.();
+    } catch (err) { setError(err); } finally { setMemberActionBusy(''); }
+  }
+
   async function removeMember(leagueId, member) {
     if (!leagueId || !member) return;
     if (!window.confirm(`Исключить «${member.display_name || member.username || 'участника'}» из лиги?`)) return;
@@ -5693,6 +5707,7 @@ function LeaguesScreen({ leaguesData, activeLeagueId, onLeagueChange, onLeaguesC
                     {!isProtected && member.role === 'admin' && (
                       <button type="button" onClick={() => changeMemberRole(league.id, member, 'member')} disabled={memberActionBusy === `${league.id}:${member.user_id}:member`}>Снять админа</button>
                     )}
+                    {!isProtected && <div className="league-quiz-role-controls">{[['host', 'Ведущий'], ['editor', 'Редактор'], ['moderator', 'Модератор']].map(([roleKey, roleLabel]) => <label key={roleKey}><input type="checkbox" checked={(member.quiz_roles || []).includes(roleKey)} disabled={memberActionBusy === `${league.id}:${member.user_id}:quiz:${roleKey}`} onChange={(event) => updateQuizRoles(league.id, member, roleKey, event.target.checked)} />{roleLabel}</label>)}</div>}
                     {!isProtected && (
                       <button type="button" className="danger" onClick={() => removeMember(league.id, member)} disabled={memberActionBusy === `${league.id}:${member.user_id}:remove`}>Исключить</button>
                     )}
@@ -6619,7 +6634,11 @@ function quizBankSummary(question) {
 
 function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const activeLeague = (leaguesData?.leagues || []).find((league) => Number(league.id) === Number(activeLeagueId));
-  const canManage = Boolean(activeLeague?.can_manage);
+  const quizPermissions = activeLeague?.quiz_permissions || {};
+  const canHost = Boolean(quizPermissions.host || activeLeague?.can_manage);
+  const canEdit = Boolean(quizPermissions.editor || activeLeague?.can_manage);
+  const canModerate = Boolean(quizPermissions.moderator || activeLeague?.can_manage);
+  const canManage = canHost || canEdit || canModerate;
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuizId, setSelectedQuizId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -6637,6 +6656,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [correctIndex, setCorrectIndex] = useState(0);
   const [questionPoints, setQuestionPoints] = useState('100');
   const [questionExplanation, setQuestionExplanation] = useState('');
+  const [questionTags, setQuestionTags] = useState('');
+  const [questionTopics, setQuestionTopics] = useState('');
+  const [questionDifficulty, setQuestionDifficulty] = useState('medium');
+  const [questionRepeatAfterDays, setQuestionRepeatAfterDays] = useState('14');
   const [sourceTitle, setSourceTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [questionAliases, setQuestionAliases] = useState('');
@@ -6650,6 +6673,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [secondsPerQuestion, setSecondsPerQuestion] = useState('30');
   const [timerSettings, setTimerSettings] = useState(DEFAULT_QUIZ_TIMER_SETTINGS);
   const [revealSeconds, setRevealSeconds] = useState('12');
+  const [isTestRun, setIsTestRun] = useState(false);
+  const [testChatId, setTestChatId] = useState('');
+  const [enforceRepeatPolicy, setEnforceRepeatPolicy] = useState(true);
   const [seedMessage, setSeedMessage] = useState('');
   const [questionSources, setQuestionSources] = useState([{ title: '', url: '', note: '' }]);
   const [mediaUrl, setMediaUrl] = useState('');
@@ -6704,7 +6730,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   }, [selectedQuizId]);
 
   const loadBank = useCallback(async () => {
-    if (!activeLeagueId || !canManage) return;
+    if (!activeLeagueId || (!canEdit && !canHost)) return;
     setBankLoading(true);
     try {
       const result = await api(`/api/webapp/quiz-bank/questions?league_id=${activeLeagueId}`);
@@ -6714,7 +6740,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     } finally {
       setBankLoading(false);
     }
-  }, [activeLeagueId, canManage]);
+  }, [activeLeagueId, canEdit, canHost]);
 
   useEffect(() => {
     setLoading(true);
@@ -6758,6 +6784,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setCorrectIndex(0);
     setQuestionPoints(defaultQuizPoints(type));
     setQuestionExplanation('');
+    setQuestionTags('');
+    setQuestionTopics('');
+    setQuestionDifficulty('medium');
+    setQuestionRepeatAfterDays('14');
     setQuestionSources([{ title: '', url: '', note: '' }]);
     setMediaUrl('');
     setMediaCaption('');
@@ -6790,6 +6820,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       question_payload: questionPayload,
       default_points: Number(questionPoints || 100),
       explanation: questionExplanation || null,
+      tags: questionTags,
+      topics: questionTopics.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean),
+      difficulty: questionDifficulty || null,
+      repeat_after_days: Number(questionRepeatAfterDays || 0),
       sources: sourceRowsForRequest(),
       media: mediaUrl.trim() ? [{ kind: 'image', url: mediaUrl.trim(), caption: mediaCaption.trim() || null }] : [],
     };
@@ -6807,6 +6841,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setCorrectIndex(foundCorrect >= 0 ? foundCorrect : 0);
     setQuestionPoints(String(question.default_points || defaultQuizPoints(type)));
     setQuestionExplanation(question.explanation || '');
+    setQuestionTags(question.tags || '');
+    setQuestionTopics((question.topics || []).join(', '));
+    setQuestionDifficulty(question.difficulty || 'medium');
+    setQuestionRepeatAfterDays(String(question.repeat_after_days ?? 14));
     setQuestionAliases((question.aliases || config.answer_aliases || []).join('\n'));
     setQuestionTopic(config.topic || '');
     setCountdownFacts(Array.isArray(config.facts) && config.facts.length === 3 ? config.facts : ['', '', '']);
@@ -6965,7 +7003,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setBusy(true);
     try {
       const result = await api(`/api/webapp/quiz-bank/questions/${question.id}/history?league_id=${activeLeagueId}`);
-      setHistoryQuestion({ question, rows: result.history || [] });
+      setHistoryQuestion({ question, rows: result.history || [], usage: result.usage || [], summary: result.usage_summary || {} });
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
@@ -7058,6 +7096,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
           seconds_per_question: Number(secondsPerQuestion || 30),
           timer_settings: Object.fromEntries(Object.entries(timerSettings).map(([key, value]) => [key, Number(value || DEFAULT_QUIZ_TIMER_SETTINGS[key])])),
           reveal_seconds: Number(revealSeconds || 12),
+          is_test_run: isTestRun,
+          test_chat_id: isTestRun ? (testChatId.trim() || null) : null,
+          enforce_repeat_policy: enforceRepeatPolicy,
         }),
       });
       setSelectedQuizId(result.quiz?.id || null);
@@ -7065,6 +7106,8 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       setQuizTitle('');
       setSelectedQuestionIds([]);
       setScheduledStart('');
+      setIsTestRun(false);
+      setTestChatId('');
       await loadList();
       trackAnalytics('quiz_admin', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: result.quiz?.id || 0, quiz_status: 'created' } });
     } catch (err) {
@@ -7194,7 +7237,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                 </div>
               )}
 
-              {quiz.can_manage && currentQuestion && ['revealed', 'closed'].includes(currentQuestion.status) && (
+              {canModerate && currentQuestion && ['revealed', 'closed'].includes(currentQuestion.status) && (
                 <section className="quiz-review-card">
                   <div><b>Спорные ответы</b><p>Решение меняет счёт сразу и фиксируется в журнале квиза.</p></div>
                   <button type="button" disabled={busy} onClick={loadReviews}>{reviewOpen ? 'Обновить ответы' : 'Проверить ответы'}</button>
@@ -7207,9 +7250,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
           {canManage && (
             <section className="card quiz-admin-card">
               <button type="button" className="quiz-admin-toggle" onClick={() => setBankOpen((value) => !value)}>
-                <span><b>Управление квизом</b><small>вопросы, одобрение и планирование игры</small></span><span>{bankOpen ? '⌃' : '⌄'}</span>
+                <span><b>Управление квизом</b><small>{canEdit ? 'банк вопросов и планирование игры' : 'планирование и проведение игры'}</small></span><span>{bankOpen ? '⌃' : '⌄'}</span>
               </button>
               {bankOpen && <div className="quiz-admin-body">
+                {canEdit && <>
                 <section className="quiz-seed-card">
                   <div>
                     <b>Тестовый набор ЧМ‑2026</b>
@@ -7234,7 +7278,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   {questionType === 'countdown' && <div className="quiz-stage-editor"><b>Три факта — от сложного к простому</b>{countdownFacts.map((fact, index) => <label key={index}>Подсказка {index + 1}<textarea value={fact} onChange={(event) => setCountdownFacts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} required /></label>)}</div>}
                   {questionType === 'hundred_to_one' && <div className="hundred-editor"><b>Топ-10: от самой очевидной строки к самой сложной</b>{hundredAnswers.map((value, index) => <label key={index}><span>{index + 1} · {100 * (index + 1)} очк.</span><input value={value} onChange={(event) => setHundredAnswers((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} required /></label>)}</div>}
 
-                  <div className="quiz-form-grid"><label>Баллы<input type="number" min="0" max="10000" value={questionPoints} onChange={(event) => setQuestionPoints(event.target.value)} disabled={['one_of_two', 'what_where_when', 'countdown', 'hundred_to_one'].includes(questionType)} required /></label></div>
+                  <div className="quiz-form-grid"><label>Баллы<input type="number" min="0" max="10000" value={questionPoints} onChange={(event) => setQuestionPoints(event.target.value)} disabled={['one_of_two', 'what_where_when', 'countdown', 'hundred_to_one'].includes(questionType)} required /></label><label>Сложность<select value={questionDifficulty} onChange={(event) => setQuestionDifficulty(event.target.value)} required><option value="easy">Лёгкая</option><option value="medium">Средняя</option><option value="hard">Сложная</option></select></label><label>Повтор не раньше, дней<input type="number" min="0" max="365" value={questionRepeatAfterDays} onChange={(event) => setQuestionRepeatAfterDays(event.target.value)} required /></label></div>
+                  <label>Темы<textarea value={questionTopics} onChange={(event) => setQuestionTopics(event.target.value)} placeholder="Например: ЧМ-2026, сборные" required /></label>
+                  <label>Теги<textarea value={questionTags} onChange={(event) => setQuestionTags(event.target.value)} placeholder="Например: плей-офф, статистика" required /></label>
                   <div className="quiz-stage4-sources"><b>Источники</b>{questionSources.map((source, index) => <div className="quiz-source-row" key={index}><input value={source.title} onChange={(event) => setQuestionSources((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} placeholder="Название источника" /><input type="url" value={source.url} onChange={(event) => setQuestionSources((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item))} placeholder="https://..." /><input value={source.note} onChange={(event) => setQuestionSources((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, note: event.target.value } : item))} placeholder="Комментарий (необязательно)" />{questionSources.length > 1 && <button type="button" className="danger" onClick={() => setQuestionSources((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>}</div>)}<button type="button" onClick={() => setQuestionSources((current) => [...current, { title: '', url: '', note: '' }])}>+ Источник</button></div>
                   <div className="quiz-stage4-media"><b>Изображение по URL</b><input type="url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="https://..." /><input value={mediaCaption} onChange={(event) => setMediaCaption(event.target.value)} placeholder="Подпись к изображению (необязательно)" />{mediaUrl && <img src={mediaUrl} alt="Предпросмотр" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
                   <label>Пояснение после ответа<textarea value={questionExplanation} onChange={(event) => setQuestionExplanation(event.target.value)} placeholder="Почему правильный ответ именно такой" /></label>
@@ -7245,19 +7291,23 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   <div className="quiz-bank-title"><h3>Банк вопросов</h3><div><button type="button" onClick={loadBank} disabled={bankLoading}>Обновить</button><button type="button" onClick={exportBank} disabled={busy}>Экспорт JSON</button></div></div>
                   <details className="quiz-import-box"><summary>Импортировать вопросы из JSON</summary><textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder='{ "questions": [ ... ] }' /><button type="button" disabled={busy || !importText.trim()} onClick={importBank}>Импортировать как черновики</button></details>
                   {previewQuestion && <section className="quiz-preview-card"><div><b>Предпросмотр · {previewQuestion.type_label}</b><button type="button" onClick={() => setPreviewQuestion(null)}>×</button></div><h4>{previewQuestion.question_text}</h4>{(previewQuestion.media || []).map((media) => <figure key={media.url}><img src={media.url} alt={media.caption || 'Изображение'} /><figcaption>{media.caption || ''}</figcaption></figure>)}{(previewQuestion.options || []).map((option) => <p key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}{option.is_correct ? ' ✓' : ''}</p>)}{quizBankSummary(previewQuestion) && <p className="muted">{quizBankSummary(previewQuestion)}</p>}{(previewQuestion.sources || []).map((source, index) => <a key={index} href={source.url || '#'} target="_blank" rel="noreferrer">{source.title || source.url}</a>)}</section>}
-                  {historyQuestion && <section className="quiz-history-card"><div><b>История вопроса #{historyQuestion.question.id}</b><button type="button" onClick={() => setHistoryQuestion(null)}>×</button></div>{historyQuestion.rows.length ? <ol>{historyQuestion.rows.map((row) => <li key={row.id}><b>{row.action_type}</b><span>{row.created_at ? formatQuizDate(row.created_at) : ''}</span>{row.note && <small>{row.note}</small>}</li>)}</ol> : <p className="muted">История пока пуста.</p>}</section>}
+                  {historyQuestion && <section className="quiz-history-card"><div><b>История вопроса #{historyQuestion.question.id}</b><button type="button" onClick={() => setHistoryQuestion(null)}>×</button></div><p className="muted">Живых использований: {historyQuestion.summary?.live_uses || 0} · ответов: {historyQuestion.summary?.answered_count || 0} · верно: {historyQuestion.summary?.correct_rate ?? '—'}%</p>{historyQuestion.usage?.length ? <details><summary>Где использовался</summary><ol>{historyQuestion.usage.map((row) => <li key={`${row.session_id}-${row.round_order}-${row.question_order}`}><b>{row.quiz_title}</b><span>Раунд {row.round_order}: {row.round_title} · вопрос {row.question_order}</span><small>{row.used_at ? formatQuizDate(row.used_at) : ''} · участников {row.participants_count} · точность {row.correct_rate ?? '—'}%</small></li>)}</ol></details> : <p className="muted">В живых квизах вопрос ещё не использовался.</p>}{historyQuestion.rows.length ? <details><summary>Журнал изменений</summary><ol>{historyQuestion.rows.map((row) => <li key={row.id}><b>{row.action_type}</b><span>{row.created_at ? formatQuizDate(row.created_at) : ''}</span>{row.note && <small>{row.note}</small>}</li>)}</ol></details> : null}</section>}
                   {bankLoading ? <LoadingCard text="Загружаю банк..." /> : bank.length ? bank.map((question) => <article className={`quiz-bank-item ${question.status}`} key={question.id}><div><span className={`quiz-status ${question.status === 'approved' ? 'active' : question.status === 'archived' ? 'danger' : 'neutral'}`}>{question.status === 'approved' ? 'Одобрен' : question.status === 'archived' ? 'Архив' : 'Черновик'}</span><b>{question.default_points} очк.</b></div><strong>{question.question_text}</strong><small>{question.type_label} · использован: {question.times_used}</small>{quizBankSummary(question) && <small>{quizBankSummary(question)}</small>}{(question.media || []).length > 0 && <small>🖼 медиа: {(question.media || []).length}</small>}<div className="quiz-bank-options">{(question.options || []).map((option) => <span key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}</span>)}</div><div className="quiz-bank-actions"><button type="button" onClick={() => setPreviewQuestion(question)}>Предпросмотр</button><button type="button" onClick={() => startEditingQuestion(question)} disabled={busy || question.status === 'archived'}>Изменить</button><button type="button" onClick={() => openQuestionHistory(question)} disabled={busy}>История</button>{question.status === 'draft' && <button type="button" disabled={busy} onClick={() => approveQuestion(question.id)}>Одобрить</button>}{question.status !== 'archived' ? <button type="button" className="danger" disabled={busy} onClick={() => archiveQuestion(question.id)}>В архив</button> : <button type="button" disabled={busy} onClick={() => restoreQuestion(question.id)}>В черновик</button>}</div></article>) : <p className="muted">Вопросов пока нет.</p>}
                 </section>
+                </>}
 
-                <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
+                {canHost && <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
                   <h3>Запланировать квиз</h3>
                   <p className="muted">Выбранные вопросы будут автоматически собраны в раунды по форматам. Полный квиз — просто выберите вопросы всех типов.</p>
                   <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder="Например, Футбольный квиз №1" required /></label>
                   <div className="quiz-form-grid"><label>Старт (необязательно)<input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label><label>Показ ответа, сек.<input type="number" min="3" max="90" value={revealSeconds} onChange={(event) => setRevealSeconds(event.target.value)} /></label></div>
                   <details className="quiz-import-box"><summary>Таймеры раундов</summary><p className="muted">По умолчанию используются рекомендованные интервалы. Их можно изменить до старта квиза.</p><div className="quiz-form-grid">{QUIZ_TIMER_FIELDS.map(([key, label]) => <label key={key}>{label}<input type="number" min="10" max="300" value={timerSettings[key] ?? DEFAULT_QUIZ_TIMER_SETTINGS[key]} onChange={(event) => setTimerSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div></details>
                   <div className="quiz-question-picker"><p>Выберите одобренные вопросы в нужном порядке:</p>{approvedBank.length ? approvedBank.map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => toggleQuestion(question.id)} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <p className="muted">Сначала добавьте и одобрите вопросы.</p>}</div>
-                  <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length}>Создать квиз ({selectedQuestionIds.length})</button>
-                </form>
+                  <label className="quiz-check-row"><input type="checkbox" checked={isTestRun} onChange={(event) => setIsTestRun(event.target.checked)} /><span><b>Тестовый прогон</b><small>Участвует только ведущий; рейтинг и статистика вопросов не меняются.</small></span></label>
+                  {isTestRun && <label>Test chat ID (необязательно)<input value={testChatId} onChange={(event) => setTestChatId(event.target.value)} placeholder="например -1001234567890" /></label>}
+                  <label className="quiz-check-row"><input type="checkbox" checked={enforceRepeatPolicy} onChange={(event) => setEnforceRepeatPolicy(event.target.checked)} /><span><b>Не повторять недавно использованные вопросы</b><small>Учитывается индивидуальный срок повтора каждого вопроса.</small></span></label>
+                  <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length}>{isTestRun ? `Создать тестовый прогон (${selectedQuestionIds.length})` : `Создать квиз (${selectedQuestionIds.length})`}</button>
+                </form>}
 
               </div>}
             </section>

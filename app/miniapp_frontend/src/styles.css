@@ -12119,3 +12119,15 @@ body,
   .quiz-review-list article { flex-direction: column; }
   .quiz-review-actions { width: 100%; justify-content: flex-start; }
 }
+
+/* v3.4.2 — readiness: scoped quiz roles, content metadata and rehearsals */
+.quiz-check-row { grid-template-columns: 20px minmax(0, 1fr); align-items: start; padding: 10px; border: 1px solid rgba(96,165,250,.22); border-radius: 11px; background: rgba(59,130,246,.06); }
+.quiz-check-row input[type="checkbox"] { width: 16px; min-height: 16px; margin: 1px 0 0; }
+.quiz-check-row span { display: grid; gap: 3px; color: var(--text); }
+.quiz-check-row small { color: var(--muted); font-size: 10px; font-weight: 600; line-height: 1.35; }
+.league-quiz-role-controls { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; padding-top: 2px; }
+.league-quiz-role-controls label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid rgba(96,165,250,.18); border-radius: 999px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.league-quiz-role-controls input { width: 13px; height: 13px; margin: 0; }
+.quiz-history-card details { display: grid; gap: 7px; }
+.quiz-history-card summary { cursor: pointer; color: #bdd4ff; font-size: 11px; font-weight: 780; }
+.app.theme-light .quiz-check-row { background: rgba(37,99,235,.05); }

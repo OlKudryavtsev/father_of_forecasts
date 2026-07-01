@@ -492,3 +492,68 @@ async def process_league_quiz_telegram_events(db: Session, limit: int = 40) -> i
             db.rollback()
             print(f"League quiz Telegram event dispatch failed: event={event.id} error={error}")
     return processed
+
+# v3.4.2: rehearsal sessions are private to the host and (optionally) a test
+# chat. They must never fan out to the live league chat or its members.
+from types import SimpleNamespace
+
+async def _dispatch_test_quiz_created(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
+    host = db.query(User).filter(User.id == quiz.test_host_user_id).first()
+    if not host:
+        return
+    payload = event.payload or {}
+    text = (
+        f"🧪 Тестовый прогон квиза «{quiz.title}»\n\n"
+        f"Раундов: {payload.get('rounds_total') or '—'} · вопросов: {payload.get('questions_total') or '—'}.\n"
+        "В тесте участвует только ведущий; рейтинг лиги и статистика вопросов не меняются."
+    )
+    await _send_private(
+        db, event, host, text, "test_quiz_created",
+        build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()),
+    )
+    test_league = SimpleNamespace(chat_id=quiz.test_chat_id, name=f"Тест: {league.name}")
+    username = await get_bot_username()
+    await _send_group(
+        db, event, test_league, text, "test_quiz_created",
+        build_group_quiz_open_keyboard(username, quiz.id, "🧪 Открыть тест"),
+    )
+
+async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEvent) -> None:  # noqa: F811
+    if event.event_type not in SUPPORTED_EVENT_TYPES or _event_skipped(event):
+        return
+    if _delivery_exists(db, event.id, DELIVERY_DONE_KEY):
+        return
+    quiz, league = _session_and_league(db, event)
+    if not quiz or not league:
+        _mark_event_done(db, event)
+        return
+
+    delivery_league = league
+    if bool(getattr(quiz, "is_test_run", False)):
+        if event.event_type == "quiz_created":
+            await _dispatch_test_quiz_created(db, event, quiz, league)
+            _mark_event_done(db, event)
+            return
+        # Every following event naturally goes only to the auto-registered host.
+        # Replace the real league chat with the explicit test destination.
+        delivery_league = SimpleNamespace(chat_id=quiz.test_chat_id, name=f"Тест: {league.name}")
+
+    if event.event_type == "quiz_created":
+        await _dispatch_quiz_created(db, event, quiz, delivery_league)
+    elif event.event_type == "quiz_started":
+        await _dispatch_quiz_started(db, event, quiz, delivery_league)
+    elif event.event_type == "round_started":
+        await _dispatch_round_started(db, event, quiz, delivery_league)
+    elif event.event_type == "question_opened":
+        await _dispatch_question_event(db, event, quiz, delivery_league, "quiz_question")
+    elif event.event_type == "countdown_stage_opened":
+        await _dispatch_question_event(db, event, quiz, delivery_league, "quiz_countdown_stage")
+    elif event.event_type == "question_revealed":
+        await _dispatch_question_revealed(db, event, quiz, delivery_league)
+    elif event.event_type == "round_finished":
+        await _dispatch_round_finished(db, event, quiz, delivery_league)
+    elif event.event_type == "quiz_finished":
+        await _dispatch_quiz_finished(db, event, quiz, delivery_league)
+    elif event.event_type in {"quiz_cancelled", "quiz_paused", "quiz_resumed"}:
+        await _dispatch_status_change(db, event, quiz, delivery_league)
+    _mark_event_done(db, event)

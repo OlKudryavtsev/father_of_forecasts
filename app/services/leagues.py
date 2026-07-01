@@ -641,3 +641,113 @@ def join_league_by_invite_code(db, user: User, invite_code: str | None) -> Leagu
     """Backward-compatible wrapper used by older call sites."""
     league, _member, _created = request_league_join_by_invite_code(db, user, invite_code)
     return league
+
+# =============================================================================
+# v3.4.2 — lightweight quiz-specific roles inside league_members.
+# The existing ``role`` column remains responsible for league administration;
+# ``quiz_roles`` grants scoped rights without elevating a member to full league
+# administrator.
+# =============================================================================
+QUIZ_SPECIAL_ROLES = {"host", "editor", "moderator"}
+QUIZ_ROLE_LABELS = {
+    "host": "Ведущий квиза",
+    "editor": "Редактор вопросов",
+    "moderator": "Модератор ответов",
+}
+
+
+def normalize_quiz_roles(raw) -> list[str]:
+    """Return a stable, de-duplicated quiz role list from a JSON column/input."""
+    if isinstance(raw, str):
+        values = [value.strip() for value in raw.replace(";", ",").split(",")]
+    elif isinstance(raw, (list, tuple, set)):
+        values = [str(value or "").strip() for value in raw]
+    else:
+        values = []
+    result: list[str] = []
+    for value in values:
+        if value in QUIZ_SPECIAL_ROLES and value not in result:
+            result.append(value)
+    return result
+
+
+def get_member_quiz_roles(member: LeagueMember | None) -> list[str]:
+    if not member:
+        return []
+    return normalize_quiz_roles(getattr(member, "quiz_roles", None))
+
+
+def is_quiz_admin(db, actor: User, league: League) -> bool:
+    """Admins and the owner retain all quiz rights by design."""
+    if actor.is_admin or league.owner_user_id == actor.id:
+        return True
+    member = get_league_member(db, league, actor)
+    return bool(member and member.status == "active" and member.role in {"owner", "admin"})
+
+
+def has_quiz_permission(db, actor: User, league: League | int, permission: str) -> bool:
+    """Check a scoped quiz right; accepts a League row or its numeric id."""
+    if isinstance(league, int):
+        league = db.query(League).filter(League.id == league, League.is_active == True).first()
+        if not league:
+            return False
+    if is_quiz_admin(db, actor, league):
+        return True
+    member = get_league_member(db, league, actor)
+    if not member or member.status != "active":
+        return False
+    return permission in set(get_member_quiz_roles(member))
+
+
+def _require_quiz_permission(db, actor: User, league_id: int, permission: str) -> League:
+    league = db.query(League).filter(League.id == league_id, League.is_active == True).first()
+    if not league:
+        raise ValueError("Лига не найдена или отключена")
+    if not has_quiz_permission(db, actor, league, permission):
+        labels = {
+            "host": "ведущего квиза",
+            "editor": "редактора вопросов",
+            "moderator": "модератора ответов",
+        }
+        raise PermissionError(f"Недостаточно прав: требуется роль {labels.get(permission, permission)}")
+    return league
+
+
+def require_quiz_host(db, actor: User, league_id: int) -> League:
+    return _require_quiz_permission(db, actor, league_id, "host")
+
+
+def require_quiz_editor(db, actor: User, league_id: int) -> League:
+    return _require_quiz_permission(db, actor, league_id, "editor")
+
+
+def require_quiz_moderator(db, actor: User, league_id: int) -> League:
+    return _require_quiz_permission(db, actor, league_id, "moderator")
+
+
+def require_quiz_admin(db, actor: User, league_id: int) -> League:
+    league = db.query(League).filter(League.id == league_id, League.is_active == True).first()
+    if not league:
+        raise ValueError("Лига не найдена или отключена")
+    if not is_quiz_admin(db, actor, league):
+        raise PermissionError("Недостаточно прав для управления ролями квиза")
+    return league
+
+
+def set_league_member_quiz_roles(db, actor: User, league_id: int, user_id: int, quiz_roles) -> LeagueMember:
+    """Set scoped quiz roles while keeping the legacy league role untouched."""
+    league = require_quiz_admin(db, actor, league_id)
+    member = (
+        db.query(LeagueMember)
+        .filter(LeagueMember.league_id == league.id, LeagueMember.user_id == user_id)
+        .first()
+    )
+    if not member or member.status != "active":
+        raise ValueError("Участник не найден в лиге")
+    if league.owner_user_id == user_id:
+        raise ValueError("Владелец лиги уже имеет все права квиза")
+    clean = normalize_quiz_roles(quiz_roles)
+    member.quiz_roles = clean
+    db.commit()
+    db.refresh(member)
+    return member
