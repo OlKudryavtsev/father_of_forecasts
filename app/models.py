@@ -969,3 +969,240 @@ class GroupQuizGameAnswer(Base):
         ),
     )
 
+
+
+# v3.0.1 — league-scoped synchronous quiz platform. These tables deliberately
+# use the ``league_quiz_*`` prefix to avoid changing legacy /quiz and quiz-battle
+# records from the early bot implementation.
+class LeagueQuizQuestion(Base):
+    __tablename__ = "league_quiz_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    question_type = Column(String(40), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="draft", server_default="draft", index=True)
+    question_text = Column(Text, nullable=False)
+    explanation = Column(Text, nullable=True)
+    default_points = Column(Integer, nullable=False, default=100, server_default="100")
+    tags = Column(String(500), nullable=True)
+    times_used = Column(Integer, nullable=False, default=0, server_default="0")
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    league = relationship("League")
+    creator = relationship("User", foreign_keys=[created_by_user_id])
+    approver = relationship("User", foreign_keys=[approved_by_user_id])
+    options = relationship("LeagueQuizQuestionOption", back_populates="question", cascade="all, delete-orphan")
+    sources = relationship("LeagueQuizQuestionSource", back_populates="question", cascade="all, delete-orphan")
+    aliases = relationship("LeagueQuizQuestionAlias", back_populates="question", cascade="all, delete-orphan")
+
+
+class LeagueQuizQuestionOption(Base):
+    __tablename__ = "league_quiz_question_options"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, ForeignKey("league_quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    option_key = Column(String(12), nullable=False)
+    option_text = Column(Text, nullable=False)
+    position = Column(Integer, nullable=False)
+    is_correct = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    question = relationship("LeagueQuizQuestion", back_populates="options")
+
+    __table_args__ = (
+        UniqueConstraint("question_id", "option_key", name="uq_league_quiz_question_option_key"),
+        UniqueConstraint("question_id", "position", name="uq_league_quiz_question_option_position"),
+    )
+
+
+class LeagueQuizQuestionAlias(Base):
+    __tablename__ = "league_quiz_question_aliases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, ForeignKey("league_quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    alias_text = Column(String(500), nullable=False)
+    normalized_alias = Column(String(500), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    question = relationship("LeagueQuizQuestion", back_populates="aliases")
+
+    __table_args__ = (
+        UniqueConstraint("question_id", "normalized_alias", name="uq_league_quiz_question_alias"),
+    )
+
+
+class LeagueQuizQuestionSource(Base):
+    __tablename__ = "league_quiz_question_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, ForeignKey("league_quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_title = Column(String(500), nullable=True)
+    source_url = Column(Text, nullable=True)
+    source_note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    question = relationship("LeagueQuizQuestion", back_populates="sources")
+
+
+class LeagueQuizSession(Base):
+    __tablename__ = "league_quiz_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    title = Column(String(160), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="registration_open", server_default="registration_open", index=True)
+    scheduled_start_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    registration_opened_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    paused_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+    seconds_per_question = Column(Integer, nullable=False, default=30, server_default="30")
+    reveal_seconds = Column(Integer, nullable=False, default=12, server_default="12")
+    allow_late_registration = Column(Boolean, nullable=False, default=False, server_default="false")
+    rounds_total = Column(Integer, nullable=False, default=1, server_default="1")
+    current_round_order = Column(Integer, nullable=True)
+    current_question_order = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    league = relationship("League")
+    creator = relationship("User", foreign_keys=[created_by_user_id])
+    rounds = relationship("LeagueQuizSessionRound", back_populates="quiz_session", cascade="all, delete-orphan")
+    participants = relationship("LeagueQuizSessionParticipant", back_populates="quiz_session", cascade="all, delete-orphan")
+
+
+class LeagueQuizSessionRound(Base):
+    __tablename__ = "league_quiz_session_rounds"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    round_order = Column(Integer, nullable=False)
+    round_type = Column(String(40), nullable=False)
+    title = Column(String(160), nullable=False)
+    status = Column(String(24), nullable=False, default="pending", server_default="pending", index=True)
+    points_mode = Column(String(24), nullable=False, default="positive", server_default="positive")
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    quiz_session = relationship("LeagueQuizSession", back_populates="rounds")
+    questions = relationship("LeagueQuizSessionQuestion", back_populates="round", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "round_order", name="uq_league_quiz_session_round_order"),
+    )
+
+
+class LeagueQuizSessionQuestion(Base):
+    __tablename__ = "league_quiz_session_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    round_id = Column(Integer, ForeignKey("league_quiz_session_rounds.id", ondelete="CASCADE"), nullable=False, index=True)
+    bank_question_id = Column(Integer, ForeignKey("league_quiz_questions.id", ondelete="SET NULL"), nullable=True, index=True)
+    question_order = Column(Integer, nullable=False)
+    question_type = Column(String(40), nullable=False)
+    question_text_snapshot = Column(Text, nullable=False)
+    explanation_snapshot = Column(Text, nullable=True)
+    options_snapshot = Column(JSON, nullable=False)
+    points = Column(Integer, nullable=False, default=0, server_default="0")
+    negative_on_wrong = Column(Boolean, nullable=False, default=False, server_default="false")
+    status = Column(String(24), nullable=False, default="pending", server_default="pending", index=True)
+    opened_at = Column(DateTime(timezone=True), nullable=True)
+    closes_at = Column(DateTime(timezone=True), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    revealed_at = Column(DateTime(timezone=True), nullable=True)
+    revealed_until = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    round = relationship("LeagueQuizSessionRound", back_populates="questions")
+    bank_question = relationship("LeagueQuizQuestion")
+    answers = relationship("LeagueQuizSessionAnswer", back_populates="session_question", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("round_id", "question_order", name="uq_league_quiz_session_question_order"),
+    )
+
+
+class LeagueQuizSessionParticipant(Base):
+    __tablename__ = "league_quiz_session_participants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="registered", server_default="registered", index=True)
+    score_total = Column(Integer, nullable=False, default=0, server_default="0")
+    joined_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    quiz_session = relationship("LeagueQuizSession", back_populates="participants")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", name="uq_league_quiz_session_participant"),
+    )
+
+
+class LeagueQuizSessionAnswer(Base):
+    __tablename__ = "league_quiz_session_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_question_id = Column(Integer, ForeignKey("league_quiz_session_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    selected_option_key = Column(String(12), nullable=True)
+    answer_text = Column(Text, nullable=True)
+    answer_payload = Column(JSON, nullable=True)
+    is_correct = Column(Boolean, nullable=True)
+    points_awarded = Column(Integer, nullable=True)
+    answered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    scored_at = Column(DateTime(timezone=True), nullable=True)
+
+    session_question = relationship("LeagueQuizSessionQuestion", back_populates="answers")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("session_question_id", "user_id", name="uq_league_quiz_session_question_answer"),
+    )
+
+
+class LeagueQuizScoreEvent(Base):
+    __tablename__ = "league_quiz_score_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    round_id = Column(Integer, ForeignKey("league_quiz_session_rounds.id", ondelete="SET NULL"), nullable=True, index=True)
+    session_question_id = Column(Integer, ForeignKey("league_quiz_session_questions.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String(40), nullable=False, index=True)
+    delta_points = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class LeagueQuizEvent(Base):
+    __tablename__ = "league_quiz_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class LeagueQuizAdminAction(Base):
+    __tablename__ = "league_quiz_admin_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action_type = Column(String(64), nullable=False, index=True)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

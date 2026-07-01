@@ -1423,3 +1423,7 @@ Scorer aliases and cached event fallback keep tournament-prediction status and t
 ## v2.8.72
 
 Father forecasts support optional playoff advancement picks; apply migration `022_add_father_advancement_predictions.sql`.
+
+## Квиз v3.0.1
+
+В Mini App добавлен раздел **«Квиз»** вместо скрытого раздела «Ресурсы». Первая версия поддерживает синхронные квизы внутри одной лиги: банк вопросов, регистрацию, серверный таймер, вопросы с 2 или 4 вариантами ответа и отдельную таблицу результатов. Перед деплоем на существующую PostgreSQL необходимо применить `db/migrations/023_add_league_quiz_core.sql`. Полное описание и ограничения этапа: `RELEASE_V3_0_1_QUIZ_CORE.md`.

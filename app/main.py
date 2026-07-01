@@ -1,4 +1,5 @@
 from datetime import datetime
+import asyncio
 
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from app.db import Base, SessionLocal, engine
 from app.models import Match, Prediction, TournamentPrediction, User
 from app.scoring import score_match_prediction, score_tournament_prediction
+from app.services.league_quiz import advance_due_quizzes
 from app.admin import require_admin_api_token
 
 app = FastAPI(title="Отец прогнозов")
@@ -33,6 +35,41 @@ class PwaStaticFiles(StaticFiles):
 
 
 app.include_router(webapp_router)
+
+_quiz_engine_task: asyncio.Task | None = None
+
+
+async def _league_quiz_engine_loop() -> None:
+    """Advance scheduled quiz timers using the server clock, never a browser timer."""
+    while True:
+        db = SessionLocal()
+        try:
+            await asyncio.to_thread(advance_due_quizzes, db)
+        except Exception as error:
+            db.rollback()
+            print(f"League quiz engine tick failed: {error}")
+        finally:
+            db.close()
+        await asyncio.sleep(1)
+
+
+@app.on_event("startup")
+async def start_league_quiz_engine() -> None:
+    global _quiz_engine_task
+    if _quiz_engine_task is None or _quiz_engine_task.done():
+        _quiz_engine_task = asyncio.create_task(_league_quiz_engine_loop())
+
+
+@app.on_event("shutdown")
+async def stop_league_quiz_engine() -> None:
+    global _quiz_engine_task
+    if _quiz_engine_task:
+        _quiz_engine_task.cancel()
+        try:
+            await _quiz_engine_task
+        except asyncio.CancelledError:
+            pass
+        _quiz_engine_task = None
 
 if MINIAPP_STATIC_DIR.exists():
     app.mount(

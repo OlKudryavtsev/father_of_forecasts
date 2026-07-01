@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '2.8.75';
+const APP_VERSION = '3.0.1';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -19,7 +19,7 @@ const TABS = [
   { id: 'predictions', label: 'Прогнозы', icon: 'target' },
   { id: 'rating', label: 'Рейтинг', icon: 'rank' },
   { id: 'leagues', label: 'Лиги', icon: 'team' },
-  { id: 'resources', label: 'Ресурсы', icon: 'link' },
+  { id: 'quiz', label: 'Квиз', icon: 'quiz' },
   { id: 'profile', label: 'Профиль', icon: 'profile' },
 ];
 
@@ -151,6 +151,15 @@ function Icon({ name, className = '' }) {
       <svg {...common}>
         <path d="M5 20V10M12 20V4M19 20v-7" />
         <path d="M3 20h18" />
+      </svg>
+    );
+  }
+
+  if (name === 'quiz') {
+    return (
+      <svg {...common}>
+        <path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+        <path d="M9 8h6M9 12h2M13 12h2M9 16h6" />
       </svg>
     );
   }
@@ -6483,6 +6492,403 @@ function Profile({ tournamentPrediction, appTheme, setAppTheme, activeLeagueId }
 }
 
 
+
+function quizStatusLabel(status) {
+  return {
+    registration_open: 'Идёт регистрация',
+    running: 'Идёт сейчас',
+    paused: 'На паузе',
+    finished: 'Завершён',
+    cancelled: 'Отменён',
+  }[status] || status || '—';
+}
+
+function quizStatusTone(status) {
+  return ['running', 'registration_open'].includes(status) ? 'active' : status === 'finished' ? 'done' : 'neutral';
+}
+
+function formatQuizDate(value) {
+  if (!value) return 'без времени старта';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'без времени старта';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  }).format(date);
+}
+
+function QuizScreen({ activeLeagueId, leaguesData }) {
+  const activeLeague = (leaguesData?.leagues || []).find((league) => Number(league.id) === Number(activeLeagueId));
+  const canManage = Boolean(activeLeague?.can_manage);
+  const [quizzes, setQuizzes] = useState([]);
+  const [selectedQuizId, setSelectedQuizId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
+  const [bank, setBank] = useState([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState([]);
+  const [questionType, setQuestionType] = useState('choice_4');
+  const [questionText, setQuestionText] = useState('');
+  const [questionOptions, setQuestionOptions] = useState(['', '', '', '']);
+  const [correctIndex, setCorrectIndex] = useState(0);
+  const [questionPoints, setQuestionPoints] = useState('100');
+  const [questionExplanation, setQuestionExplanation] = useState('');
+  const [sourceTitle, setSourceTitle] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [quizTitle, setQuizTitle] = useState('');
+  const [roundTitle, setRoundTitle] = useState('Раунд с вариантами');
+  const [scheduledStart, setScheduledStart] = useState('');
+  const [secondsPerQuestion, setSecondsPerQuestion] = useState('30');
+  const [revealSeconds, setRevealSeconds] = useState('12');
+
+  const loadList = useCallback(async () => {
+    if (!activeLeagueId) {
+      setQuizzes([]);
+      setSelectedQuizId(null);
+      setLoading(false);
+      return;
+    }
+    try {
+      const result = await api(`/api/webapp/quizzes?league_id=${activeLeagueId}`);
+      const rows = result.quizzes || [];
+      setQuizzes(rows);
+      setSelectedQuizId((current) => {
+        if (current && rows.some((item) => Number(item.id) === Number(current))) return current;
+        return rows.find((item) => ['running', 'paused', 'registration_open'].includes(item.status))?.id || rows[0]?.id || null;
+      });
+      setError(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeLeagueId]);
+
+  const loadDetail = useCallback(async (quizId = selectedQuizId, silent = false) => {
+    if (!quizId) {
+      setDetail(null);
+      return;
+    }
+    if (!silent) setDetailLoading(true);
+    try {
+      const result = await api(`/api/webapp/quizzes/${quizId}`);
+      setDetail(result);
+      setError(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      if (!silent) setDetailLoading(false);
+    }
+  }, [selectedQuizId]);
+
+  const loadBank = useCallback(async () => {
+    if (!activeLeagueId || !canManage) return;
+    setBankLoading(true);
+    try {
+      const result = await api(`/api/webapp/quiz-bank/questions?league_id=${activeLeagueId}`);
+      setBank(result.questions || []);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBankLoading(false);
+    }
+  }, [activeLeagueId, canManage]);
+
+  useEffect(() => {
+    setLoading(true);
+    setDetail(null);
+    loadList();
+  }, [loadList]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [selectedQuizId, loadDetail]);
+
+  useEffect(() => {
+    if (!selectedQuizId) return undefined;
+    const timer = window.setInterval(() => {
+      loadList();
+      loadDetail(selectedQuizId, true);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [selectedQuizId, loadList, loadDetail]);
+
+  useEffect(() => {
+    if (bankOpen) loadBank();
+  }, [bankOpen, loadBank]);
+
+  function changeQuestionType(value) {
+    const count = value === 'choice_2' ? 2 : 4;
+    setQuestionType(value);
+    setQuestionOptions((current) => Array.from({ length: count }, (_, index) => current[index] || ''));
+    setCorrectIndex((current) => Math.min(current, count - 1));
+  }
+
+  async function register() {
+    if (!detail?.quiz?.id) return;
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quizzes/${detail.quiz.id}/register`, { method: 'POST' });
+      setDetail(result);
+      await loadList();
+      trackAnalytics('quiz_register', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: detail.quiz.id } });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answer(optionKey) {
+    const quiz = detail?.quiz;
+    const question = detail?.current_question;
+    if (!quiz?.id || !question?.id || question.status !== 'open') return;
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quizzes/${quiz.id}/questions/${question.id}/answer`, {
+        method: 'POST',
+        body: JSON.stringify({ selected_option_key: optionKey }),
+      });
+      setDetail(result);
+      await loadList();
+      trackAnalytics('quiz_answer', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: quiz.id, question_id: question.id } });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adminAction(action) {
+    if (!detail?.quiz?.id) return;
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quizzes/${detail.quiz.id}/${action}`, { method: 'POST' });
+      setDetail(result);
+      await loadList();
+      trackAnalytics('quiz_admin', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: detail.quiz.id, quiz_status: action } });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createQuestion(event) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api('/api/webapp/quiz-bank/questions', {
+        method: 'POST',
+        body: JSON.stringify({
+          league_id: activeLeagueId,
+          question_type: questionType,
+          question_text: questionText,
+          options: questionOptions.map((text) => ({ text })),
+          correct_option_index: Number(correctIndex),
+          default_points: Number(questionPoints || 100),
+          explanation: questionExplanation || null,
+          source_title: sourceTitle || null,
+          source_url: sourceUrl || null,
+        }),
+      });
+      setQuestionText('');
+      setQuestionOptions(questionType === 'choice_2' ? ['', ''] : ['', '', '', '']);
+      setCorrectIndex(0);
+      setQuestionPoints('100');
+      setQuestionExplanation('');
+      setSourceTitle('');
+      setSourceUrl('');
+      await loadBank();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveQuestion(questionId) {
+    setBusy(true);
+    try {
+      await api(`/api/webapp/quiz-bank/questions/${questionId}/approve?league_id=${activeLeagueId}`, { method: 'POST' });
+      await loadBank();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleQuestion(questionId) {
+    setSelectedQuestionIds((current) => current.includes(questionId)
+      ? current.filter((id) => id !== questionId)
+      : [...current, questionId]);
+  }
+
+  async function createQuiz(event) {
+    event.preventDefault();
+    if (!selectedQuestionIds.length) {
+      setError(new Error('Выберите хотя бы один одобренный вопрос.'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const scheduled = scheduledStart ? new Date(scheduledStart) : null;
+      const result = await api('/api/webapp/quizzes', {
+        method: 'POST',
+        body: JSON.stringify({
+          league_id: activeLeagueId,
+          title: quizTitle || 'Новый квиз',
+          round_title: roundTitle || 'Раунд с вариантами',
+          question_ids: selectedQuestionIds,
+          scheduled_start_at: scheduled && !Number.isNaN(scheduled.getTime()) ? scheduled.toISOString() : null,
+          seconds_per_question: Number(secondsPerQuestion || 30),
+          reveal_seconds: Number(revealSeconds || 12),
+        }),
+      });
+      setSelectedQuizId(result.quiz?.id || null);
+      setDetail(result);
+      setQuizTitle('');
+      setSelectedQuestionIds([]);
+      setScheduledStart('');
+      await loadList();
+      trackAnalytics('quiz_admin', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: result.quiz?.id || 0, quiz_status: 'created' } });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const quiz = detail?.quiz;
+  const currentQuestion = detail?.current_question;
+  const approvedBank = bank.filter((question) => question.status === 'approved');
+
+  return (
+    <main className="screen-content quiz-screen">
+      <div className="section-label">Квиз · {activeLeague?.name || 'Лига'}</div>
+      <section className="card quiz-intro-card">
+        <div>
+          <span className="quiz-kicker">v3.0 · Этап 1</span>
+          <h1>Играем вживую</h1>
+          <p>Один серверный таймер, одинаковый ход игры для всех и отдельный рейтинг квиза.</p>
+        </div>
+        <span className="quiz-intro-icon">🧠</span>
+      </section>
+
+      {error && <div className="inline-error quiz-error">{error.message || 'Не удалось выполнить действие.'}<button type="button" onClick={() => setError(null)}>×</button></div>}
+
+      {loading ? <LoadingCard text="Загружаю квизы лиги..." /> : (
+        <>
+          {!quizzes.length && !canManage && <EmptyState iconName="quiz" title="Квизов пока нет" text="Когда администратор лиги запланирует игру, она появится здесь." />}
+          {quizzes.length > 0 && (
+            <section className="quiz-session-list" aria-label="Квизы лиги">
+              {quizzes.map((item) => (
+                <button key={item.id} type="button" className={`quiz-session-card ${Number(item.id) === Number(selectedQuizId) ? 'selected' : ''}`} onClick={() => {
+                  setSelectedQuizId(item.id);
+                  trackAnalytics('quiz_open', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: item.id } });
+                }}>
+                  <span className={`quiz-status ${quizStatusTone(item.status)}`}>{quizStatusLabel(item.status)}</span>
+                  <strong>{item.title}</strong>
+                  <small>{item.questions_total} вопросов · {item.scheduled_start_at ? formatQuizDate(item.scheduled_start_at) : 'ручной старт'} · {item.registered_count} участников</small>
+                </button>
+              ))}
+            </section>
+          )}
+
+          {detailLoading && !detail ? <LoadingCard text="Открываю квиз..." /> : quiz && (
+            <section className="card quiz-live-card">
+              <header className="quiz-live-head">
+                <div><span className={`quiz-status ${quizStatusTone(quiz.status)}`}>{quizStatusLabel(quiz.status)}</span><h2>{quiz.title}</h2></div>
+                <b>{quiz.my_score || 0}<small> очк.</small></b>
+              </header>
+              <p className="muted quiz-meta">{quiz.questions_total} вопросов · зарегистрировано: {quiz.registered_count}{quiz.scheduled_start_at ? ` · старт: ${formatQuizDate(quiz.scheduled_start_at)}` : ''}</p>
+
+              {quiz.status === 'registration_open' && !quiz.is_registered && <button className="quiz-primary-button" disabled={busy} onClick={register}>Участвовать в квизе</button>}
+              {quiz.status === 'registration_open' && quiz.is_registered && <div className="quiz-registered">✓ Вы зарегистрированы. Ждём старта.</div>}
+              {quiz.status === 'paused' && <div className="quiz-paused">⏸ Игра на паузе. Таймер остановлен ведущим.</div>}
+
+              {currentQuestion && (
+                <article className={`quiz-question-card ${currentQuestion.status}`}>
+                  <div className="quiz-question-top"><span>Вопрос {currentQuestion.order}/{quiz.questions_total}</span><b>{currentQuestion.points} очк.</b></div>
+                  <h3>{currentQuestion.text}</h3>
+                  {currentQuestion.status === 'open' && <div className="quiz-timer">⏱ {currentQuestion.seconds_remaining} сек.</div>}
+                  {currentQuestion.status === 'revealed' && <div className="quiz-timer reveal">Ответ раскрыт · {currentQuestion.seconds_remaining} сек.</div>}
+                  <div className="quiz-options">
+                    {currentQuestion.options.map((option) => {
+                      const selected = currentQuestion.answer?.selected_option_key === option.key;
+                      const revealedWrong = currentQuestion.status === 'revealed' && selected && !option.is_correct;
+                      return <button key={option.key} type="button" disabled={busy || !quiz.is_registered || currentQuestion.status !== 'open'} onClick={() => answer(option.key)} className={`${selected ? 'selected' : ''} ${option.is_correct ? 'correct' : ''} ${revealedWrong ? 'wrong' : ''}`}>
+                        <b>{option.key}</b><span>{option.text}</span>
+                      </button>;
+                    })}
+                  </div>
+                  {currentQuestion.status === 'open' && currentQuestion.answer?.selected_option_key && <p className="quiz-answer-saved">Ответ принят. До конца времени можно выбрать другой вариант.</p>}
+                  {currentQuestion.status === 'revealed' && <div className="quiz-reveal"><b>{currentQuestion.answer?.is_correct ? `Верно · +${currentQuestion.answer.points_awarded || 0}` : 'Пока без очков'}</b>{currentQuestion.explanation && <p>{currentQuestion.explanation}</p>}</div>}
+                </article>
+              )}
+
+              {!currentQuestion && quiz.status === 'running' && <LoadingCard text="Готовлю следующий вопрос..." />}
+              {quiz.status === 'finished' && <div className="quiz-finished">🏆 Квиз завершён. Итоговая таблица ниже.</div>}
+
+              <section className="quiz-scoreboard">
+                <div className="quiz-scoreboard-title"><h3>Таблица квиза</h3><span>после закрытого вопроса</span></div>
+                {(detail.scoreboard || []).length ? <ol>{detail.scoreboard.map((row) => <li key={row.user_id} className={row.user_id === (detail?.quiz?.my_user_id) ? 'me' : ''}><b>{row.place}</b><span>{row.display_name}</span><strong>{row.score_total}</strong></li>)}</ol> : <p className="muted">Участники появятся после регистрации.</p>}
+              </section>
+
+              {quiz.can_manage && (
+                <div className="quiz-admin-actions">
+                  {quiz.status === 'registration_open' && <button type="button" disabled={busy} onClick={() => adminAction('start')}>▶ Запустить сейчас</button>}
+                  {quiz.status === 'running' && <><button type="button" disabled={busy} onClick={() => adminAction('pause')}>⏸ Пауза</button><button type="button" disabled={busy} onClick={() => adminAction('close-current')}>Закрыть вопрос</button></>}
+                  {quiz.status === 'paused' && <button type="button" disabled={busy} onClick={() => adminAction('resume')}>▶ Продолжить</button>}
+                  {['registration_open', 'running', 'paused'].includes(quiz.status) && <button type="button" className="danger" disabled={busy} onClick={() => adminAction('cancel')}>Отменить квиз</button>}
+                </div>
+              )}
+            </section>
+          )}
+
+          {canManage && (
+            <section className="card quiz-admin-card">
+              <button type="button" className="quiz-admin-toggle" onClick={() => setBankOpen((value) => !value)}>
+                <span><b>Управление квизом</b><small>вопросы, одобрение и планирование игры</small></span><span>{bankOpen ? '⌃' : '⌄'}</span>
+              </button>
+              {bankOpen && <div className="quiz-admin-body">
+                <form className="quiz-form" onSubmit={createQuestion}>
+                  <h3>Новый вопрос в банк</h3>
+                  <label>Тип<select value={questionType} onChange={(event) => changeQuestionType(event.target.value)}><option value="choice_4">4 варианта</option><option value="choice_2">2 варианта</option></select></label>
+                  <label>Вопрос<textarea value={questionText} onChange={(event) => setQuestionText(event.target.value)} placeholder="Текст вопроса" required /></label>
+                  <div className="quiz-option-editor">{questionOptions.map((value, index) => <label key={index}><span><input type="radio" name="quiz-correct" checked={Number(correctIndex) === index} onChange={() => setCorrectIndex(index)} /> {String.fromCharCode(65 + index)} · правильный</span><input value={value} onChange={(event) => setQuestionOptions((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Вариант ${String.fromCharCode(65 + index)}`} required /></label>)}</div>
+                  <div className="quiz-form-grid"><label>Баллы<input type="number" min="0" max="10000" value={questionPoints} onChange={(event) => setQuestionPoints(event.target.value)} required /></label><label>Источник (название)<input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} /></label></div>
+                  <label>Ссылка на источник<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://..." /></label>
+                  <label>Пояснение после ответа<textarea value={questionExplanation} onChange={(event) => setQuestionExplanation(event.target.value)} placeholder="Почему правильный ответ именно такой" /></label>
+                  <button type="submit" className="quiz-primary-button" disabled={busy}>Добавить черновик</button>
+                </form>
+
+                <section className="quiz-bank-list">
+                  <div className="quiz-bank-title"><h3>Банк вопросов</h3><button type="button" onClick={loadBank} disabled={bankLoading}>Обновить</button></div>
+                  {bankLoading ? <LoadingCard text="Загружаю банк..." /> : bank.length ? bank.map((question) => <article className={`quiz-bank-item ${question.status}`} key={question.id}><div><span className={`quiz-status ${question.status === 'approved' ? 'active' : 'neutral'}`}>{question.status === 'approved' ? 'Одобрен' : 'Черновик'}</span><b>{question.default_points} очк.</b></div><strong>{question.question_text}</strong><small>{question.type_label} · использован: {question.times_used}</small><div className="quiz-bank-options">{question.options.map((option) => <span key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}</span>)}</div>{question.status === 'draft' && <button type="button" disabled={busy} onClick={() => approveQuestion(question.id)}>Одобрить</button>}</article>) : <p className="muted">Вопросов пока нет.</p>}
+                </section>
+
+                <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
+                  <h3>Запланировать квиз</h3>
+                  <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder="Например, Футбольный квиз №1" required /></label>
+                  <label>Название раунда<input value={roundTitle} onChange={(event) => setRoundTitle(event.target.value)} /></label>
+                  <div className="quiz-form-grid"><label>Старт (необязательно)<input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label><label>Секунд на вопрос<input type="number" min="10" max="300" value={secondsPerQuestion} onChange={(event) => setSecondsPerQuestion(event.target.value)} /></label><label>Показ ответа, сек.<input type="number" min="3" max="90" value={revealSeconds} onChange={(event) => setRevealSeconds(event.target.value)} /></label></div>
+                  <div className="quiz-question-picker"><p>Выберите одобренные вопросы в нужном порядке:</p>{approvedBank.length ? approvedBank.map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => toggleQuestion(question.id)} /><span>{question.default_points} · {question.question_text}</span></label>) : <p className="muted">Сначала добавьте и одобрите вопросы.</p>}</div>
+                  <button type="submit" className="quiz-primary-button" disabled={busy || !approvedBank.length}>Создать квиз ({selectedQuestionIds.length})</button>
+                </form>
+              </div>}
+            </section>
+          )}
+        </>
+      )}
+    </main>
+  );
+}
+
 function Resources() {
   const [fact, setFact] = useState('');
   const [archive, setArchive] = useState('');
@@ -6899,7 +7305,7 @@ function App() {
         onOpenTournamentTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }}
         onOpenTournamentPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }}
       />}
-      {tab === 'resources' && <Resources />}
+      {tab === 'quiz' && <QuizScreen activeLeagueId={activeLeagueId} leaguesData={leaguesData} />}
       {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
       {tab === 'rating' && <Rating activeLeagueId={activeLeagueId} />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} activeLeagueId={activeLeagueId} />}

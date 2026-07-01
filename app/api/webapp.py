@@ -39,6 +39,8 @@ from app.models import (
     Prediction,
     QuizAnswer,
     QuizQuestion,
+    LeagueQuizQuestion,
+    LeagueQuizSession,
     TournamentPrediction,
     User,
     UserNotificationSetting,
@@ -80,6 +82,22 @@ from app.services.leagues import (
     update_league_chat_id,
 )
 from app.services.tournament_forecast import get_top_scorer_candidates, get_top_scorer_hint, serialize_father_tournament_forecast
+from app.services.league_quiz import (
+    approve_bank_question,
+    build_quiz_detail,
+    create_bank_question,
+    create_quiz_session,
+    cancel_quiz_session,
+    list_bank_questions,
+    list_quizzes_for_league,
+    manually_close_current_question,
+    pause_quiz_session,
+    register_for_quiz,
+    resume_quiz_session,
+    serialize_bank_question,
+    start_quiz_session,
+    submit_choice_answer,
+)
 from app.team_names import get_team_name_ru
 from app.wc2026_sync import get_fixture_score, get_winner_side
 
@@ -111,6 +129,10 @@ ANALYTICS_ALLOWED_EVENTS = {
     "league_join",
     "league_activity_open",
     "resource_open",
+    "quiz_open",
+    "quiz_register",
+    "quiz_answer",
+    "quiz_admin",
     "video_open",
     "tournament_prediction_open",
     "tournament_prediction_save",
@@ -119,7 +141,7 @@ ANALYTICS_ALLOWED_EVENTS = {
 }
 
 ANALYTICS_ALLOWED_SCREENS = {
-    "matches", "predictions", "rating", "leagues", "resources", "profile", "admin",
+    "matches", "predictions", "rating", "leagues", "resources", "quiz", "profile", "admin",
 }
 
 ANALYTICS_ALLOWED_SOURCES = {"telegram", "pwa", "browser"}
@@ -127,7 +149,7 @@ ANALYTICS_ALLOWED_SOURCES = {"telegram", "pwa", "browser"}
 ANALYTICS_ALLOWED_PROPERTY_KEYS = {
     "match_id", "league_id", "participant_id", "team_id", "player_id", "video_id",
     "filter", "mode", "scope", "group_code", "entry_point", "is_update", "tab",
-    "resource", "result", "section", "destination", "stage", "view",
+    "resource", "result", "section", "destination", "stage", "view", "quiz_id", "question_id", "quiz_status",
 }
 
 ANALYTICS_EVENT_LABELS = {
@@ -241,6 +263,40 @@ class QuizAnswerPayload(BaseModel):
 
     question_id: int
     selected_option: str
+
+
+class LeagueQuizOptionPayload(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class LeagueQuizQuestionCreatePayload(BaseModel):
+    league_id: int
+    question_type: str = Field(pattern="^(choice_2|choice_4)$")
+    question_text: str = Field(min_length=3, max_length=6000)
+    options: list[LeagueQuizOptionPayload] = Field(min_length=2, max_length=4)
+    correct_option_index: int = Field(ge=0, le=3)
+    explanation: str | None = Field(default=None, max_length=6000)
+    default_points: int = Field(default=100, ge=0, le=10000)
+    tags: str | None = Field(default=None, max_length=500)
+    source_title: str | None = Field(default=None, max_length=500)
+    source_url: str | None = Field(default=None, max_length=2000)
+    source_note: str | None = Field(default=None, max_length=6000)
+
+
+class LeagueQuizSessionCreatePayload(BaseModel):
+    league_id: int
+    title: str = Field(min_length=2, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    round_title: str | None = Field(default=None, max_length=160)
+    question_ids: list[int] = Field(min_length=1, max_length=60)
+    scheduled_start_at: datetime | None = None
+    seconds_per_question: int = Field(default=30, ge=10, le=300)
+    reveal_seconds: int = Field(default=12, ge=3, le=90)
+    allow_late_registration: bool = False
+
+
+class LeagueQuizAnswerPayload(BaseModel):
+    selected_option_key: str = Field(min_length=1, max_length=12)
 
 
 class LeagueCreatePayload(BaseModel):
@@ -4879,6 +4935,215 @@ def get_random_fact(
             "spicy_comment": fact.spicy_comment,
         }
     }
+
+
+
+
+def _quiz_payload_dict(payload: BaseModel) -> dict:
+    """Support both Pydantic v1 and v2 in local developer environments."""
+    if hasattr(payload, "model_dump"):
+        return payload.model_dump()
+    return payload.dict()
+
+
+def _raise_quiz_api_error(error: Exception) -> None:
+    if isinstance(error, PermissionError):
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/quiz-bank/questions")
+def get_league_quiz_bank_questions(
+    league_id: int,
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return editable bank questions for one league administrator."""
+    try:
+        questions = list_bank_questions(db, current_user, league_id, include_archived=include_archived)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"questions": [serialize_bank_question(question, include_correct=True) for question in questions]}
+
+
+@router.post("/quiz-bank/questions")
+def create_league_quiz_bank_question(
+    payload: LeagueQuizQuestionCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create a draft choice question. Approval is intentionally separate."""
+    data = _quiz_payload_dict(payload)
+    data["options"] = [{"text": item.text} for item in payload.options]
+    try:
+        question = create_bank_question(db, current_user, payload.league_id, data)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.post("/quiz-bank/questions/{question_id}/approve")
+def approve_league_quiz_bank_question(
+    question_id: int,
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Move a draft question into the approved bank of the selected league."""
+    try:
+        question = approve_bank_question(db, current_user, league_id, question_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.get("/quizzes")
+def get_league_quizzes(
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """List upcoming, active and recent quiz sessions in a selected league."""
+    try:
+        sessions = list_quizzes_for_league(db, current_user, league_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"quizzes": sessions}
+
+
+@router.post("/quizzes")
+def create_league_quiz_session(
+    payload: LeagueQuizSessionCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create a scheduled Stage 1 quiz session for one league."""
+    try:
+        quiz_session = create_quiz_session(db, current_user, _quiz_payload_dict(payload))
+        detail = build_quiz_detail(db, current_user, quiz_session.id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
+
+
+@router.get("/quizzes/{session_id}")
+def get_league_quiz_detail(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the live game state without revealing a correct open answer."""
+    try:
+        return build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.post("/quizzes/{session_id}/register")
+def register_for_league_quiz(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        participant = register_for_quiz(db, current_user, session_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "participant_id": participant.id, **detail}
+
+
+@router.post("/quizzes/{session_id}/start")
+def start_league_quiz(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        start_quiz_session(db, current_user, session_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
+
+
+@router.post("/quizzes/{session_id}/pause")
+def pause_league_quiz(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        pause_quiz_session(db, current_user, session_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
+
+
+@router.post("/quizzes/{session_id}/resume")
+def resume_league_quiz(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        resume_quiz_session(db, current_user, session_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
+
+
+@router.post("/quizzes/{session_id}/cancel")
+def cancel_league_quiz(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        cancel_quiz_session(db, current_user, session_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
+
+
+@router.post("/quizzes/{session_id}/close-current")
+def close_league_quiz_current_question(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        manually_close_current_question(db, current_user, session_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
+
+
+@router.post("/quizzes/{session_id}/questions/{session_question_id}/answer")
+def answer_league_quiz_choice_question(
+    session_id: int,
+    session_question_id: int,
+    payload: LeagueQuizAnswerPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        answer = submit_choice_answer(
+            db,
+            current_user,
+            session_id,
+            session_question_id,
+            payload.selected_option_key,
+        )
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "answer_id": answer.id, **detail}
 
 
 @router.get("/quiz/random")

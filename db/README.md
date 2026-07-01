@@ -99,3 +99,13 @@ group_quiz_game_answers
 
 Применение в Railway PostgreSQL: открыть Query, вставить содержимое файла и выполнить.
 Перед применением на production-БД рекомендуется сделать backup.
+
+## v3.0.1: ядро квизов
+
+Для действующей Railway PostgreSQL перед деплоем v3.0.1 выполните отдельную миграцию:
+
+```text
+db/migrations/023_add_league_quiz_core.sql
+```
+
+Она создаёт новые таблицы `league_quiz_*` и не меняет старые `quiz_questions`, `quiz_answers`, `group_quiz_*`.
