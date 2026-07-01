@@ -1435,3 +1435,7 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 ## Квиз v3.0.2
 
 Исправлена ошибка чёрного экрана на вкладке «Квиз» (`useCallback` не был импортирован). В управлении квизом администратор лиги может однократно загрузить 4 одобренных тестовых вопроса по актуальному ЧМ‑2026: 4 варианта, правда/ложь, больше/меньше и да/нет. Новая миграция не требуется; для квизов должна быть ранее выполнена `db/migrations/023_add_league_quiz_core.sql`.
+
+## Квиз v3.3.0 — этап 4
+
+Примените миграцию `db/migrations/026_add_league_quiz_content_quality.sql` после 023–025. Подробная инструкция: `RELEASE_V3_3_0_QUIZ_CONTENT_QUALITY.md`.

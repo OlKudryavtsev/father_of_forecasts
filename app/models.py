@@ -1239,3 +1239,47 @@ class LeagueQuizTelegramDelivery(Base):
     __table_args__ = (
         UniqueConstraint("event_id", "destination_key", name="uq_league_quiz_telegram_event_destination"),
     )
+
+
+class LeagueQuizQuestionAudit(Base):
+    """Immutable audit trail for bank-question authoring decisions."""
+
+    __tablename__ = "league_quiz_question_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, ForeignKey("league_quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action_type = Column(String(64), nullable=False, index=True)
+    before_snapshot = Column(JSON, nullable=True)
+    after_snapshot = Column(JSON, nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    question = relationship("LeagueQuizQuestion")
+    league = relationship("League")
+    actor = relationship("User")
+
+
+class LeagueQuizAnswerReview(Base):
+    """Manual adjudication record for a disputed answer after question close."""
+
+    __tablename__ = "league_quiz_answer_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_question_id = Column(Integer, ForeignKey("league_quiz_session_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    answer_id = Column(Integer, ForeignKey("league_quiz_session_answers.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    decision = Column(String(24), nullable=False, index=True)
+    previous_is_correct = Column(Boolean, nullable=True)
+    previous_points = Column(Integer, nullable=False, default=0, server_default="0")
+    new_is_correct = Column(Boolean, nullable=False)
+    new_points = Column(Integer, nullable=False, default=0, server_default="0")
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    session = relationship("LeagueQuizSession")
+    session_question = relationship("LeagueQuizSessionQuestion")
+    answer = relationship("LeagueQuizSessionAnswer")
+    actor = relationship("User")

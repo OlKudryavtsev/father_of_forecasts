@@ -101,6 +101,19 @@ from app.services.league_quiz import (
     submit_choice_answer,
     submit_text_answer,
 )
+from app.services.league_quiz_content import (
+    approve_bank_question_v4,
+    create_bank_question_v4,
+    export_bank_v4,
+    get_bank_question_v4,
+    import_bank_v4,
+    list_answer_reviews_v4,
+    question_history_v4,
+    review_answer_v4,
+    seed_wc2026_all_rounds_v4,
+    set_bank_question_status_v4,
+    update_bank_question_v4,
+)
 from app.team_names import get_team_name_ru
 from app.wc2026_sync import get_fixture_score, get_winner_side
 
@@ -272,6 +285,18 @@ class LeagueQuizOptionPayload(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
 
 
+class LeagueQuizSourcePayload(BaseModel):
+    title: str | None = Field(default=None, max_length=500)
+    url: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=6000)
+
+
+class LeagueQuizMediaPayload(BaseModel):
+    kind: str = Field(default="image", max_length=24)
+    url: str = Field(min_length=8, max_length=2000)
+    caption: str | None = Field(default=None, max_length=500)
+
+
 class LeagueQuizQuestionCreatePayload(BaseModel):
     league_id: int
     question_type: str = Field(min_length=2, max_length=40)
@@ -286,6 +311,18 @@ class LeagueQuizQuestionCreatePayload(BaseModel):
     source_title: str | None = Field(default=None, max_length=500)
     source_url: str | None = Field(default=None, max_length=2000)
     source_note: str | None = Field(default=None, max_length=6000)
+    sources: list[LeagueQuizSourcePayload] = Field(default_factory=list, max_length=10)
+    media: list[LeagueQuizMediaPayload] = Field(default_factory=list, max_length=3)
+
+
+class LeagueQuizImportPayload(BaseModel):
+    league_id: int
+    questions: list[dict] = Field(min_length=1, max_length=100)
+
+
+class LeagueQuizAnswerReviewPayload(BaseModel):
+    accepted: bool
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 class LeagueQuizRoundCreatePayload(BaseModel):
@@ -4990,11 +5027,13 @@ def create_league_quiz_bank_question(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Create a draft choice question. Approval is intentionally separate."""
+    """Create a draft question with sources, aliases and optional image URLs."""
     data = _quiz_payload_dict(payload)
     data["options"] = [{"text": item.text} for item in payload.options]
+    data["sources"] = [item.model_dump() for item in payload.sources]
+    data["media"] = [item.model_dump() for item in payload.media]
     try:
-        question = create_bank_question(db, current_user, payload.league_id, data)
+        question = create_bank_question_v4(db, current_user, payload.league_id, data)
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
@@ -5006,9 +5045,9 @@ def seed_league_quiz_wc2026_questions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Create the approved, duplicate-safe WC-2026 starter set for one league."""
+    """Create an approved, duplicate-safe WC-2026 test set for every quiz format."""
     try:
-        result = seed_wc2026_stage_one_questions(db, current_user, league_id)
+        result = seed_wc2026_all_rounds_v4(db, current_user, league_id)
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {
@@ -5028,10 +5067,145 @@ def approve_league_quiz_bank_question(
 ) -> dict:
     """Move a draft question into the approved bank of the selected league."""
     try:
-        question = approve_bank_question(db, current_user, league_id, question_id)
+        question = approve_bank_question_v4(db, current_user, league_id, question_id)
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.get("/quiz-bank/export")
+def export_league_quiz_bank(
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Export a portable JSON-ready list of bank questions for one league."""
+    try:
+        return {"questions": export_bank_v4(db, current_user, league_id)}
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.post("/quiz-bank/import")
+def import_league_quiz_bank(
+    payload: LeagueQuizImportPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        result = import_bank_v4(db, current_user, payload.league_id, payload.questions)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {
+        "ok": True,
+        "created_count": result["created_count"],
+        "questions": [serialize_bank_question(question, include_correct=True) for question in result["questions"]],
+    }
+
+
+@router.get("/quiz-bank/questions/{question_id}")
+def get_league_quiz_bank_question(
+    question_id: int,
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        question = get_bank_question_v4(db, current_user, league_id, question_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.put("/quiz-bank/questions/{question_id}")
+def update_league_quiz_bank_question(
+    question_id: int,
+    payload: LeagueQuizQuestionCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    data = _quiz_payload_dict(payload)
+    data["options"] = [{"text": item.text} for item in payload.options]
+    data["sources"] = [item.model_dump() for item in payload.sources]
+    data["media"] = [item.model_dump() for item in payload.media]
+    try:
+        question = update_bank_question_v4(db, current_user, payload.league_id, question_id, data)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.post("/quiz-bank/questions/{question_id}/archive")
+def archive_league_quiz_bank_question(
+    question_id: int,
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        question = set_bank_question_status_v4(db, current_user, league_id, question_id, "archived")
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.post("/quiz-bank/questions/{question_id}/restore")
+def restore_league_quiz_bank_question(
+    question_id: int,
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        question = set_bank_question_status_v4(db, current_user, league_id, question_id, "draft")
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "question": serialize_bank_question(question, include_correct=True)}
+
+
+@router.get("/quiz-bank/questions/{question_id}/history")
+def get_league_quiz_bank_question_history(
+    question_id: int,
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return {"history": question_history_v4(db, current_user, league_id, question_id)}
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.get("/quizzes/{session_id}/questions/{session_question_id}/answers")
+def get_league_quiz_question_answers_for_review(
+    session_id: int,
+    session_question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return {"answers": list_answer_reviews_v4(db, current_user, session_id, session_question_id)}
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.post("/quizzes/{session_id}/questions/{session_question_id}/answers/{answer_id}/review")
+def review_league_quiz_question_answer(
+    session_id: int,
+    session_question_id: int,
+    answer_id: int,
+    payload: LeagueQuizAnswerReviewPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        answer = review_answer_v4(
+            db, current_user, session_id, session_question_id, answer_id, payload.accepted, payload.reason
+        )
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "answer_id": answer.id, **detail}
 
 
 @router.get("/quizzes")

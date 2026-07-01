@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6598,6 +6598,15 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [secondsPerQuestion, setSecondsPerQuestion] = useState('30');
   const [revealSeconds, setRevealSeconds] = useState('12');
   const [seedMessage, setSeedMessage] = useState('');
+  const [questionSources, setQuestionSources] = useState([{ title: '', url: '', note: '' }]);
+  const [mediaUrl, setMediaUrl] = useState('');
+  const [mediaCaption, setMediaCaption] = useState('');
+  const [editingQuestion, setEditingQuestion] = useState(null);
+  const [previewQuestion, setPreviewQuestion] = useState(null);
+  const [historyQuestion, setHistoryQuestion] = useState(null);
+  const [importText, setImportText] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewRows, setReviewRows] = useState([]);
 
   const loadList = useCallback(async () => {
     if (!activeLeagueId) {
@@ -6688,6 +6697,75 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setHundredAnswers(Array.from({ length: 10 }, () => ''));
   }
 
+  function resetQuestionEditor(type = 'choice_4') {
+    setEditingQuestion(null);
+    setQuestionType(type);
+    setQuestionText('');
+    setQuestionOptions(defaultQuizOptions(type));
+    setCorrectIndex(0);
+    setQuestionPoints(defaultQuizPoints(type));
+    setQuestionExplanation('');
+    setQuestionSources([{ title: '', url: '', note: '' }]);
+    setMediaUrl('');
+    setMediaCaption('');
+    setQuestionAliases('');
+    setQuestionTopic('');
+    setCountdownFacts(['', '', '']);
+    setHundredAnswers(Array.from({ length: 10 }, () => ''));
+  }
+
+  function sourceRowsForRequest() {
+    return questionSources
+      .map((row) => ({ title: (row.title || '').trim(), url: (row.url || '').trim(), note: (row.note || '').trim() }))
+      .filter((row) => row.title || row.url || row.note);
+  }
+
+  function questionRequestBody() {
+    const questionPayload = {};
+    if (['jeopardy', 'one_of_two', 'what_where_when', 'countdown'].includes(questionType)) {
+      questionPayload.answer_aliases = questionAliases.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+    }
+    if (questionType === 'jeopardy') questionPayload.topic = questionTopic.trim();
+    if (questionType === 'countdown') questionPayload.facts = countdownFacts;
+    if (questionType === 'hundred_to_one') questionPayload.top_answers = hundredAnswers.map((answer) => ({ answer, aliases: [answer] }));
+    return {
+      league_id: activeLeagueId,
+      question_type: questionType,
+      question_text: questionText,
+      options: questionOptions.map((text) => ({ text })),
+      correct_option_index: isQuizChoiceType(questionType) ? Number(correctIndex) : null,
+      question_payload: questionPayload,
+      default_points: Number(questionPoints || 100),
+      explanation: questionExplanation || null,
+      sources: sourceRowsForRequest(),
+      media: mediaUrl.trim() ? [{ kind: 'image', url: mediaUrl.trim(), caption: mediaCaption.trim() || null }] : [],
+    };
+  }
+
+  function startEditingQuestion(question) {
+    const config = question.question_payload || {};
+    const type = question.question_type || 'choice_4';
+    setEditingQuestion(question);
+    setQuestionType(type);
+    setQuestionText(question.question_text || '');
+    const options = (question.options || []).map((option) => option.text || '');
+    setQuestionOptions(options.length ? options : defaultQuizOptions(type));
+    const foundCorrect = (question.options || []).findIndex((option) => option.is_correct);
+    setCorrectIndex(foundCorrect >= 0 ? foundCorrect : 0);
+    setQuestionPoints(String(question.default_points || defaultQuizPoints(type)));
+    setQuestionExplanation(question.explanation || '');
+    setQuestionAliases((question.aliases || config.answer_aliases || []).join('\n'));
+    setQuestionTopic(config.topic || '');
+    setCountdownFacts(Array.isArray(config.facts) && config.facts.length === 3 ? config.facts : ['', '', '']);
+    setHundredAnswers((config.top_answers || []).length ? config.top_answers.map((item) => item.answer || '').concat(Array.from({ length: Math.max(0, 10 - config.top_answers.length) }, () => '')) : Array.from({ length: 10 }, () => ''));
+    setQuestionSources((question.sources || []).length ? (question.sources || []).map((item) => ({ title: item.title || '', url: item.url || '', note: item.note || '' })) : [{ title: '', url: '', note: '' }]);
+    const media = (question.media || config.media || [])[0] || {};
+    setMediaUrl(media.url || '');
+    setMediaCaption(media.caption || '');
+    setBankOpen(true);
+    window.setTimeout(() => document.getElementById('quiz-question-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }
+
 
   async function register() {
     if (!detail?.quiz?.id) return;
@@ -6770,39 +6848,12 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     event.preventDefault();
     setBusy(true);
     try {
-      const questionPayload = {};
-      if (['jeopardy', 'one_of_two', 'what_where_when', 'countdown'].includes(questionType)) {
-        questionPayload.answer_aliases = questionAliases.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
-      }
-      if (questionType === 'jeopardy') questionPayload.topic = questionTopic.trim();
-      if (questionType === 'countdown') questionPayload.facts = countdownFacts;
-      if (questionType === 'hundred_to_one') questionPayload.top_answers = hundredAnswers.map((answer) => ({ answer, aliases: [answer] }));
-      await api('/api/webapp/quiz-bank/questions', {
-        method: 'POST',
-        body: JSON.stringify({
-          league_id: activeLeagueId,
-          question_type: questionType,
-          question_text: questionText,
-          options: questionOptions.map((text) => ({ text })),
-          correct_option_index: isQuizChoiceType(questionType) ? Number(correctIndex) : null,
-          question_payload: questionPayload,
-          default_points: Number(questionPoints || 100),
-          explanation: questionExplanation || null,
-          source_title: sourceTitle || null,
-          source_url: sourceUrl || null,
-        }),
-      });
-      setQuestionText('');
-      setQuestionOptions(defaultQuizOptions(questionType));
-      setCorrectIndex(0);
-      setQuestionPoints(defaultQuizPoints(questionType));
-      setQuestionExplanation('');
-      setSourceTitle('');
-      setSourceUrl('');
-      setQuestionAliases('');
-      setQuestionTopic('');
-      setCountdownFacts(['', '', '']);
-      setHundredAnswers(Array.from({ length: 10 }, () => ''));
+      const body = questionRequestBody();
+      const url = editingQuestion
+        ? `/api/webapp/quiz-bank/questions/${editingQuestion.id}`
+        : '/api/webapp/quiz-bank/questions';
+      await api(url, { method: editingQuestion ? 'PUT' : 'POST', body: JSON.stringify(body) });
+      resetQuestionEditor(questionType);
       await loadBank();
     } catch (err) {
       setError(err);
@@ -6819,7 +6870,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       const result = await api(`/api/webapp/quiz-bank/seed-wc2026?league_id=${activeLeagueId}`, { method: 'POST' });
       const created = Number(result.created_count || 0);
       const existing = Number(result.existing_count || 0);
-      setSeedMessage(created ? `Добавлено тестовых вопросов: ${created}.` : `Все тестовые вопросы уже есть в банке (${existing}).`);
+      setSeedMessage(created ? `Добавлено тестовых вопросов всех форматов: ${created}.` : `Все тестовые вопросы уже есть в банке (${existing}).`);
       await loadBank();
       trackAnalytics('quiz_seed_wc2026', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, created } });
     } catch (err) {
@@ -6839,6 +6890,83 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function archiveQuestion(questionId) {
+    setBusy(true);
+    try {
+      await api(`/api/webapp/quiz-bank/questions/${questionId}/archive?league_id=${activeLeagueId}`, { method: 'POST' });
+      await loadBank();
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function restoreQuestion(questionId) {
+    setBusy(true);
+    try {
+      await api(`/api/webapp/quiz-bank/questions/${questionId}/restore?league_id=${activeLeagueId}`, { method: 'POST' });
+      await loadBank();
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function openQuestionHistory(question) {
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quiz-bank/questions/${question.id}/history?league_id=${activeLeagueId}`);
+      setHistoryQuestion({ question, rows: result.history || [] });
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function exportBank() {
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quiz-bank/export?league_id=${activeLeagueId}`);
+      const blob = new Blob([JSON.stringify({ questions: result.questions || [] }, null, 2)], { type: 'application/json' });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href; link.download = `otec-quiz-bank-league-${activeLeagueId}.json`; link.click();
+      URL.revokeObjectURL(href);
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function importBank() {
+    if (!importText.trim()) return;
+    let parsed;
+    try { parsed = JSON.parse(importText); } catch (_) { setError(new Error('Не удалось прочитать JSON-файл.')); return; }
+    const questions = Array.isArray(parsed) ? parsed : parsed.questions;
+    if (!Array.isArray(questions)) { setError(new Error('Ожидается JSON-массив либо объект с полем questions.')); return; }
+    setBusy(true);
+    try {
+      const result = await api('/api/webapp/quiz-bank/import', { method: 'POST', body: JSON.stringify({ league_id: activeLeagueId, questions }) });
+      setImportText('');
+      setSeedMessage(`Импортировано черновиков: ${result.created_count || 0}.`);
+      await loadBank();
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function loadReviews() {
+    const quizId = detail?.quiz?.id; const questionId = detail?.current_question?.id;
+    if (!quizId || !questionId) return;
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quizzes/${quizId}/questions/${questionId}/answers`);
+      setReviewRows(result.answers || []);
+      setReviewOpen(true);
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function reviewAnswer(answer, accepted) {
+    const reason = window.prompt(accepted ? 'Почему ответ нужно зачесть?' : 'Почему ответ нужно отклонить?');
+    if (!reason || !reason.trim()) return;
+    const quizId = detail?.quiz?.id; const questionId = detail?.current_question?.id;
+    if (!quizId || !questionId) return;
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quizzes/${quizId}/questions/${questionId}/answers/${answer.answer_id}/review`, {
+        method: 'POST', body: JSON.stringify({ accepted, reason: reason.trim() }),
+      });
+      setDetail(result);
+      await loadReviews();
+    } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
   function toggleQuestion(questionId) {
@@ -6898,9 +7026,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       <div className="section-label">Квиз · {activeLeague?.name || 'Лига'}</div>
       <section className="card quiz-intro-card">
         <div>
-          <span className="quiz-kicker">v3.2 · Этап 3</span>
+          <span className="quiz-kicker">v3.3 · Этап 4</span>
           <h1>Играем вживую</h1>
-          <p>Живой квиз с раундами, текстовыми ответами, «Своей игрой» и отдельным рейтингом лиги.</p>
+          <p>Живой квиз с раундами, редактором банка, источниками и отдельным рейтингом лиги.</p>
         </div>
         <span className="quiz-intro-icon">🧠</span>
       </section>
@@ -6945,6 +7073,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   </div>
                   {currentQuestion.topic && <div className="quiz-topic">{currentQuestion.topic}</div>}
                   <h3 className="quiz-question-text">{currentQuestion.text}</h3>
+                  {(currentQuestion.media || []).map((media) => media.kind === 'image' ? <figure className="quiz-question-media" key={media.url}><img src={media.url} alt={media.caption || 'Иллюстрация к вопросу'} /><figcaption>{media.caption || ''}</figcaption></figure> : null)}
                   {currentQuestion.status === 'open' && <div className="quiz-timer">⏱ {currentQuestion.seconds_remaining} сек.</div>}
                   {currentQuestion.status === 'revealed' && <div className="quiz-timer reveal">Ответ раскрыт · {currentQuestion.seconds_remaining} сек.</div>}
 
@@ -7007,6 +7136,14 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   {['registration_open', 'running', 'paused'].includes(quiz.status) && <button type="button" className="danger" disabled={busy} onClick={() => adminAction('cancel')}>Отменить квиз</button>}
                 </div>
               )}
+
+              {quiz.can_manage && currentQuestion && ['revealed', 'closed'].includes(currentQuestion.status) && (
+                <section className="quiz-review-card">
+                  <div><b>Спорные ответы</b><p>Решение меняет счёт сразу и фиксируется в журнале квиза.</p></div>
+                  <button type="button" disabled={busy} onClick={loadReviews}>{reviewOpen ? 'Обновить ответы' : 'Проверить ответы'}</button>
+                  {reviewOpen && <div className="quiz-review-list">{reviewRows.length ? reviewRows.map((row) => <article key={row.answer_id}><div><b>{row.display_name}</b><span>{row.answer_text || row.selected_option_key || '—'}</span><small>{row.is_correct ? 'Авто: верно' : 'Авто: неверно'} · {row.points_awarded} очк.</small>{row.manual_review && <small>Ручное решение: {row.manual_review.decision === 'accepted' ? 'зачтено' : 'отклонено'} · {row.manual_review.reason}</small>}</div><div className="quiz-review-actions"><button type="button" disabled={busy} onClick={() => reviewAnswer(row, true)}>Зачесть</button><button type="button" disabled={busy} className="danger" onClick={() => reviewAnswer(row, false)}>Отклонить</button></div></article>) : <p className="muted">Ответов пока нет.</p>}</div>}
+                </section>
+              )}
             </section>
           )}
 
@@ -7019,12 +7156,12 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                 <section className="quiz-seed-card">
                   <div>
                     <b>Тестовый набор ЧМ‑2026</b>
-                    <p>Добавит 4 одобренных вопроса: «4 варианта», «Правда/ложь», «Больше/меньше» и «Да/нет».</p>
+                    <p>Добавит 9 одобренных вопросов: по одному для каждого формата квиза, включая текстовые раунды.</p>
                   </div>
                   <button type="button" className="quiz-primary-button" disabled={busy} onClick={seedWc2026Questions}>Загрузить вопросы ЧМ‑2026</button>
                   {seedMessage && <small>{seedMessage}</small>}
                 </section>
-                <form className="quiz-form" onSubmit={createQuestion}>
+                <form id="quiz-question-editor" className="quiz-form" onSubmit={createQuestion}>
                   <h3>Новый вопрос в банк</h3>
                   <label>Формат
                     <select value={questionType} onChange={(event) => changeQuestionType(event.target.value)}>
@@ -7040,15 +7177,19 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   {questionType === 'countdown' && <div className="quiz-stage-editor"><b>Три факта — от сложного к простому</b>{countdownFacts.map((fact, index) => <label key={index}>Подсказка {index + 1}<textarea value={fact} onChange={(event) => setCountdownFacts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} required /></label>)}</div>}
                   {questionType === 'hundred_to_one' && <div className="hundred-editor"><b>Топ-10: от самой очевидной строки к самой сложной</b>{hundredAnswers.map((value, index) => <label key={index}><span>{index + 1} · {100 * (index + 1)} очк.</span><input value={value} onChange={(event) => setHundredAnswers((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} required /></label>)}</div>}
 
-                  <div className="quiz-form-grid"><label>Баллы<input type="number" min="0" max="10000" value={questionPoints} onChange={(event) => setQuestionPoints(event.target.value)} disabled={['one_of_two', 'what_where_when', 'countdown', 'hundred_to_one'].includes(questionType)} required /></label><label>Источник (название)<input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} /></label></div>
-                  <label>Ссылка на источник<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://..." /></label>
+                  <div className="quiz-form-grid"><label>Баллы<input type="number" min="0" max="10000" value={questionPoints} onChange={(event) => setQuestionPoints(event.target.value)} disabled={['one_of_two', 'what_where_when', 'countdown', 'hundred_to_one'].includes(questionType)} required /></label></div>
+                  <div className="quiz-stage4-sources"><b>Источники</b>{questionSources.map((source, index) => <div className="quiz-source-row" key={index}><input value={source.title} onChange={(event) => setQuestionSources((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} placeholder="Название источника" /><input type="url" value={source.url} onChange={(event) => setQuestionSources((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item))} placeholder="https://..." /><input value={source.note} onChange={(event) => setQuestionSources((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, note: event.target.value } : item))} placeholder="Комментарий (необязательно)" />{questionSources.length > 1 && <button type="button" className="danger" onClick={() => setQuestionSources((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>}</div>)}<button type="button" onClick={() => setQuestionSources((current) => [...current, { title: '', url: '', note: '' }])}>+ Источник</button></div>
+                  <div className="quiz-stage4-media"><b>Изображение по URL</b><input type="url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="https://..." /><input value={mediaCaption} onChange={(event) => setMediaCaption(event.target.value)} placeholder="Подпись к изображению (необязательно)" />{mediaUrl && <img src={mediaUrl} alt="Предпросмотр" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
                   <label>Пояснение после ответа<textarea value={questionExplanation} onChange={(event) => setQuestionExplanation(event.target.value)} placeholder="Почему правильный ответ именно такой" /></label>
-                  <button type="submit" className="quiz-primary-button" disabled={busy}>Добавить черновик</button>
+                  <div className="quiz-editor-actions"><button type="submit" className="quiz-primary-button" disabled={busy}>{editingQuestion ? 'Сохранить и вернуть в черновик' : 'Добавить черновик'}</button>{editingQuestion && <button type="button" onClick={() => resetQuestionEditor(questionType)}>Отменить редактирование</button>}</div>
                 </form>
 
                 <section className="quiz-bank-list">
-                  <div className="quiz-bank-title"><h3>Банк вопросов</h3><button type="button" onClick={loadBank} disabled={bankLoading}>Обновить</button></div>
-                  {bankLoading ? <LoadingCard text="Загружаю банк..." /> : bank.length ? bank.map((question) => <article className={`quiz-bank-item ${question.status}`} key={question.id}><div><span className={`quiz-status ${question.status === 'approved' ? 'active' : 'neutral'}`}>{question.status === 'approved' ? 'Одобрен' : 'Черновик'}</span><b>{question.default_points} очк.</b></div><strong>{question.question_text}</strong><small>{question.type_label} · использован: {question.times_used}</small>{quizBankSummary(question) && <small>{quizBankSummary(question)}</small>}<div className="quiz-bank-options">{(question.options || []).map((option) => <span key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}</span>)}</div>{question.status === 'draft' && <button type="button" disabled={busy} onClick={() => approveQuestion(question.id)}>Одобрить</button>}</article>) : <p className="muted">Вопросов пока нет.</p>}
+                  <div className="quiz-bank-title"><h3>Банк вопросов</h3><div><button type="button" onClick={loadBank} disabled={bankLoading}>Обновить</button><button type="button" onClick={exportBank} disabled={busy}>Экспорт JSON</button></div></div>
+                  <details className="quiz-import-box"><summary>Импортировать вопросы из JSON</summary><textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder='{ "questions": [ ... ] }' /><button type="button" disabled={busy || !importText.trim()} onClick={importBank}>Импортировать как черновики</button></details>
+                  {previewQuestion && <section className="quiz-preview-card"><div><b>Предпросмотр · {previewQuestion.type_label}</b><button type="button" onClick={() => setPreviewQuestion(null)}>×</button></div><h4>{previewQuestion.question_text}</h4>{(previewQuestion.media || []).map((media) => <figure key={media.url}><img src={media.url} alt={media.caption || 'Изображение'} /><figcaption>{media.caption || ''}</figcaption></figure>)}{(previewQuestion.options || []).map((option) => <p key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}{option.is_correct ? ' ✓' : ''}</p>)}{quizBankSummary(previewQuestion) && <p className="muted">{quizBankSummary(previewQuestion)}</p>}{(previewQuestion.sources || []).map((source, index) => <a key={index} href={source.url || '#'} target="_blank" rel="noreferrer">{source.title || source.url}</a>)}</section>}
+                  {historyQuestion && <section className="quiz-history-card"><div><b>История вопроса #{historyQuestion.question.id}</b><button type="button" onClick={() => setHistoryQuestion(null)}>×</button></div>{historyQuestion.rows.length ? <ol>{historyQuestion.rows.map((row) => <li key={row.id}><b>{row.action_type}</b><span>{row.created_at ? formatQuizDate(row.created_at) : ''}</span>{row.note && <small>{row.note}</small>}</li>)}</ol> : <p className="muted">История пока пуста.</p>}</section>}
+                  {bankLoading ? <LoadingCard text="Загружаю банк..." /> : bank.length ? bank.map((question) => <article className={`quiz-bank-item ${question.status}`} key={question.id}><div><span className={`quiz-status ${question.status === 'approved' ? 'active' : question.status === 'archived' ? 'danger' : 'neutral'}`}>{question.status === 'approved' ? 'Одобрен' : question.status === 'archived' ? 'Архив' : 'Черновик'}</span><b>{question.default_points} очк.</b></div><strong>{question.question_text}</strong><small>{question.type_label} · использован: {question.times_used}</small>{quizBankSummary(question) && <small>{quizBankSummary(question)}</small>}{(question.media || []).length > 0 && <small>🖼 медиа: {(question.media || []).length}</small>}<div className="quiz-bank-options">{(question.options || []).map((option) => <span key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}</span>)}</div><div className="quiz-bank-actions"><button type="button" onClick={() => setPreviewQuestion(question)}>Предпросмотр</button><button type="button" onClick={() => startEditingQuestion(question)} disabled={busy || question.status === 'archived'}>Изменить</button><button type="button" onClick={() => openQuestionHistory(question)} disabled={busy}>История</button>{question.status === 'draft' && <button type="button" disabled={busy} onClick={() => approveQuestion(question.id)}>Одобрить</button>}{question.status !== 'archived' ? <button type="button" className="danger" disabled={busy} onClick={() => archiveQuestion(question.id)}>В архив</button> : <button type="button" disabled={busy} onClick={() => restoreQuestion(question.id)}>В черновик</button>}</div></article>) : <p className="muted">Вопросов пока нет.</p>}
                 </section>
 
                 <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>

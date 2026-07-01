@@ -2011,6 +2011,7 @@ def _serialize_session_question(db: Session, session_question: LeagueQuizSession
         "round_type": round_row.round_type if round_row else None,
         "round_title": round_row.title if round_row else None,
         "topic": config.get("topic"),
+        "media": config.get("media") or [],
         "text": get_question_display_text(session_question),
         "points": int(session_question.points or 0),
         "status": session_question.status,
@@ -2128,6 +2129,8 @@ def serialize_bank_question(question: LeagueQuizQuestion, include_correct: bool 
         "tags": question.tags,
         "times_used": int(question.times_used or 0),
         "question_payload": safe_payload,
+        "media": safe_payload.get("media") or [],
+        "aliases": [alias.alias_text for alias in sorted(question.aliases, key=lambda item: item.id)],
         "options": [
             {"key": option.option_key, "text": option.option_text, "is_correct": bool(option.is_correct) if include_correct else None}
             for option in options
