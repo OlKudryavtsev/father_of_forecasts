@@ -15,6 +15,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.auth import create_web_session_for_user, get_current_user, get_db, hash_web_session_token
@@ -5048,13 +5049,24 @@ def seed_league_quiz_wc2026_questions(
     """Create an approved, duplicate-safe WC-2026 test set for every quiz format."""
     try:
         result = seed_wc2026_all_rounds_v4(db, current_user, league_id)
+    except IntegrityError as error:
+        # A failed flush leaves the SQLAlchemy session unusable until rollback.
+        # Keep the seed atomic and point an administrator to the required schema patch.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Не удалось загрузить вопросы: схема БД не поддерживает один из типов квиза. "
+                "Примените миграцию db/migrations/027_fix_league_quiz_question_types.sql и повторите попытку."
+            ),
+        ) from error
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {
         "ok": True,
         "created_count": result["created_count"],
         "existing_count": result["existing_count"],
-        "questions": [serialize_bank_question(question, include_correct=True) for question in result["created"]],
+        "questions": [serialize_bank_question(question, include_correct=True) for question in result["questions"]],
     }
 
 

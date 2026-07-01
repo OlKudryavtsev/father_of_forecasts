@@ -1439,3 +1439,8 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 ## Квиз v3.3.0 — этап 4
 
 Примените миграцию `db/migrations/026_add_league_quiz_content_quality.sql` после 023–025. Подробная инструкция: `RELEASE_V3_3_0_QUIZ_CONTENT_QUALITY.md`.
+
+
+## Квиз v3.3.1 — исправление типов вопросов
+
+Перед загрузкой набора ЧМ-2026 примените `db/migrations/027_fix_league_quiz_question_types.sql`. Она расширяет PostgreSQL CHECK для бинарных типов `true_false`, `more_less`, `yes_no` и сохраняет целостность всех форматов квиза.
