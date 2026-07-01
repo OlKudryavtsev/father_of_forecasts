@@ -1067,7 +1067,10 @@ class LeagueQuizSession(Base):
     paused_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
+    # Legacy global timer remains as a backward-compatible fallback. New quizzes
+    # store per-format timers in ``timer_settings``.
     seconds_per_question = Column(Integer, nullable=False, default=30, server_default="30")
+    timer_settings = Column(JSON, nullable=False, default=dict, server_default="{}")
     reveal_seconds = Column(Integer, nullable=False, default=12, server_default="12")
     allow_late_registration = Column(Boolean, nullable=False, default=False, server_default="false")
     rounds_total = Column(Integer, nullable=False, default=1, server_default="1")

@@ -1032,6 +1032,11 @@ def _serialize_session_question(
         },
         "explanation": session_question.explanation_snapshot if revealed else None,
         "seconds_remaining": seconds_remaining,
+        "timer_seconds": get_question_timer_seconds(
+            db.query(LeagueQuizSession).filter(LeagueQuizSession.id == round_row.session_id).first(),
+            session_question,
+            int(runtime.get("stage") or 1) if session_question.question_type == "countdown" else None,
+        ) if round_row else 0,
         "deadline_at": deadline.isoformat() if deadline else None,
     }
 
@@ -1188,6 +1193,78 @@ ROUND_TYPE_TITLES = {
     "countdown": "Обратный отсчёт",
     "hundred_to_one": "Сто к одному",
 }
+
+
+# Canonical sequence for an automatically assembled full quiz. The backend
+# enforces it as well, so the order does not depend on the PWA client.
+CANONICAL_ROUND_ORDER = {
+    "millionaire": 10,
+    "choice_2": 15,
+    "true_false": 20,
+    "more_less": 30,
+    "yes_no": 40,
+    "countdown": 50,
+    "jeopardy": 60,
+    "one_of_two": 70,
+    "what_where_when": 80,
+    "hundred_to_one": 90,
+}
+
+# Timer defaults approved for the game design. Countdown uses a separate
+# duration for each clue. A quiz stores a complete editable copy in the DB.
+DEFAULT_QUIZ_TIMER_SETTINGS = {
+    "choice_4": 30,
+    "choice_2": 20,
+    "true_false": 20,
+    "more_less": 20,
+    "yes_no": 20,
+    "jeopardy": 50,
+    "one_of_two": 45,
+    "what_where_when": 75,
+    "hundred_to_one": 50,
+    "countdown_stage_1": 25,
+    "countdown_stage_2": 25,
+    "countdown_stage_3": 35,
+}
+
+
+def _normalize_timer_settings(payload: dict[str, Any]) -> dict[str, int]:
+    raw = payload.get("timer_settings") or {}
+    if not isinstance(raw, dict):
+        raise ValueError("Настройки таймеров должны быть объектом")
+    settings = dict(DEFAULT_QUIZ_TIMER_SETTINGS)
+    # Explicit uniform mode is preserved for a host who deliberately wants the
+    # same time everywhere. Legacy clients merely send seconds_per_question and
+    # therefore use the differentiated defaults.
+    if bool(payload.get("use_uniform_timer")):
+        uniform = int(payload.get("seconds_per_question") or 30)
+        if not 10 <= uniform <= 300:
+            raise ValueError("Время на вопрос должно быть от 10 до 300 секунд")
+        settings = {key: uniform for key in settings}
+    for key, value in raw.items():
+        if key not in settings:
+            continue
+        seconds = int(value)
+        if not 10 <= seconds <= 300:
+            raise ValueError("Таймер каждого формата должен быть от 10 до 300 секунд")
+        settings[key] = seconds
+    return settings
+
+
+def get_question_timer_seconds(quiz_session: LeagueQuizSession, question: LeagueQuizSessionQuestion | str, stage: int | None = None) -> int:
+    question_type = question if isinstance(question, str) else question.question_type
+    if question_type == "countdown":
+        stage_value = max(1, min(3, int(stage or 1)))
+        key = f"countdown_stage_{stage_value}"
+    else:
+        key = str(question_type or "choice_4")
+    settings = _payload_dict(getattr(quiz_session, "timer_settings", None))
+    default = DEFAULT_QUIZ_TIMER_SETTINGS.get(key, int(getattr(quiz_session, "seconds_per_question", 30) or 30))
+    try:
+        value = int(settings.get(key, default))
+    except (TypeError, ValueError):
+        value = int(default)
+    return min(300, max(10, value))
 
 
 def is_choice_question_type(question_type: str | None) -> bool:
@@ -1437,7 +1514,11 @@ def _normalize_rounds_payload(payload: dict[str, Any], questions_by_id: dict[int
         raise ValueError("В одном квизе может быть не более 100 вопросов")
     if len(set(all_ids)) != len(all_ids):
         raise ValueError("Один вопрос нельзя добавить в квиз дважды")
-    return result
+    # Stable full-quiz order regardless of bank selection order.
+    return [row for _index, row in sorted(
+        enumerate(result),
+        key=lambda item: (CANONICAL_ROUND_ORDER.get(item[1]["round_type"], 999), item[0]),
+    )]
 
 
 def create_quiz_session(db: Session, actor: User, payload: dict[str, Any]) -> LeagueQuizSession:  # noqa: F811
@@ -1468,6 +1549,9 @@ def create_quiz_session(db: Session, actor: User, payload: dict[str, Any]) -> Le
         raise ValueError("Можно использовать только одобренные вопросы текущей лиги")
     by_id = {question.id: question for question in questions}
     rounds_payload = _normalize_rounds_payload(payload, by_id)
+    timer_settings = _normalize_timer_settings(payload)
+    # Kept for old API consumers and existing sessions. New game flow reads
+    # timer_settings unless the host explicitly selects uniform timing.
     seconds_per_question = int(payload.get("seconds_per_question") or 30)
     reveal_seconds = int(payload.get("reveal_seconds") or 12)
     if not 10 <= seconds_per_question <= 300:
@@ -1486,6 +1570,7 @@ def create_quiz_session(db: Session, actor: User, payload: dict[str, Any]) -> Le
         scheduled_start_at=scheduled_start_at,
         registration_opened_at=utcnow(),
         seconds_per_question=seconds_per_question,
+        timer_settings=timer_settings,
         reveal_seconds=reveal_seconds,
         allow_late_registration=bool(payload.get("allow_late_registration", False)),
         rounds_total=len(rounds_payload),
@@ -1608,13 +1693,40 @@ def _current_session_question(db: Session, session_id: int) -> LeagueQuizSession
     )
 
 
+def _question_event_payload(
+    db: Session,
+    quiz_session: LeagueQuizSession,
+    question: LeagueQuizSessionQuestion,
+    *,
+    stage: int | None = None,
+) -> dict[str, Any]:
+    round_row = _get_round(db, question.round_id)
+    resolved_stage = max(1, min(3, int(stage or 1))) if question.question_type == "countdown" else None
+    return {
+        "session_question_id": question.id,
+        "question_order": question.question_order,
+        "question_type": question.question_type,
+        "points": int(question.points or 0),
+        "round_id": question.round_id,
+        "round_order": round_row.round_order if round_row else None,
+        "round_type": round_row.round_type if round_row else None,
+        "round_title": round_row.title if round_row else "Раунд квиза",
+        "countdown_stage": resolved_stage,
+        # Immutable presentation snapshot: delayed Telegram delivery must still
+        # show the original question/stage, never the current state of the DB.
+        "display_text": get_question_display_text(question, stage=resolved_stage),
+        "timer_seconds": get_question_timer_seconds(quiz_session, question, resolved_stage),
+    }
+
+
 def _open_question(db: Session, quiz_session: LeagueQuizSession, question: LeagueQuizSessionQuestion, now: datetime) -> LeagueQuizSessionQuestion:
     question.status = QUESTION_OPEN
     question.opened_at = now
-    question.closes_at = now + timedelta(seconds=int(quiz_session.seconds_per_question or 30))
-    question.runtime_state = {"stage": 1} if question.question_type == "countdown" else {}
+    stage = 1 if question.question_type == "countdown" else None
+    question.runtime_state = {"stage": stage} if stage else {}
+    question.closes_at = now + timedelta(seconds=get_question_timer_seconds(quiz_session, question, stage))
     quiz_session.current_question_order = question.question_order
-    _event(db, quiz_session, "question_opened", {"session_question_id": question.id, "question_order": question.question_order})
+    _event(db, quiz_session, "question_opened", _question_event_payload(db, quiz_session, question, stage=stage))
     return question
 
 
@@ -1747,7 +1859,10 @@ def close_current_question(db: Session, quiz_session: LeagueQuizSession, now: da
     session_question.closed_at = now
     session_question.revealed_at = now
     session_question.revealed_until = now + timedelta(seconds=int(quiz_session.reveal_seconds or 12))
-    _event(db, quiz_session, "question_revealed", {"session_question_id": session_question.id, "manual": bool(manual)})
+    reveal_stage = int(_payload_dict(getattr(session_question, "runtime_state", None)).get("stage") or 1) if session_question.question_type == "countdown" else None
+    reveal_payload = _question_event_payload(db, quiz_session, session_question, stage=reveal_stage)
+    reveal_payload["manual"] = bool(manual)
+    _event(db, quiz_session, "question_revealed", reveal_payload)
     if actor and manual:
         _admin_action(db, quiz_session, actor, "question_closed_manually", {"session_question_id": session_question.id})
     return session_question
@@ -1777,8 +1892,8 @@ def _advance_countdown_stage(db: Session, quiz_session: LeagueQuizSession, quest
         return True
     stage += 1
     question.runtime_state = {**runtime, "stage": stage}
-    question.closes_at = now + timedelta(seconds=int(quiz_session.seconds_per_question or 30))
-    _event(db, quiz_session, "countdown_stage_opened", {"session_question_id": question.id, "stage": stage})
+    question.closes_at = now + timedelta(seconds=get_question_timer_seconds(quiz_session, question, stage))
+    _event(db, quiz_session, "countdown_stage_opened", _question_event_payload(db, quiz_session, question, stage=stage))
     return False
 
 
@@ -1955,16 +2070,16 @@ def submit_text_answer(db: Session, actor: User, session_id: int, session_questi
     return answer
 
 
-def get_question_display_text(question: LeagueQuizSessionQuestion) -> str:
+def get_question_display_text(question: LeagueQuizSessionQuestion, stage: int | None = None) -> str:
     if question.question_type != "countdown":
         return question.question_text_snapshot
     config = _payload_dict(getattr(question, "payload_snapshot", None))
     runtime = _payload_dict(getattr(question, "runtime_state", None))
-    stage = max(1, min(3, int(runtime.get("stage") or 1)))
+    resolved_stage = max(1, min(3, int(stage or runtime.get("stage") or 1)))
     facts = config.get("facts") or []
-    fact = facts[stage - 1] if len(facts) >= stage else "Подсказка готовится"
+    fact = facts[resolved_stage - 1] if len(facts) >= resolved_stage else "Подсказка готовится"
     prefix = question.question_text_snapshot.strip()
-    return f"{prefix}\n\nПодсказка {stage}/3:\n{fact}" if prefix else f"Подсказка {stage}/3:\n{fact}"
+    return f"{prefix}\n\nПодсказка {resolved_stage}/3:\n{fact}" if prefix else f"Подсказка {resolved_stage}/3:\n{fact}"
 
 
 def get_correct_answer_text(question: LeagueQuizSessionQuestion) -> str:
@@ -2083,6 +2198,7 @@ def serialize_quiz_summary(db: Session, quiz_session: LeagueQuizSession, user: U
         "started_at": ensure_utc(quiz_session.started_at).isoformat() if quiz_session.started_at else None,
         "finished_at": ensure_utc(quiz_session.finished_at).isoformat() if quiz_session.finished_at else None,
         "seconds_per_question": int(quiz_session.seconds_per_question or 0),
+        "timer_settings": _payload_dict(getattr(quiz_session, "timer_settings", None)) or dict(DEFAULT_QUIZ_TIMER_SETTINGS),
         "reveal_seconds": int(quiz_session.reveal_seconds or 0),
         "registered_count": len(registered), "questions_total": total_questions,
         "rounds_total": int(quiz_session.rounds_total or 0),

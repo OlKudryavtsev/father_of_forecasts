@@ -1,23 +1,25 @@
-"""Telegram delivery adapter for the league quiz engine.
+"""Durable Telegram delivery for league quizzes.
 
-The quiz engine writes durable ``LeagueQuizEvent`` rows.  This module consumes
-those rows from the bot process and records every destination in a separate
-ledger, so a deploy/restart cannot duplicate or silently lose quiz messages.
+Every quiz transition becomes a ``LeagueQuizEvent``. This adapter claims each
+recipient in PostgreSQL *before* sending the Telegram message. That makes the
+workflow safe even when Railway temporarily starts two workers during deploys.
+Question events carry their own immutable display snapshot, so delayed delivery
+never reads a later question/stage from the live database.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Iterable
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.handlers.miniapp import get_bot_username, get_miniapp_url
 from app.keyboards.league_quiz import (
     build_group_quiz_open_keyboard,
+    build_private_quiz_open_keyboard,
     build_private_quiz_question_keyboard,
     build_private_quiz_registration_keyboard,
-    build_private_quiz_open_keyboard,
     build_private_quiz_text_keyboard,
 )
 from app.models import (
@@ -46,6 +48,7 @@ DELIVERY_DONE_KEY = "event:dispatched"
 SUPPORTED_EVENT_TYPES = {
     "quiz_created",
     "quiz_started",
+    "round_started",
     "question_opened",
     "question_revealed",
     "countdown_stage_opened",
@@ -62,8 +65,7 @@ def _utcnow() -> datetime:
 
 
 def _event_skipped(event: LeagueQuizEvent) -> bool:
-    payload = event.payload or {}
-    return bool(payload.get("telegram_skip"))
+    return bool((event.payload or {}).get("telegram_skip"))
 
 
 def _delivery_exists(db: Session, event_id: int, destination_key: str) -> bool:
@@ -77,7 +79,7 @@ def _delivery_exists(db: Session, event_id: int, destination_key: str) -> bool:
     )
 
 
-def _store_delivery(
+def _claim_delivery(
     db: Session,
     event: LeagueQuizEvent,
     destination_key: str,
@@ -85,23 +87,36 @@ def _store_delivery(
     *,
     recipient_user_id: int | None = None,
     chat_id: str | None = None,
-    status: str = "sent",
-    error_text: str | None = None,
-) -> None:
-    if _delivery_exists(db, event.id, destination_key):
-        return
-    db.add(
-        LeagueQuizTelegramDelivery(
-            event_id=event.id,
-            destination_key=destination_key,
-            recipient_user_id=recipient_user_id,
-            chat_id=chat_id,
-            message_kind=message_kind,
-            status=status,
-            error_text=error_text,
-            delivered_at=_utcnow(),
-        )
+) -> int | None:
+    """Create a durable claim before network I/O.
+
+    The unique DB constraint is the lock. A second worker sees IntegrityError
+    and must not send an identical message.
+    """
+    row = LeagueQuizTelegramDelivery(
+        event_id=event.id,
+        destination_key=destination_key,
+        recipient_user_id=recipient_user_id,
+        chat_id=chat_id,
+        message_kind=message_kind,
+        status="processing",
     )
+    db.add(row)
+    try:
+        db.commit()
+        return row.id
+    except IntegrityError:
+        db.rollback()
+        return None
+
+
+def _finish_delivery(db: Session, delivery_id: int, *, status: str, error_text: str | None = None) -> None:
+    row = db.query(LeagueQuizTelegramDelivery).filter(LeagueQuizTelegramDelivery.id == delivery_id).first()
+    if not row:
+        return
+    row.status = status
+    row.error_text = error_text[:2000] if error_text else None
+    row.delivered_at = _utcnow()
     db.commit()
 
 
@@ -113,31 +128,22 @@ async def _send_private(
     message_kind: str,
     reply_markup=None,
 ) -> None:
-    destination_key = f"user:{user.id}"
-    if _delivery_exists(db, event.id, destination_key):
+    delivery_id = _claim_delivery(
+        db,
+        event,
+        f"user:{user.id}",
+        message_kind,
+        recipient_user_id=user.id,
+        chat_id=str(user.telegram_id),
+    )
+    if not delivery_id:
         return
     try:
         await bot.send_message(chat_id=user.telegram_id, text=text, reply_markup=reply_markup)
-        _store_delivery(
-            db,
-            event,
-            destination_key,
-            message_kind,
-            recipient_user_id=user.id,
-            chat_id=str(user.telegram_id),
-        )
+        _finish_delivery(db, delivery_id, status="sent")
     except Exception as error:
         print(f"League quiz Telegram DM failed: event={event.id} user={user.id} error={error}")
-        _store_delivery(
-            db,
-            event,
-            destination_key,
-            message_kind,
-            recipient_user_id=user.id,
-            chat_id=str(user.telegram_id),
-            status="failed",
-            error_text=str(error)[:2000],
-        )
+        _finish_delivery(db, delivery_id, status="failed", error_text=str(error))
 
 
 async def _send_group(
@@ -151,23 +157,21 @@ async def _send_group(
     chat_id = str(getattr(league, "chat_id", "") or "").strip()
     if not chat_id:
         return
-    destination_key = f"chat:{chat_id}"
-    if _delivery_exists(db, event.id, destination_key):
+    delivery_id = _claim_delivery(db, event, f"chat:{chat_id}", message_kind, chat_id=chat_id)
+    if not delivery_id:
         return
     try:
         await bot.send_message(chat_id=int(chat_id), text=text, reply_markup=reply_markup)
-        _store_delivery(db, event, destination_key, message_kind, chat_id=chat_id)
+        _finish_delivery(db, delivery_id, status="sent")
     except Exception as error:
         print(f"League quiz Telegram group delivery failed: event={event.id} chat={chat_id} error={error}")
-        _store_delivery(
-            db,
-            event,
-            destination_key,
-            message_kind,
-            chat_id=chat_id,
-            status="failed",
-            error_text=str(error)[:2000],
-        )
+        _finish_delivery(db, delivery_id, status="failed", error_text=str(error))
+
+
+def _mark_event_done(db: Session, event: LeagueQuizEvent) -> None:
+    delivery_id = _claim_delivery(db, event, DELIVERY_DONE_KEY, "event_complete")
+    if delivery_id:
+        _finish_delivery(db, delivery_id, status="sent")
 
 
 def _active_league_users(db: Session, league_id: int) -> list[User]:
@@ -209,123 +213,165 @@ def _scheduled_text(value) -> str:
     instant = ensure_utc(value)
     if not instant:
         return "Ведущий запустит игру вручную."
-    local = instant.astimezone(APP_TIMEZONE).strftime("%d.%m в %H:%M")
-    return f"Старт запланирован: {local}."
+    return f"Старт запланирован: {instant.astimezone(APP_TIMEZONE).strftime('%d.%m в %H:%M')}."
 
 
-def _scoreboard_text(db: Session, session_id: int, limit: int = 10) -> str:
+def _scoreboard_text(db: Session, session_id: int, limit: int = 10, title: str = "🏆 Таблица квиза") -> str:
     rows = build_quiz_scoreboard(db, session_id)[:limit]
     if not rows:
         return "Пока нет зарегистрированных участников."
-    lines = ["🏆 Таблица квиза"]
+    lines = [title]
     for row in rows:
         lines.append(f"{row['place']}. {row['display_name']} — {row['score_total']} очк.")
     return "\n".join(lines)
 
 
-def _correct_answer_text(question: LeagueQuizSessionQuestion) -> str:
-    return get_correct_answer_text(question)
+def _payload_question(event: LeagueQuizEvent, question: LeagueQuizSessionQuestion | None) -> dict:
+    payload = dict(event.payload or {})
+    if payload.get("display_text"):
+        return payload
+    # Backward-compatible fallback for events created before v3.4.0.
+    if question:
+        payload.update(
+            {
+                "session_question_id": question.id,
+                "question_order": question.question_order,
+                "question_type": question.question_type,
+                "points": int(question.points or 0),
+                "display_text": get_question_display_text(question),
+                "timer_seconds": 30,
+            }
+        )
+    return payload
+
+
+def _question_header(payload: dict) -> str:
+    round_order = payload.get("round_order")
+    round_title = str(payload.get("round_title") or "Раунд")
+    question_order = payload.get("question_order") or "—"
+    base = f"❓ Вопрос {question_order} раунда"
+    if round_order:
+        base += f" {round_order}"
+    base += f" «{round_title}»"
+    stage = payload.get("countdown_stage")
+    if stage:
+        base += f" · подсказка {stage}/3"
+    return base
+
+
+def _question_text(quiz: LeagueQuizSession, payload: dict) -> str:
+    points = int(payload.get("points") or 0)
+    seconds = int(payload.get("timer_seconds") or 30)
+    stage = payload.get("countdown_stage")
+    points_text = "500 / 300 / 100 очк." if payload.get("question_type") == "countdown" else f"{points} очк."
+    instruction = "В «Обратном отсчёте» ответ можно отправить только один раз." if stage else "Ответ можно изменить до закрытия вопроса."
+    return (
+        f"🧠 {quiz.title}\n\n"
+        f"{_question_header(payload)}\n"
+        f"⏱ На ответ: {seconds} сек. · {points_text}\n\n"
+        f"{payload.get('display_text') or 'Вопрос готовится'}\n\n"
+        f"{instruction}"
+    )
 
 
 async def _dispatch_quiz_created(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
     miniapp_url = get_miniapp_url()
     text = (
         "🧠 Новый квиз в лиге\n\n"
-        f"Лига: {league.name}\n"
-        f"{quiz.title}\n"
+        f"Лига: {league.name}\n{quiz.title}\n"
         f"Вопросов: {sum(len(round_row.questions) for round_row in quiz.rounds)}\n"
         f"{_scheduled_text(quiz.scheduled_start_at)}\n\n"
         "Нажми «Участвовать», чтобы войти в состав игроков."
     )
-    keyboard = build_private_quiz_registration_keyboard(quiz.id, miniapp_url)
     for user in _active_league_users(db, league.id):
-        await _send_private(db, event, user, text, "quiz_announcement", keyboard)
-
+        await _send_private(db, event, user, text, "quiz_announcement", build_private_quiz_registration_keyboard(quiz.id, miniapp_url))
     username = await get_bot_username()
-    group_text = (
-        "🧠 Квиз объявлен\n\n"
-        f"{quiz.title}\n"
-        f"Вопросов: {sum(len(round_row.questions) for round_row in quiz.rounds)}\n"
-        f"{_scheduled_text(quiz.scheduled_start_at)}\n\n"
-        "Участие и ответы — в личном диалоге с ботом или в приложении."
-    )
     await _send_group(
         db,
         event,
         league,
-        group_text,
+        f"🧠 Квиз объявлен\n\n{quiz.title}\nВопросов: {sum(len(round_row.questions) for round_row in quiz.rounds)}\n{_scheduled_text(quiz.scheduled_start_at)}\n\nУчастие и ответы — в личном диалоге с ботом или в приложении.",
         "quiz_announcement",
         build_group_quiz_open_keyboard(username, quiz.id),
     )
 
 
 async def _dispatch_quiz_started(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
+    text = f"▶️ Старт квиза «{quiz.title}»\n\nВопросы будут приходить в личный чат с ботом. Удачи!"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        await _send_private(db, event, user, text, "quiz_started", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
     username = await get_bot_username()
-    await _send_group(
-        db,
-        event,
-        league,
-        f"▶️ Квиз начался\n\n{quiz.title}\n\nВопросы приходят участникам в личку. Удачи!",
-        "quiz_started",
-        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть текущий квиз"),
-    )
+    await _send_group(db, event, league, text, "quiz_started", build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть текущий квиз"))
+
+
+async def _dispatch_round_started(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
+    payload = event.payload or {}
+    order = payload.get("round_order") or "—"
+    title = str(payload.get("title") or "Раунд")
+    text = f"▶️ Старт раунда {order}: «{title}»"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        await _send_private(db, event, user, text, "quiz_round_started", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
+    username = await get_bot_username()
+    await _send_group(db, event, league, text, "quiz_round_started", build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть квиз"))
 
 
 async def _send_question_to_user(
     db: Session,
     event: LeagueQuizEvent,
     quiz: LeagueQuizSession,
-    question: LeagueQuizSessionQuestion,
+    question: LeagueQuizSessionQuestion | None,
     user: User,
     message_kind: str,
 ) -> None:
+    payload = _payload_question(event, question)
     miniapp_url = get_miniapp_url()
-    payload = getattr(question, "runtime_state", None) or {}
-    stage = int(payload.get("stage") or 0) if question.question_type == "countdown" else 0
+    interactive = bool(question and question.status == QUESTION_OPEN)
+    if question and question.question_type == "countdown":
+        current_stage = int((question.runtime_state or {}).get("stage") or 1)
+        interactive = interactive and current_stage == int(payload.get("countdown_stage") or 1)
     existing = (
         db.query(LeagueQuizSessionAnswer)
         .filter(LeagueQuizSessionAnswer.session_question_id == question.id, LeagueQuizSessionAnswer.user_id == user.id)
         .first()
+        if question
+        else None
     )
-    locked = bool(existing and question.question_type == "countdown")
-    stage_line = f" · подсказка {stage}/3" if stage else ""
-    text = (
-        f"🧠 {quiz.title}\n"
-        f"Вопрос {question.question_order}\n"
-        f"⏱ На ответ: {quiz.seconds_per_question} сек. · {question.points} очк.{stage_line}\n\n"
-        f"{get_question_display_text(question)}\n\n"
-        + (
-            "Ваш ответ уже зафиксирован. Ждём следующую подсказку."
-            if locked
-            else ("В «Обратном отсчёте» ответ можно отправить только один раз." if question.question_type == "countdown" else "Ответ можно изменить до закрытия вопроса.")
-        )
-    )
-    if is_choice_question_type(question.question_type):
+    locked = bool(existing and question and question.question_type == "countdown")
+    if interactive and question and is_choice_question_type(question.question_type):
         options = get_choice_question_options_for_user(question, user.id)
         keyboard = build_private_quiz_question_keyboard(quiz.id, question.id, options, existing.selected_option_key if existing else None, miniapp_url)
-    elif locked:
-        keyboard = build_private_quiz_open_keyboard(quiz.id, miniapp_url)
-    else:
+    elif interactive and question and not locked:
         keyboard = build_private_quiz_text_keyboard(quiz.id, question.id, miniapp_url)
-    await _send_private(db, event, user, text, message_kind, keyboard)
+    else:
+        keyboard = build_private_quiz_open_keyboard(quiz.id, miniapp_url)
+    suffix = "\n\nЭтот вопрос уже закрыт — откройте квиз, чтобы увидеть результат." if not interactive else ""
+    await _send_private(db, event, user, _question_text(quiz, payload) + suffix, message_kind, keyboard)
 
 
-async def _dispatch_question_opened(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession) -> None:
+async def _dispatch_question_event(
+    db: Session,
+    event: LeagueQuizEvent,
+    quiz: LeagueQuizSession,
+    league: League,
+    message_kind: str,
+) -> None:
     question_id = int((event.payload or {}).get("session_question_id") or 0)
     question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
-    if not question or question.status != QUESTION_OPEN:
-        return
+    payload = _payload_question(event, question)
     for user in _registered_users(db, quiz.id):
-        await _send_question_to_user(db, event, quiz, question, user, "quiz_question")
-
-
-async def _dispatch_countdown_stage_opened(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession) -> None:
-    question_id = int((event.payload or {}).get("session_question_id") or 0)
-    question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
-    if not question or question.status != QUESTION_OPEN:
-        return
-    for user in _registered_users(db, quiz.id):
-        await _send_question_to_user(db, event, quiz, question, user, "quiz_countdown_stage")
+        await _send_question_to_user(db, event, quiz, question, user, message_kind)
+    username = await get_bot_username()
+    # The group receives the same question context, but no answer controls.
+    await _send_group(
+        db,
+        event,
+        league,
+        _question_text(quiz, payload) + "\n\nОтветы отправляйте боту в личном чате или в приложении.",
+        message_kind,
+        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть квиз"),
+    )
 
 
 async def _dispatch_question_revealed(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
@@ -333,74 +379,56 @@ async def _dispatch_question_revealed(db: Session, event: LeagueQuizEvent, quiz:
     question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
     if not question:
         return
-    correct_text = _correct_answer_text(question)
+    correct_text = get_correct_answer_text(question)
     explanation = f"\n\n{question.explanation_snapshot}" if question.explanation_snapshot else ""
-
     for user in _registered_users(db, quiz.id):
         answer = (
             db.query(LeagueQuizSessionAnswer)
-            .filter(
-                LeagueQuizSessionAnswer.session_question_id == question.id,
-                LeagueQuizSessionAnswer.user_id == user.id,
-            )
+            .filter(LeagueQuizSessionAnswer.session_question_id == question.id, LeagueQuizSessionAnswer.user_id == user.id)
             .first()
         )
-        if answer and answer.is_correct:
-            personal = f"Верно · +{answer.points_awarded or 0} очк."
-        elif answer:
-            personal = "Пока без очков."
-        else:
-            personal = "Ответ не получен."
-        text = (
-            f"✅ Ответ на вопрос {question.question_order}\n\n"
-            f"Правильный ответ: {correct_text}\n"
-            f"{personal}{explanation}"
-        )
-        await _send_private(db, event, user, text, "quiz_reveal")
-
-    group_text = (
-        f"✅ Квиз · вопрос {question.question_order}\n\n"
-        f"Правильный ответ: {correct_text}{explanation}"
-    )
-    await _send_group(db, event, league, group_text, "quiz_reveal")
-
-
-async def _dispatch_round_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
-    payload = event.payload or {}
-    title = str(payload.get("title") or "Раунд")
-    await _send_group(
-        db,
-        event,
-        league,
-        f"📊 Раунд завершён: {title}\n\n{_scoreboard_text(db, quiz.id)}",
-        "quiz_round_finished",
-    )
-
-
-async def _dispatch_quiz_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
-    table = _scoreboard_text(db, quiz.id)
-    username = await get_bot_username()
-    await _send_group(
-        db,
-        event,
-        league,
-        f"🏁 Квиз завершён\n\n{quiz.title}\n\n{table}",
-        "quiz_finished",
-        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть результаты в приложении"),
-    )
-    rows = {row["user_id"]: row for row in build_quiz_scoreboard(db, quiz.id)}
-    miniapp_url = get_miniapp_url()
-    for user in _registered_users(db, quiz.id):
-        row = rows.get(user.id)
-        result = f"{row['place']}-е место · {row['score_total']} очк." if row else "Результат пока не найден."
+        personal = f"Верно · +{answer.points_awarded or 0} очк." if answer and answer.is_correct else ("Пока без очков." if answer else "Ответ не получен.")
         await _send_private(
             db,
             event,
             user,
-            f"🏁 {quiz.title} завершён\n\nВаш результат: {result}\n\n{table}",
-            "quiz_finished",
-            build_private_quiz_open_keyboard(quiz.id, miniapp_url),
+            f"✅ {_question_header(_payload_question(event, question))}\n\nПравильный ответ: {correct_text}\n{personal}{explanation}",
+            "quiz_reveal",
+            build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()),
         )
+    await _send_group(
+        db,
+        event,
+        league,
+        f"✅ {_question_header(_payload_question(event, question))}\n\nПравильный ответ: {correct_text}{explanation}",
+        "quiz_reveal",
+    )
+
+
+async def _dispatch_round_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
+    payload = event.payload or {}
+    order = payload.get("round_order") or "—"
+    title = str(payload.get("title") or "Раунд")
+    text = f"📊 Раунд {order} «{title}» завершён.\n\nПромежуточная таблица:\n{_scoreboard_text(db, quiz.id, title='')}"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        await _send_private(db, event, user, text, "quiz_round_finished", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
+    username = await get_bot_username()
+    await _send_group(db, event, league, text, "quiz_round_finished", build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть таблицу"))
+
+
+async def _dispatch_quiz_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
+    rows = build_quiz_scoreboard(db, quiz.id)
+    winner = rows[0]["display_name"] if rows else "нет зарегистрированных участников"
+    table = _scoreboard_text(db, quiz.id, title="")
+    text = f"🏁 Квиз «{quiz.title}» завершён.\n\nПобедитель: {winner}.\n\nИтоговая таблица:\n{table}"
+    username = await get_bot_username()
+    await _send_group(db, event, league, text, "quiz_finished", build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть результаты"))
+    by_user = {row["user_id"]: row for row in rows}
+    for user in _registered_users(db, quiz.id):
+        row = by_user.get(user.id)
+        result = f"Ваш результат: {row['place']}-е место · {row['score_total']} очк.\n\n" if row else ""
+        await _send_private(db, event, user, f"🏁 {quiz.title} завершён.\n\n{result}{text}", "quiz_finished", build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()))
 
 
 async def _dispatch_status_change(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
@@ -409,51 +437,43 @@ async def _dispatch_status_change(db: Session, event: LeagueQuizEvent, quiz: Lea
         "quiz_paused": "⏸ Квиз поставлен на паузу",
         "quiz_resumed": "▶️ Квиз продолжен",
     }
-    label = labels[event.event_type]
-    users = _registered_users(db, quiz.id)
-    for user in users:
-        await _send_private(db, event, user, f"{label}\n\n{quiz.title}", event.event_type)
-    await _send_group(db, event, league, f"{label}\n\n{quiz.title}", event.event_type)
+    text = f"{labels[event.event_type]}\n\n{quiz.title}"
+    for user in _registered_users(db, quiz.id):
+        await _send_private(db, event, user, text, event.event_type, build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()))
+    await _send_group(db, event, league, text, event.event_type)
 
 
 async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEvent) -> None:
-    """Deliver one event, then write a completion marker even if a destination fails.
-
-    Each failed send is recorded in the ledger.  We intentionally do not retry
-    forever: a blocked bot chat must not keep the whole quiz queue busy.
-    """
     if event.event_type not in SUPPORTED_EVENT_TYPES or _event_skipped(event):
         return
     if _delivery_exists(db, event.id, DELIVERY_DONE_KEY):
         return
-
     quiz, league = _session_and_league(db, event)
     if not quiz or not league:
-        _store_delivery(db, event, DELIVERY_DONE_KEY, "event_complete", status="skipped", error_text="Quiz or league not found")
+        _mark_event_done(db, event)
         return
-
     if event.event_type == "quiz_created":
         await _dispatch_quiz_created(db, event, quiz, league)
     elif event.event_type == "quiz_started":
         await _dispatch_quiz_started(db, event, quiz, league)
+    elif event.event_type == "round_started":
+        await _dispatch_round_started(db, event, quiz, league)
     elif event.event_type == "question_opened":
-        await _dispatch_question_opened(db, event, quiz)
+        await _dispatch_question_event(db, event, quiz, league, "quiz_question")
+    elif event.event_type == "countdown_stage_opened":
+        await _dispatch_question_event(db, event, quiz, league, "quiz_countdown_stage")
     elif event.event_type == "question_revealed":
         await _dispatch_question_revealed(db, event, quiz, league)
-    elif event.event_type == "countdown_stage_opened":
-        await _dispatch_countdown_stage_opened(db, event, quiz)
     elif event.event_type == "round_finished":
         await _dispatch_round_finished(db, event, quiz, league)
     elif event.event_type == "quiz_finished":
         await _dispatch_quiz_finished(db, event, quiz, league)
     elif event.event_type in {"quiz_cancelled", "quiz_paused", "quiz_resumed"}:
         await _dispatch_status_change(db, event, quiz, league)
-
-    _store_delivery(db, event, DELIVERY_DONE_KEY, "event_complete")
+    _mark_event_done(db, event)
 
 
 async def process_league_quiz_telegram_events(db: Session, limit: int = 40) -> int:
-    """Consume undelivered events in chronological order from the bot process."""
     events = (
         db.query(LeagueQuizEvent)
         .filter(LeagueQuizEvent.event_type.in_(SUPPORTED_EVENT_TYPES))

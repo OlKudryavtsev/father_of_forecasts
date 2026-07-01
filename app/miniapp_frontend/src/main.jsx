@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.3.1';
+const APP_VERSION = '3.4.0';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6539,6 +6539,41 @@ const QUIZ_TYPE_META = {
   hundred_to_one: { label: 'Сто к одному', round: 'hundred_to_one', roundTitle: 'Сто к одному' },
 };
 
+const QUIZ_ROUND_SEQUENCE = {
+  millionaire: 10,
+  choice_2: 15,
+  true_false: 20,
+  more_less: 30,
+  yes_no: 40,
+  countdown: 50,
+  jeopardy: 60,
+  one_of_two: 70,
+  what_where_when: 80,
+  hundred_to_one: 90,
+};
+
+const DEFAULT_QUIZ_TIMER_SETTINGS = {
+  choice_4: 30,
+  choice_2: 20,
+  true_false: 20,
+  more_less: 20,
+  yes_no: 20,
+  jeopardy: 50,
+  one_of_two: 45,
+  what_where_when: 75,
+  hundred_to_one: 50,
+  countdown_stage_1: 25,
+  countdown_stage_2: 25,
+  countdown_stage_3: 35,
+};
+
+const QUIZ_TIMER_FIELDS = [
+  ['choice_4', '4 варианта'], ['choice_2', 'Выбор из 2'], ['true_false', 'Правда / ложь'],
+  ['more_less', 'Больше / меньше'], ['yes_no', 'Да / нет'], ['jeopardy', 'Своя игра'],
+  ['one_of_two', 'Один из двух'], ['what_where_when', 'Что? Где? Когда?'], ['hundred_to_one', 'Сто к одному'],
+  ['countdown_stage_1', 'Отсчёт · факт 1'], ['countdown_stage_2', 'Отсчёт · факт 2'], ['countdown_stage_3', 'Отсчёт · факт 3'],
+];
+
 function isQuizChoiceType(type) {
   return ['choice_2', 'choice_4', 'true_false', 'more_less', 'yes_no'].includes(type);
 }
@@ -6596,6 +6631,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [roundTitle, setRoundTitle] = useState('Раунд с вариантами');
   const [scheduledStart, setScheduledStart] = useState('');
   const [secondsPerQuestion, setSecondsPerQuestion] = useState('30');
+  const [timerSettings, setTimerSettings] = useState(DEFAULT_QUIZ_TIMER_SETTINGS);
   const [revealSeconds, setRevealSeconds] = useState('12');
   const [seedMessage, setSeedMessage] = useState('');
   const [questionSources, setQuestionSources] = useState([{ title: '', url: '', note: '' }]);
@@ -6992,6 +7028,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
         if (!round) { round = { title: meta.roundTitle, round_type: meta.round, question_ids: [] }; grouped.push(round); }
         round.question_ids.push(question.id);
       });
+      grouped.sort((left, right) => (QUIZ_ROUND_SEQUENCE[left.round_type] || 999) - (QUIZ_ROUND_SEQUENCE[right.round_type] || 999));
       const result = await api('/api/webapp/quizzes', {
         method: 'POST',
         body: JSON.stringify({
@@ -6999,7 +7036,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
           title: quizTitle || 'Новый квиз',
           rounds: grouped,
           scheduled_start_at: scheduled && !Number.isNaN(scheduled.getTime()) ? scheduled.toISOString() : null,
+          // Per-format timers are the default. The legacy global value is
+          // sent only for backward-compatible API fields, not as an override.
           seconds_per_question: Number(secondsPerQuestion || 30),
+          timer_settings: Object.fromEntries(Object.entries(timerSettings).map(([key, value]) => [key, Number(value || DEFAULT_QUIZ_TIMER_SETTINGS[key])])),
           reveal_seconds: Number(revealSeconds || 12),
         }),
       });
@@ -7026,7 +7066,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       <div className="section-label">Квиз · {activeLeague?.name || 'Лига'}</div>
       <section className="card quiz-intro-card">
         <div>
-          <span className="quiz-kicker">v3.3 · Этап 4</span>
+          <span className="quiz-kicker">v3.4 · Игровой поток</span>
           <h1>Играем вживую</h1>
           <p>Живой квиз с раундами, редактором банка, источниками и отдельным рейтингом лиги.</p>
         </div>
@@ -7196,7 +7236,8 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   <h3>Запланировать квиз</h3>
                   <p className="muted">Выбранные вопросы будут автоматически собраны в раунды по форматам. Полный квиз — просто выберите вопросы всех типов.</p>
                   <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder="Например, Футбольный квиз №1" required /></label>
-                  <div className="quiz-form-grid"><label>Старт (необязательно)<input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label><label>Секунд на вопрос / подсказку<input type="number" min="10" max="300" value={secondsPerQuestion} onChange={(event) => setSecondsPerQuestion(event.target.value)} /></label><label>Показ ответа, сек.<input type="number" min="3" max="90" value={revealSeconds} onChange={(event) => setRevealSeconds(event.target.value)} /></label></div>
+                  <div className="quiz-form-grid"><label>Старт (необязательно)<input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label><label>Показ ответа, сек.<input type="number" min="3" max="90" value={revealSeconds} onChange={(event) => setRevealSeconds(event.target.value)} /></label></div>
+                  <details className="quiz-import-box"><summary>Таймеры раундов</summary><p className="muted">По умолчанию используются рекомендованные интервалы. Их можно изменить до старта квиза.</p><div className="quiz-form-grid">{QUIZ_TIMER_FIELDS.map(([key, label]) => <label key={key}>{label}<input type="number" min="10" max="300" value={timerSettings[key] ?? DEFAULT_QUIZ_TIMER_SETTINGS[key]} onChange={(event) => setTimerSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div></details>
                   <div className="quiz-question-picker"><p>Выберите одобренные вопросы в нужном порядке:</p>{approvedBank.length ? approvedBank.map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => toggleQuestion(question.id)} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <p className="muted">Сначала добавьте и одобрите вопросы.</p>}</div>
                   <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length}>Создать квиз ({selectedQuestionIds.length})</button>
                 </form>
