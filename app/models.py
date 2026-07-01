@@ -1206,3 +1206,28 @@ class LeagueQuizAdminAction(Base):
     action_type = Column(String(64), nullable=False, index=True)
     payload = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class LeagueQuizTelegramDelivery(Base):
+    """Durable one-time delivery record for Telegram quiz announcements."""
+
+    __tablename__ = "league_quiz_telegram_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("league_quiz_events.id", ondelete="CASCADE"), nullable=False, index=True)
+    destination_key = Column(String(160), nullable=False)
+    recipient_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    chat_id = Column(String(80), nullable=True)
+    message_kind = Column(String(64), nullable=False)
+    status = Column(String(24), nullable=False, default="sent", server_default="sent", index=True)
+    error_text = Column(Text, nullable=True)
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    event = relationship("LeagueQuizEvent")
+    recipient_user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "destination_key", name="uq_league_quiz_telegram_event_destination"),
+    )

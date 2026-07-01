@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.0.2';
+const APP_VERSION = '3.1.0';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -57,6 +57,16 @@ function openExternalUrl(url) {
 }
 
 
+
+function getQuizLaunchId() {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('quiz');
+    const value = Number(raw || 0);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 function BottomNavigation({ tab, onChange }) {
   const navigation = (
@@ -6516,7 +6526,7 @@ function formatQuizDate(value) {
   }).format(date);
 }
 
-function QuizScreen({ activeLeagueId, leaguesData }) {
+function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const activeLeague = (leaguesData?.leagues || []).find((league) => Number(league.id) === Number(activeLeagueId));
   const canManage = Boolean(activeLeague?.can_manage);
   const [quizzes, setQuizzes] = useState([]);
@@ -6557,6 +6567,8 @@ function QuizScreen({ activeLeagueId, leaguesData }) {
       const rows = result.quizzes || [];
       setQuizzes(rows);
       setSelectedQuizId((current) => {
+        const preferred = Number(initialQuizId) || null;
+        if (preferred && rows.some((item) => Number(item.id) === preferred)) return preferred;
         if (current && rows.some((item) => Number(item.id) === Number(current))) return current;
         return rows.find((item) => ['running', 'paused', 'registration_open'].includes(item.status))?.id || rows[0]?.id || null;
       });
@@ -6566,7 +6578,7 @@ function QuizScreen({ activeLeagueId, leaguesData }) {
     } finally {
       setLoading(false);
     }
-  }, [activeLeagueId]);
+  }, [activeLeagueId, initialQuizId]);
 
   const loadDetail = useCallback(async (quizId = selectedQuizId, silent = false) => {
     if (!quizId) {
@@ -7194,7 +7206,8 @@ class AppErrorBoundary extends React.Component {
 
 function App() {
   const updateInfo = usePwaUpdateCheck();
-  const [tab, setTab] = useState('matches');
+  const launchQuizId = useMemo(() => getQuizLaunchId(), []);
+  const [tab, setTab] = useState(() => launchQuizId ? 'quiz' : 'matches');
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'light');
   const [leaguesData, setLeaguesData] = useState({ leagues: [], default_league_id: null });
   const [activeLeagueId, setActiveLeagueIdState] = useState(() => Number(localStorage.getItem('ff_active_league_id') || 0) || null);
@@ -7211,6 +7224,20 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
   const hasBrowserSession = Boolean(getWebSessionToken());
+
+  useEffect(() => {
+    if (!launchQuizId || (!isTelegramMode() && !hasBrowserSession)) return;
+    let cancelled = false;
+    api(`/api/webapp/quizzes/${launchQuizId}`)
+      .then((result) => {
+        if (cancelled) return;
+        const leagueId = Number(result?.quiz?.league_id || 0) || null;
+        if (leagueId) setActiveLeagueId(leagueId);
+        setTab('quiz');
+      })
+      .catch((error) => console.warn('Quiz deep link is unavailable', error));
+    return () => { cancelled = true; };
+  }, [launchQuizId, hasBrowserSession]);
 
   useEffect(() => {
     if (isTelegramMode() || hasBrowserSession) {
@@ -7362,7 +7389,7 @@ function App() {
         onOpenTournamentTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }}
         onOpenTournamentPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }}
       />}
-      {tab === 'quiz' && <QuizScreen activeLeagueId={activeLeagueId} leaguesData={leaguesData} />}
+      {tab === 'quiz' && <QuizScreen activeLeagueId={activeLeagueId} leaguesData={leaguesData} initialQuizId={launchQuizId} />}
       {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
       {tab === 'rating' && <Rating activeLeagueId={activeLeagueId} />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} activeLeagueId={activeLeagueId} />}

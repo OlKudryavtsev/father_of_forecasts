@@ -9,6 +9,7 @@ GROUP_ALLOWED_COMMANDS = {
     "/rules",
     "/fact",
     "/quiz",
+    "/league_quiz",
     "/quiz_finish",
     "/quiz_table",
     "/quiz_battle",

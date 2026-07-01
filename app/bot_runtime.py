@@ -22,6 +22,7 @@ from app.states import (
     MatchPredictionForm,
     PaniniForm,
     TournamentPredictionForm,
+    LeagueQuizTextAnswerForm,
 )
 from app.handlers.admin import (
     admin_api_coverage_handler,
@@ -79,6 +80,13 @@ from app.handlers.predictions import (
     predictions_handler,
     predictions_match_callback,
 )
+from app.handlers.league_quiz import (
+    league_quiz_answer_callback,
+    league_quiz_handler,
+    league_quiz_register_callback,
+    league_quiz_text_answer_message,
+    league_quiz_text_callback,
+)
 from app.handlers.quiz import (
     group_quiz_answer_callback,
     group_quiz_finish_handler,
@@ -118,6 +126,7 @@ from app.services.match_details import sync_active_match_details
 from app.services.matches import pregame_analysis_loop
 from app.services.news import news_loop
 from app.services.tournament_hub import sync_tournament_hub_cache
+from app.services.league_quiz_telegram import process_league_quiz_telegram_events
 from app.wc2026_sync import sync_wc2026_schedule
 from app.db import SessionLocal
 import os
@@ -206,6 +215,7 @@ def register_handlers():
     dp.message.register(admin_import_facts_handler, Command("admin_import_facts"))
     dp.message.register(admin_daily_fact_preview_handler, Command("admin_daily_fact_preview"))
     dp.message.register(quiz_handler, Command("quiz"))
+    dp.message.register(league_quiz_handler, Command("league_quiz"))
     dp.message.register(quiz_battle_handler, Command("quiz_battle"))
     dp.message.register(admin_import_quiz_handler, Command("admin_import_quiz"))
     dp.message.register(quiz_stats_handler, Command("quiz_stats"))
@@ -221,6 +231,7 @@ def register_handlers():
     dp.message.register(panini_photo_handler, PaniniForm.waiting_for_photo, F.photo)
     dp.message.register(panini_photo_invalid_handler, PaniniForm.waiting_for_photo)
     dp.message.register(table_buttons_handler, Command("table_buttons"))
+    dp.message.register(league_quiz_text_answer_message, LeagueQuizTextAnswerForm.waiting_for_answer)
 
     # Callback handlers.
     dp.callback_query.register(predict_match_callback, _cb_startswith("predict_match:"))
@@ -235,6 +246,9 @@ def register_handlers():
     dp.callback_query.register(match_card_callback, _cb_startswith("match_card:"))
     dp.callback_query.register(forecast_match_callback, _cb_startswith("forecast_match:"))
     dp.callback_query.register(quiz_answer_callback, _cb_startswith("quiz_answer:"))
+    dp.callback_query.register(league_quiz_register_callback, _cb_startswith("lqreg:"))
+    dp.callback_query.register(league_quiz_answer_callback, _cb_startswith("lqans:"))
+    dp.callback_query.register(league_quiz_text_callback, _cb_startswith("lqtext:"))
     dp.callback_query.register(fact_category_callback, _cb_startswith("fact_category:"))
     dp.callback_query.register(quiz_category_callback, _cb_startswith("quiz_category:"))
     dp.callback_query.register(group_quiz_answer_callback, _cb_startswith("group_quiz_answer:"))
@@ -250,6 +264,27 @@ def register_handlers():
 
 
 register_handlers()
+
+
+async def league_quiz_telegram_loop():
+    """Deliver durable league-quiz events through the bot every second."""
+    enabled = os.getenv("LEAGUE_QUIZ_TELEGRAM_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = max(1, int(os.getenv("LEAGUE_QUIZ_TELEGRAM_INTERVAL_SECONDS", "1")))
+    while True:
+        db = SessionLocal()
+        try:
+            delivered = await process_league_quiz_telegram_events(db)
+            if delivered:
+                print(f"League quiz Telegram events delivered: {delivered}")
+        except Exception as error:
+            db.rollback()
+            print(f"League quiz Telegram delivery loop failed: {error}")
+        finally:
+            db.close()
+        await asyncio.sleep(interval_seconds)
 
 
 async def matchtv_videos_loop():
@@ -378,6 +413,7 @@ async def main():
     asyncio.create_task(wc2026_schedule_auto_sync_loop())
     asyncio.create_task(match_details_cache_loop())
     asyncio.create_task(tournament_hub_cache_loop())
+    asyncio.create_task(league_quiz_telegram_loop())
 
     await dp.start_polling(bot)
 

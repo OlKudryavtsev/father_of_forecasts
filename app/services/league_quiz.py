@@ -644,6 +644,20 @@ def _finish_quiz(db: Session, quiz_session: LeagueQuizSession, now: datetime) ->
 
 
 def _score_question(db: Session, quiz_session: LeagueQuizSession, session_question: LeagueQuizSessionQuestion, now: datetime) -> None:
+    # Text formats are accepted by the Telegram transport in Stage 2, but their
+    # semantic checking belongs to their dedicated round handlers. Do not mark
+    # them wrong merely because there is no selected option key.
+    if session_question.question_type not in QUESTION_TYPES_STAGE_ONE:
+        for answer in (
+            db.query(LeagueQuizSessionAnswer)
+            .filter(LeagueQuizSessionAnswer.session_question_id == session_question.id)
+            .all()
+        ):
+            answer.is_correct = None
+            answer.points_awarded = 0
+            answer.scored_at = now
+        return
+
     correct_keys = {
         str(item.get("key"))
         for item in (session_question.options_snapshot or [])
@@ -814,6 +828,8 @@ def submit_choice_answer(
     )
     if not session_question or session_question.status != QUESTION_OPEN:
         raise ValueError("Этот вопрос уже закрыт")
+    if session_question.question_type not in QUESTION_TYPES_STAGE_ONE:
+        raise ValueError("Для этого вопроса нужно ввести текстовый ответ")
     if ensure_utc(session_question.closes_at) and ensure_utc(session_question.closes_at) < utcnow():
         advance_quiz_state(db, quiz_session)
         raise ValueError("Время ответа истекло")
@@ -864,6 +880,88 @@ def submit_choice_answer(
     return answer
 
 
+def submit_text_answer(
+    db: Session,
+    actor: User,
+    session_id: int,
+    session_question_id: int,
+    answer_text: str,
+) -> LeagueQuizSessionAnswer:
+    """Store a Telegram text answer for future text-based round handlers.
+
+    Stage 2 only transports the answer reliably.  Dedicated round handlers will
+    later decide whether it is correct and how many points it earns.
+    """
+    quiz_session = _get_session(db, session_id)
+    require_user_league(db, actor, quiz_session.league_id)
+    advance_quiz_state(db, quiz_session, commit=False)
+    if quiz_session.status != SESSION_RUNNING:
+        raise ValueError("Квиз сейчас не принимает ответы")
+
+    session_question = (
+        db.query(LeagueQuizSessionQuestion)
+        .join(LeagueQuizSessionRound, LeagueQuizSessionRound.id == LeagueQuizSessionQuestion.round_id)
+        .filter(
+            LeagueQuizSessionQuestion.id == session_question_id,
+            LeagueQuizSessionRound.session_id == quiz_session.id,
+        )
+        .first()
+    )
+    if not session_question or session_question.status != QUESTION_OPEN:
+        raise ValueError("Этот вопрос уже закрыт")
+    if session_question.question_type in QUESTION_TYPES_STAGE_ONE:
+        raise ValueError("Для этого вопроса выберите вариант кнопкой")
+    if ensure_utc(session_question.closes_at) and ensure_utc(session_question.closes_at) < utcnow():
+        advance_quiz_state(db, quiz_session)
+        raise ValueError("Время ответа истекло")
+
+    participant = (
+        db.query(LeagueQuizSessionParticipant)
+        .filter(
+            LeagueQuizSessionParticipant.session_id == quiz_session.id,
+            LeagueQuizSessionParticipant.user_id == actor.id,
+            LeagueQuizSessionParticipant.status == "registered",
+        )
+        .first()
+    )
+    if not participant:
+        raise ValueError("Сначала зарегистрируйтесь для участия в квизе")
+
+    cleaned = " ".join(str(answer_text or "").strip().split())
+    if not cleaned:
+        raise ValueError("Введите ответ текстом")
+    if len(cleaned) > 1000:
+        raise ValueError("Ответ слишком длинный: максимум 1000 символов")
+
+    answer = (
+        db.query(LeagueQuizSessionAnswer)
+        .filter(
+            LeagueQuizSessionAnswer.session_question_id == session_question.id,
+            LeagueQuizSessionAnswer.user_id == actor.id,
+        )
+        .first()
+    )
+    if answer:
+        answer.answer_text = cleaned
+        answer.updated_at = utcnow()
+    else:
+        answer = LeagueQuizSessionAnswer(
+            session_question_id=session_question.id,
+            user_id=actor.id,
+            answer_text=cleaned,
+            answered_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db.add(answer)
+    db.flush()
+
+    if _all_registered_answered(db, quiz_session, session_question):
+        close_current_question(db, quiz_session, now=utcnow())
+    db.commit()
+    db.refresh(answer)
+    return answer
+
+
 def manually_close_current_question(db: Session, actor: User, session_id: int) -> LeagueQuizSession:
     quiz_session = _get_session(db, session_id)
     require_quiz_manager(db, actor, quiz_session.league_id)
@@ -881,6 +979,14 @@ def _stable_options_for_user(options: list[dict[str, Any]], session_question_id:
     seed = hashlib.sha256(f"{session_question_id}:{user_id}".encode("utf-8")).hexdigest()
     random.Random(seed).shuffle(public)
     return public
+
+
+def get_choice_question_options_for_user(
+    session_question: LeagueQuizSessionQuestion,
+    user_id: int,
+) -> list[dict[str, Any]]:
+    """Expose the same stable option order to Telegram and PWA clients."""
+    return _stable_options_for_user(session_question.options_snapshot or [], session_question.id, user_id)
 
 
 def _serialize_session_question(

@@ -15,6 +15,9 @@ from app.services.leagues import (
 )
 from app.services.users import get_or_create_user, get_start_message_for_user
 from app.handlers.miniapp import answer_with_private_miniapp_button, get_miniapp_url
+from app.handlers.league_quiz import extract_quiz_session_id_from_start_text
+from app.keyboards.league_quiz import build_private_quiz_open_keyboard
+from app.services.league_quiz import register_for_quiz
 
 
 def _approval_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -65,6 +68,8 @@ async def start_handler(message: Message):
         )
         return
 
+    quiz_session_id = extract_quiz_session_id_from_start_text(message.text)
+
     if message.text and message.text.strip().startswith("/start app"):
         miniapp_url = get_miniapp_url()
 
@@ -77,7 +82,8 @@ async def start_handler(message: Message):
         await answer_with_private_miniapp_button(message, miniapp_url)
         return
 
-    invite_code = extract_invite_code_from_start_text(message.text)
+    # A /start quiz_<id> payload is a quiz deep link, never a league invite.
+    invite_code = None if quiz_session_id else extract_invite_code_from_start_text(message.text)
     db = SessionLocal()
 
     try:
@@ -103,6 +109,22 @@ async def start_handler(message: Message):
                     if member.status == "pending" else
                     f"Ты уже состоишь в лиге «{invite_league.name}»."
                 )
+                return
+
+        if quiz_session_id and getattr(user, "access_status", "approved") == "approved":
+            try:
+                register_for_quiz(db, user, quiz_session_id)
+                from app.models import LeagueQuizSession
+
+                quiz_session = db.query(LeagueQuizSession).filter(LeagueQuizSession.id == quiz_session_id).first()
+                if quiz_session:
+                    await message.answer(
+                        f"✅ Вы зарегистрированы на квиз\n\n{quiz_session.title}\n\nЖдём старта игры.",
+                        reply_markup=build_private_quiz_open_keyboard(quiz_session.id, get_miniapp_url()),
+                    )
+                    return
+            except (ValueError, PermissionError) as error:
+                await message.answer(f"Не удалось зарегистрироваться на квиз: {error}")
                 return
 
         await message.answer(get_start_message_for_user(user, created))

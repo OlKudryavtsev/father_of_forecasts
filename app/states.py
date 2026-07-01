@@ -26,3 +26,9 @@ class PaniniForm(StatesGroup):
     waiting_for_photo = State()
     waiting_for_team = State()
 
+
+
+class LeagueQuizTextAnswerForm(StatesGroup):
+    """Captures one text response in a private Telegram chat."""
+
+    waiting_for_answer = State()
