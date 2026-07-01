@@ -12057,3 +12057,26 @@ body,
 .quiz-seed-card .quiz-primary-button { margin-top: 0; }
 .quiz-seed-card small { color: #bce7cb; font-size: 11px; font-weight: 750; }
 .app.theme-light .quiz-seed-card { background: linear-gradient(145deg, rgba(37,99,235,.07), rgba(139,92,246,.06)); }
+
+/* v3.2.0 — Stage 3 quiz formats */
+.quiz-question-text { white-space: pre-line; }
+.quiz-topic { display: inline-flex; margin: 2px 0 8px; padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.08); }
+.quiz-text-answer { display: flex; gap: 8px; margin-top: 12px; }
+.quiz-text-answer input { flex: 1; min-width: 0; }
+.quiz-text-answer button { flex: 0 0 auto; }
+.quiz-stage-editor, .hundred-editor { display: grid; gap: 8px; padding: 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; }
+.quiz-stage-editor label, .hundred-editor label { display: grid; gap: 5px; }
+.hundred-editor label { grid-template-columns: minmax(88px, auto) 1fr; align-items: center; }
+.hundred-editor label span { color: var(--text-muted, #aaa); font-size: 12px; }
+.jeopardy-board-card { display: grid; gap: 12px; margin: 14px 0; padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; }
+.jeopardy-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.jeopardy-board button { min-height: 74px; display: grid; align-content: space-between; gap: 5px; border-radius: 12px; }
+.jeopardy-board button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; opacity: .82; }
+.jeopardy-board button b { font-size: 20px; }
+.jeopardy-board button.closed, .jeopardy-board button.revealed { opacity: .35; text-decoration: line-through; }
+.jeopardy-board button.pending:not(.host) { cursor: default; }
+@media (max-width: 420px) {
+  .jeopardy-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quiz-text-answer { flex-direction: column; }
+  .hundred-editor label { grid-template-columns: 1fr; }
+}

@@ -91,6 +91,7 @@ from app.services.league_quiz import (
     list_bank_questions,
     list_quizzes_for_league,
     manually_close_current_question,
+    open_jeopardy_question,
     pause_quiz_session,
     register_for_quiz,
     resume_quiz_session,
@@ -98,6 +99,7 @@ from app.services.league_quiz import (
     seed_wc2026_stage_one_questions,
     start_quiz_session,
     submit_choice_answer,
+    submit_text_answer,
 )
 from app.team_names import get_team_name_ru
 from app.wc2026_sync import get_fixture_score, get_winner_side
@@ -272,10 +274,12 @@ class LeagueQuizOptionPayload(BaseModel):
 
 class LeagueQuizQuestionCreatePayload(BaseModel):
     league_id: int
-    question_type: str = Field(pattern="^(choice_2|choice_4)$")
+    question_type: str = Field(min_length=2, max_length=40)
     question_text: str = Field(min_length=3, max_length=6000)
-    options: list[LeagueQuizOptionPayload] = Field(min_length=2, max_length=4)
-    correct_option_index: int = Field(ge=0, le=3)
+    options: list[LeagueQuizOptionPayload] = Field(default_factory=list, max_length=4)
+    correct_option_index: int | None = Field(default=None, ge=0, le=3)
+    # Type-specific data: aliases, topic, facts or the ten ranked answers.
+    question_payload: dict = Field(default_factory=dict)
     explanation: str | None = Field(default=None, max_length=6000)
     default_points: int = Field(default=100, ge=0, le=10000)
     tags: str | None = Field(default=None, max_length=500)
@@ -284,12 +288,20 @@ class LeagueQuizQuestionCreatePayload(BaseModel):
     source_note: str | None = Field(default=None, max_length=6000)
 
 
+class LeagueQuizRoundCreatePayload(BaseModel):
+    title: str | None = Field(default=None, max_length=160)
+    round_type: str | None = Field(default=None, max_length=40)
+    question_ids: list[int] = Field(min_length=1, max_length=100)
+
+
 class LeagueQuizSessionCreatePayload(BaseModel):
     league_id: int
     title: str = Field(min_length=2, max_length=160)
     description: str | None = Field(default=None, max_length=2000)
+    # Legacy single-round fields remain accepted for old clients.
     round_title: str | None = Field(default=None, max_length=160)
-    question_ids: list[int] = Field(min_length=1, max_length=60)
+    question_ids: list[int] = Field(default_factory=list, max_length=100)
+    rounds: list[LeagueQuizRoundCreatePayload] = Field(default_factory=list, max_length=20)
     scheduled_start_at: datetime | None = None
     seconds_per_question: int = Field(default=30, ge=10, le=300)
     reveal_seconds: int = Field(default=12, ge=3, le=90)
@@ -298,6 +310,10 @@ class LeagueQuizSessionCreatePayload(BaseModel):
 
 class LeagueQuizAnswerPayload(BaseModel):
     selected_option_key: str = Field(min_length=1, max_length=12)
+
+
+class LeagueQuizTextAnswerPayload(BaseModel):
+    answer_text: str = Field(min_length=1, max_length=1000)
 
 
 class LeagueCreatePayload(BaseModel):
@@ -5164,6 +5180,39 @@ def answer_league_quiz_choice_question(
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {"ok": True, "answer_id": answer.id, **detail}
+
+
+@router.post("/quizzes/{session_id}/questions/{session_question_id}/text-answer")
+def answer_league_quiz_text_question(
+    session_id: int,
+    session_question_id: int,
+    payload: LeagueQuizTextAnswerPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Save one text answer for a Stage 3 quiz question."""
+    try:
+        answer = submit_text_answer(db, current_user, session_id, session_question_id, payload.answer_text)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, "answer_id": answer.id, **detail}
+
+
+@router.post("/quizzes/{session_id}/jeopardy/{session_question_id}/open")
+def open_league_quiz_jeopardy_cell(
+    session_id: int,
+    session_question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """The host selects a pending «Своя игра» board cell."""
+    try:
+        open_jeopardy_question(db, current_user, session_id, session_question_id)
+        detail = build_quiz_detail(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {"ok": True, **detail}
 
 
 @router.get("/quiz/random")

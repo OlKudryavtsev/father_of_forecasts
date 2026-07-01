@@ -988,6 +988,9 @@ class LeagueQuizQuestion(Base):
     explanation = Column(Text, nullable=True)
     default_points = Column(Integer, nullable=False, default=100, server_default="100")
     tags = Column(String(500), nullable=True)
+    # Stage 3 keeps type-specific immutable authoring data here: aliases,
+    # Jeopardy topic, countdown facts and the ranked answers of «Сто к одному».
+    question_payload = Column(JSON, nullable=False, default=dict, server_default="{}")
     times_used = Column(Integer, nullable=False, default=0, server_default="0")
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
@@ -1112,6 +1115,11 @@ class LeagueQuizSessionQuestion(Base):
     question_text_snapshot = Column(Text, nullable=False)
     explanation_snapshot = Column(Text, nullable=True)
     options_snapshot = Column(JSON, nullable=False)
+    # Snapshot of the bank question payload. It prevents later editing of the
+    # bank from changing a scheduled or finished game.
+    payload_snapshot = Column(JSON, nullable=False, default=dict, server_default="{}")
+    # Mutable, server-only state: e.g. currently opened clue in «Обратный отсчёт».
+    runtime_state = Column(JSON, nullable=False, default=dict, server_default="{}")
     points = Column(Integer, nullable=False, default=0, server_default="0")
     negative_on_wrong = Column(Boolean, nullable=False, default=False, server_default="false")
     status = Column(String(24), nullable=False, default="pending", server_default="pending", index=True)

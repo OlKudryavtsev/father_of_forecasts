@@ -34,10 +34,12 @@ from app.models import (
 from app.runtime import APP_TIMEZONE, bot
 from app.services.league_quiz import (
     QUESTION_OPEN,
-    QUESTION_TYPES_STAGE_ONE,
     build_quiz_scoreboard,
     ensure_utc,
     get_choice_question_options_for_user,
+    get_correct_answer_text,
+    get_question_display_text,
+    is_choice_question_type,
 )
 
 DELIVERY_DONE_KEY = "event:dispatched"
@@ -46,6 +48,8 @@ SUPPORTED_EVENT_TYPES = {
     "quiz_started",
     "question_opened",
     "question_revealed",
+    "countdown_stage_opened",
+    "round_finished",
     "quiz_finished",
     "quiz_cancelled",
     "quiz_paused",
@@ -220,9 +224,7 @@ def _scoreboard_text(db: Session, session_id: int, limit: int = 10) -> str:
 
 
 def _correct_answer_text(question: LeagueQuizSessionQuestion) -> str:
-    options = question.options_snapshot or []
-    correct = [f"{item.get('key')}. {item.get('text')}" for item in options if item.get("is_correct")]
-    return ", ".join(correct) or "—"
+    return get_correct_answer_text(question)
 
 
 async def _dispatch_quiz_created(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
@@ -269,35 +271,61 @@ async def _dispatch_quiz_started(db: Session, event: LeagueQuizEvent, quiz: Leag
     )
 
 
+async def _send_question_to_user(
+    db: Session,
+    event: LeagueQuizEvent,
+    quiz: LeagueQuizSession,
+    question: LeagueQuizSessionQuestion,
+    user: User,
+    message_kind: str,
+) -> None:
+    miniapp_url = get_miniapp_url()
+    payload = getattr(question, "runtime_state", None) or {}
+    stage = int(payload.get("stage") or 0) if question.question_type == "countdown" else 0
+    existing = (
+        db.query(LeagueQuizSessionAnswer)
+        .filter(LeagueQuizSessionAnswer.session_question_id == question.id, LeagueQuizSessionAnswer.user_id == user.id)
+        .first()
+    )
+    locked = bool(existing and question.question_type == "countdown")
+    stage_line = f" · подсказка {stage}/3" if stage else ""
+    text = (
+        f"🧠 {quiz.title}\n"
+        f"Вопрос {question.question_order}\n"
+        f"⏱ На ответ: {quiz.seconds_per_question} сек. · {question.points} очк.{stage_line}\n\n"
+        f"{get_question_display_text(question)}\n\n"
+        + (
+            "Ваш ответ уже зафиксирован. Ждём следующую подсказку."
+            if locked
+            else ("В «Обратном отсчёте» ответ можно отправить только один раз." if question.question_type == "countdown" else "Ответ можно изменить до закрытия вопроса.")
+        )
+    )
+    if is_choice_question_type(question.question_type):
+        options = get_choice_question_options_for_user(question, user.id)
+        keyboard = build_private_quiz_question_keyboard(quiz.id, question.id, options, existing.selected_option_key if existing else None, miniapp_url)
+    elif locked:
+        keyboard = build_private_quiz_open_keyboard(quiz.id, miniapp_url)
+    else:
+        keyboard = build_private_quiz_text_keyboard(quiz.id, question.id, miniapp_url)
+    await _send_private(db, event, user, text, message_kind, keyboard)
+
+
 async def _dispatch_question_opened(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession) -> None:
     question_id = int((event.payload or {}).get("session_question_id") or 0)
     question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
-    # Never deliver an interactive question after its server deadline: this avoids
-    # a stale Telegram keyboard that looks answerable but cannot be accepted.
     if not question or question.status != QUESTION_OPEN:
         return
-
-    miniapp_url = get_miniapp_url()
     for user in _registered_users(db, quiz.id):
-        text = (
-            f"🧠 {quiz.title}\n"
-            f"Вопрос {question.question_order}\n"
-            f"⏱ На ответ: {quiz.seconds_per_question} сек. · {question.points} очк.\n\n"
-            f"{question.question_text_snapshot}\n\n"
-            "Ответ можно изменить до закрытия вопроса."
-        )
-        if question.question_type in QUESTION_TYPES_STAGE_ONE:
-            options = get_choice_question_options_for_user(question, user.id)
-            keyboard = build_private_quiz_question_keyboard(
-                quiz.id,
-                question.id,
-                options,
-                None,
-                miniapp_url,
-            )
-        else:
-            keyboard = build_private_quiz_text_keyboard(quiz.id, question.id, miniapp_url)
-        await _send_private(db, event, user, text, "quiz_question", keyboard)
+        await _send_question_to_user(db, event, quiz, question, user, "quiz_question")
+
+
+async def _dispatch_countdown_stage_opened(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession) -> None:
+    question_id = int((event.payload or {}).get("session_question_id") or 0)
+    question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
+    if not question or question.status != QUESTION_OPEN:
+        return
+    for user in _registered_users(db, quiz.id):
+        await _send_question_to_user(db, event, quiz, question, user, "quiz_countdown_stage")
 
 
 async def _dispatch_question_revealed(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
@@ -335,6 +363,18 @@ async def _dispatch_question_revealed(db: Session, event: LeagueQuizEvent, quiz:
         f"Правильный ответ: {correct_text}{explanation}"
     )
     await _send_group(db, event, league, group_text, "quiz_reveal")
+
+
+async def _dispatch_round_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
+    payload = event.payload or {}
+    title = str(payload.get("title") or "Раунд")
+    await _send_group(
+        db,
+        event,
+        league,
+        f"📊 Раунд завершён: {title}\n\n{_scoreboard_text(db, quiz.id)}",
+        "quiz_round_finished",
+    )
 
 
 async def _dispatch_quiz_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:
@@ -400,6 +440,10 @@ async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEven
         await _dispatch_question_opened(db, event, quiz)
     elif event.event_type == "question_revealed":
         await _dispatch_question_revealed(db, event, quiz, league)
+    elif event.event_type == "countdown_stage_opened":
+        await _dispatch_countdown_stage_opened(db, event, quiz)
+    elif event.event_type == "round_finished":
+        await _dispatch_round_finished(db, event, quiz, league)
     elif event.event_type == "quiz_finished":
         await _dispatch_quiz_finished(db, event, quiz, league)
     elif event.event_type in {"quiz_cancelled", "quiz_paused", "quiz_resumed"}:

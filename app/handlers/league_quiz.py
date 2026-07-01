@@ -22,10 +22,11 @@ from app.models import (
 from app.runtime import CallbackQuery, FSMContext, Message, SessionLocal
 from app.services.league_quiz import (
     QUESTION_OPEN,
-    QUESTION_TYPES_STAGE_ONE,
     SESSION_REGISTRATION_OPEN,
     SESSION_RUNNING,
     get_choice_question_options_for_user,
+    get_question_display_text,
+    is_choice_question_type,
     register_for_quiz,
     submit_choice_answer,
     submit_text_answer,
@@ -59,12 +60,17 @@ def _current_question(db, session_id: int) -> LeagueQuizSessionQuestion | None:
 
 
 def _session_question_text(session: LeagueQuizSession, question: LeagueQuizSessionQuestion) -> str:
+    note = (
+        "В «Обратном отсчёте» ответ можно отправить только один раз."
+        if question.question_type == "countdown"
+        else "Можно изменить ответ до закрытия вопроса."
+    )
     return (
         f"🧠 {session.title}\n"
         f"Вопрос {question.question_order}\n"
         f"⏱ На ответ: {session.seconds_per_question} сек. · {question.points} очк.\n\n"
-        f"{question.question_text_snapshot}\n\n"
-        "Можно изменить вариант до закрытия вопроса."
+        f"{get_question_display_text(question)}\n\n"
+        f"{note}"
     )
 
 
@@ -94,7 +100,7 @@ async def _send_current_question(message: Message, db, user, session: LeagueQuiz
         )
         .first()
     )
-    if question.question_type in QUESTION_TYPES_STAGE_ONE:
+    if is_choice_question_type(question.question_type):
         options = get_choice_question_options_for_user(question, user.id)
         keyboard = build_private_quiz_question_keyboard(
             session.id,
@@ -264,7 +270,11 @@ async def league_quiz_text_answer_message(message: Message, state: FSMContext):
     try:
         user, _ = get_or_create_user(db, message.from_user)
         submit_text_answer(db, user, session_id, question_id, message.text or "")
-        await message.answer("✅ Текстовый ответ принят. Чтобы изменить его до закрытия вопроса, снова нажми «Ввести ответ».")
+        question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
+        if question and question.question_type == "countdown":
+            await message.answer("✅ Ответ принят и зафиксирован. В «Обратном отсчёте» его нельзя изменить.")
+        else:
+            await message.answer("✅ Текстовый ответ принят. Чтобы изменить его до закрытия вопроса, снова нажми «Ввести ответ».")
     except (ValueError, PermissionError) as error:
         await message.answer(f"Ответ не принят: {error}")
     finally:
