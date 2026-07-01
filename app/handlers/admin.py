@@ -29,6 +29,7 @@ from app.runtime import (
     WorldCupFact,
     bot,
     datetime,
+    get_fixture_final_score,
     get_fixture_score,
     get_winner_side,
     score_tournament_prediction,
@@ -1423,6 +1424,7 @@ async def admin_sync_results_handler(message: Message):
                 continue
 
             score_home, score_away = get_fixture_score(api_fixture)
+            final_score_home, final_score_away = get_fixture_final_score(api_fixture)
 
             if score_home is None or score_away is None:
                 skipped += 1
@@ -1449,12 +1451,14 @@ async def admin_sync_results_handler(message: Message):
                 score_home=score_home,
                 score_away=score_away,
                 winner_side=winner_side,
+                final_score_home=final_score_home,
+                final_score_away=final_score_away,
             )
 
             updated += 1
 
             lines.append(
-                f"{format_match_label(match, include_id=True)} — обновлен: {score_home}:{score_away}"
+                f"{format_match_label(match, include_id=True)} — обновлен: {score_home}:{score_away} (основное время)"
             )
 
         lines.append("")

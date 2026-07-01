@@ -164,6 +164,19 @@ def format_match_label(match: Match, include_id: bool = False) -> str:
     return label
 
 
+def format_score_with_extra_time(match: Match) -> str:
+    """Format regular-time score plus an extra-time result when available."""
+    if match.score_home is None or match.score_away is None:
+        return "—:—"
+
+    regular = f"{match.score_home}:{match.score_away}"
+    final_home = getattr(match, "final_score_home", None)
+    final_away = getattr(match, "final_score_away", None)
+    if final_home is not None and final_away is not None and (final_home, final_away) != (match.score_home, match.score_away):
+        return f"{regular} (ДВ {final_home}:{final_away})"
+    return regular
+
+
 def format_matches_list(matches: list[Match], title: str) -> str:
     """Provide bot helper logic for format_matches_list."""
     lines = [title, ""]
@@ -184,7 +197,7 @@ def format_matches_list(matches: list[Match], title: str) -> str:
         status = "✅ завершен" if match.is_finished else "⏳ открыт"
 
         if match.score_home is not None and match.score_away is not None:
-            status = f"🏁 {match.score_home}:{match.score_away}"
+            status = f"🏁 {format_score_with_extra_time(match)}"
 
         lines.append(
             f"{format_match_label(match, include_id=True)}\n"
@@ -236,7 +249,11 @@ def format_match_result(match: Match) -> str:
     if match.score_home is None or match.score_away is None:
         return "Результат: еще не внесен"
 
-    result = f"Результат: {match.score_home}:{match.score_away}"
+    result = f"Основное время: {match.score_home}:{match.score_away}"
+    final_home = getattr(match, "final_score_home", None)
+    final_away = getattr(match, "final_score_away", None)
+    if final_home is not None and final_away is not None and (final_home, final_away) != (match.score_home, match.score_away):
+        result += f"\nПосле дополнительного времени: {final_home}:{final_away}"
 
     if match.winner_side == "home":
         result += f"\nПрошла команда: {match.home_team}"

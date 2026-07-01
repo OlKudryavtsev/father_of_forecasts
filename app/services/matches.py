@@ -358,6 +358,8 @@ def apply_match_result_from_admin(
         score_home: int,
         score_away: int,
         winner_side: str | None = None,
+        final_score_home: int | None = None,
+        final_score_away: int | None = None,
 ) -> list[str]:
     """Provide bot helper logic for apply_match_result_from_admin."""
     if is_playoff_match(match) and winner_side is None:
@@ -366,8 +368,13 @@ def apply_match_result_from_admin(
     if not is_playoff_match(match) and winner_side is not None:
         raise ValueError("Group match must not have winner_side")
 
+    # ``score_home`` / ``score_away`` are the regular-time score and are the
+    # only values used for 3/1 prediction scoring.  The final score is kept
+    # separately so extra-time results remain visible without changing points.
     match.score_home = score_home
     match.score_away = score_away
+    match.final_score_home = final_score_home if final_score_home is not None else score_home
+    match.final_score_away = final_score_away if final_score_away is not None else score_away
     match.winner_side = winner_side
     match.is_finished = True
 
@@ -407,8 +414,11 @@ def apply_match_result_from_admin(
     lines = [
         "Результат сохранен ✅",
         "",
-        f"{format_match_label(match, include_id=False)}: {score_home}:{score_away}",
+        f"{format_match_label(match, include_id=False)}: {score_home}:{score_away} (основное время)",
     ]
+
+    if (match.final_score_home, match.final_score_away) != (score_home, score_away):
+        lines.append(f"После дополнительного времени: {match.final_score_home}:{match.final_score_away}")
 
     if winner_side == "home":
         lines.append(f"Прошла команда: {match.home_team}")

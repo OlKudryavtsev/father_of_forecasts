@@ -189,8 +189,15 @@ class Match(Base):
 
     starts_at = Column(DateTime(timezone=True), nullable=False)
 
+    # Score after regular time (90 minutes). Match prediction points are always
+    # calculated from these fields, including knockout fixtures.
     score_home = Column(Integer, nullable=True)
     score_away = Column(Integer, nullable=True)
+
+    # Final score after extra time, when it differs from regular time. A penalty
+    # shoot-out does not change this score; its winner is stored in winner_side.
+    final_score_home = Column(Integer, nullable=True)
+    final_score_away = Column(Integer, nullable=True)
 
     winner_side = Column(String, nullable=True)
 

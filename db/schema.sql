@@ -77,8 +77,13 @@ CREATE TABLE IF NOT EXISTS matches (
     stage VARCHAR NOT NULL DEFAULT 'group',
     starts_at TIMESTAMPTZ NOT NULL,
 
+    -- Score after regular time (90 minutes): used for prediction scoring.
     score_home INTEGER,
     score_away INTEGER,
+
+    -- Final score after extra time, if it differs from the regular-time score.
+    final_score_home INTEGER,
+    final_score_away INTEGER,
     winner_side VARCHAR,
 
     is_finished BOOLEAN DEFAULT FALSE,

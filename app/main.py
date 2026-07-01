@@ -124,8 +124,12 @@ class MatchCreate(BaseModel):
 
 
 class MatchResultUpdate(BaseModel):
+    # Score after 90 minutes; this is the only score used for predictions.
     score_home: int
     score_away: int
+    # Optional final score after extra time, for display only.
+    final_score_home: int | None = None
+    final_score_away: int | None = None
     winner_side: str | None = None
 
 class TournamentResultUpdate(BaseModel):
@@ -177,6 +181,8 @@ def get_matches():
                 "starts_at": match.starts_at,
                 "score_home": match.score_home,
                 "score_away": match.score_away,
+                "final_score_home": match.final_score_home,
+                "final_score_away": match.final_score_away,
                 "is_finished": match.is_finished,
             }
             for match in matches
@@ -229,6 +235,8 @@ def set_match_result(match_id: int, payload: MatchResultUpdate):
 
         match.score_home = payload.score_home
         match.score_away = payload.score_away
+        match.final_score_home = payload.final_score_home if payload.final_score_home is not None else payload.score_home
+        match.final_score_away = payload.final_score_away if payload.final_score_away is not None else payload.score_away
         match.winner_side = payload.winner_side
         match.is_finished = True
 

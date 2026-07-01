@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.4.0';
+const APP_VERSION = '3.4.1';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -486,6 +486,23 @@ function formatPredictionScore(prediction) {
 
 function formatActualScore(match) {
   if (!match?.is_finished || match.score_home === null || match.score_home === undefined) return '— : —';
+  const regular = `${match.score_home}:${match.score_away}`;
+  const finalHome = match.final_score_home;
+  const finalAway = match.final_score_away;
+  if (finalHome !== null && finalHome !== undefined && finalAway !== null && finalAway !== undefined
+    && (Number(finalHome) !== Number(match.score_home) || Number(finalAway) !== Number(match.score_away))) {
+    return `${regular} (осн. вр.; ДВ ${finalHome}:${finalAway})`;
+  }
+  return regular;
+}
+
+function formatFinalDisplayScore(match) {
+  if (!match?.is_finished || match.score_home === null || match.score_home === undefined) return '— : —';
+  const finalHome = match.final_score_home;
+  const finalAway = match.final_score_away;
+  if (finalHome !== null && finalHome !== undefined && finalAway !== null && finalAway !== undefined) {
+    return `${finalHome}:${finalAway}`;
+  }
   return `${match.score_home}:${match.score_away}`;
 }
 
@@ -2491,7 +2508,7 @@ function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
               <button className="hub-team-match" key={match.match_id} onClick={() => onOpenMatch?.({ id: match.match_id, ...match })}>
                 <span className="hub-match-line">
                   <span><TeamFlag code={match.home_flag_code} name={match.home_team} size="mini" /> {match.home_team}</span>
-                  <b>{match.is_finished ? `${match.score_home}:${match.score_away}` : '—'}</b>
+                  <b>{match.is_finished ? formatActualScore(match) : '—'}</b>
                   <span>{match.away_team} <TeamFlag code={match.away_flag_code} name={match.away_team} size="mini" /></span>
                 </span>
                 <small>{match.goals ? `⚽ ${match.goals}` : ''}{match.assists ? ` · 🅰 ${match.assists}` : ''}{match.minutes ? ` · ${match.minutes} мин` : ''}</small>
@@ -2563,8 +2580,8 @@ function KnockoutMatchCard({ match, onOpenMatch, onFollowNext, highlighted = fal
   const detailMatchId = match.db_match_id ?? (typeof match.id === 'number' ? match.id : null);
   const canOpen = Boolean(detailMatchId && onOpenMatch);
   const canFollow = Boolean(!compact && match.next_match_id && onFollowNext);
-  const scoreHome = match.is_finished ? match.score_home : null;
-  const scoreAway = match.is_finished ? match.score_away : null;
+  const scoreHome = match.is_finished ? (match.final_score_home ?? match.score_home) : null;
+  const scoreAway = match.is_finished ? (match.final_score_away ?? match.score_away) : null;
   const meta = [formatDateTime(match.starts_at), match.city].filter(Boolean).join(' · ');
   const content = <>
     <div className="knockout-match-head"><span>{meta || 'Дата уточняется'}</span>{match.is_finished && <b>Итог</b>}</div>
@@ -2617,8 +2634,8 @@ function KnockoutTreeMatchCard({ match, onOpenMatch }) {
   const top = (position.row - 1) * KNOCKOUT_TREE_ROW_UNIT;
   const content = <>
     <span className="knockout-tree-match-meta">{match.is_finished ? 'Итог' : formatDateTime(match.starts_at).replace(/\s·\s.*/, '')}</span>
-    <KnockoutTreeTeamLine slot={match.home} score={match.is_finished ? match.score_home : null} winner={match.is_finished && match.winner_side === 'home'} />
-    <KnockoutTreeTeamLine slot={match.away} score={match.is_finished ? match.score_away : null} winner={match.is_finished && match.winner_side === 'away'} />
+    <KnockoutTreeTeamLine slot={match.home} score={match.is_finished ? (match.final_score_home ?? match.score_home) : null} winner={match.is_finished && match.winner_side === 'home'} />
+    <KnockoutTreeTeamLine slot={match.away} score={match.is_finished ? (match.final_score_away ?? match.score_away) : null} winner={match.is_finished && match.winner_side === 'away'} />
   </>;
   const style = { left: `${left}px`, top: `${top}px` };
   if (!canOpen) return <article className="knockout-tree-match" style={style}>{content}</article>;
@@ -4506,7 +4523,7 @@ function AnalyticsPredictionsModal({ match, kind, leagueId = null, onClose }) {
       <section className="modal-card participants-modal analytics-predictions-modal">
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>{meta.title}</h2>
-        <p className="muted">{match.home_team} {match.score_home}:{match.score_away} {match.away_team}</p>
+        <p className="muted">{match.home_team} {formatActualScore(match)} {match.away_team}</p>
         {error && <p className="error-text">{error.message}</p>}
         {!error && !data && <LoadingCard text="Загружаю прогнозы..." />}
         {data && (
@@ -4567,7 +4584,7 @@ function RatingMatchAnalytics({ analytics, leagueName = '', onOpenPredictions })
                     <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
                     <b>{match.home_team}</b>
                   </span>
-                  <strong className="rating-analytics-score">{match.score_home}:{match.score_away}</strong>
+                  <strong className="rating-analytics-score">{formatActualScore(match)}</strong>
                   <span className="rating-analytics-team away">
                     <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
                     <b>{match.away_team}</b>

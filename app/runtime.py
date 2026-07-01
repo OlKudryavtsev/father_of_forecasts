@@ -88,6 +88,7 @@ from app.wc2026_sync import sync_wc2026_schedule
 from app.api_football import ApiFootballClient
 
 from app.wc2026_sync import (
+    get_fixture_final_score,
     get_fixture_score,
     get_winner_side,
     sync_wc2026_schedule,

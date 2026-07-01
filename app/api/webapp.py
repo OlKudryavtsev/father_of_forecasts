@@ -116,7 +116,7 @@ from app.services.league_quiz_content import (
     update_bank_question_v4,
 )
 from app.team_names import get_team_name_ru
-from app.wc2026_sync import get_fixture_score, get_winner_side
+from app.wc2026_sync import get_fixture_final_score, get_fixture_score, get_winner_side
 
 router = APIRouter(prefix="/api/webapp", tags=["Telegram Mini App"])
 US_TOURNAMENT_TIMEZONE = ZoneInfo(os.getenv("TOURNAMENT_DAY_TIMEZONE", "America/New_York"))
@@ -377,8 +377,13 @@ class HumorModePayload(BaseModel):
 
 
 class MatchResultPayload(BaseModel):
+    # Prediction score always means the score after 90 minutes.
     score_home: int = Field(ge=0, le=30)
     score_away: int = Field(ge=0, le=30)
+    # Optional final score after extra time for display. It does not affect
+    # score/outcome points. For a penalty shoot-out leave it equal to 90 min.
+    final_score_home: int | None = Field(default=None, ge=0, le=30)
+    final_score_away: int | None = Field(default=None, ge=0, le=30)
     winner_side: str | None = None
 
 
@@ -464,6 +469,8 @@ def _serialize_match(match: Match, user_prediction: Prediction | None = None) ->
         "city": match.city,
         "score_home": match.score_home,
         "score_away": match.score_away,
+        "final_score_home": match.final_score_home,
+        "final_score_away": match.final_score_away,
         "winner_side": match.winner_side,
         "is_finished": bool(match.is_finished),
         "is_playoff": is_playoff_match(match),
@@ -982,6 +989,8 @@ def _serialize_match_points_analytics_item(
         "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
         "score_home": match.score_home,
         "score_away": match.score_away,
+        "final_score_home": match.final_score_home,
+        "final_score_away": match.final_score_away,
         "count": count,
         "total_predictions": total_predictions,
         "result_kind": result_kind,
@@ -3981,6 +3990,8 @@ def _serialize_admin_match(match: Match) -> dict:
         "group_code": match.group_code,
         "score_home": match.score_home,
         "score_away": match.score_away,
+        "final_score_home": match.final_score_home,
+        "final_score_away": match.final_score_away,
         "winner_side": match.winner_side,
         "is_finished": bool(match.is_finished),
         "status_short": match.status_short,
@@ -4520,6 +4531,8 @@ def admin_set_match_result(
             score_home=payload.score_home,
             score_away=payload.score_away,
             winner_side=payload.winner_side,
+            final_score_home=payload.final_score_home,
+            final_score_away=payload.final_score_away,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -4570,6 +4583,7 @@ def admin_sync_match_result(
         }
 
     score_home, score_away = get_fixture_score(api_fixture)
+    final_score_home, final_score_away = get_fixture_final_score(api_fixture)
 
     if score_home is None or score_away is None:
         db.commit()
@@ -4587,6 +4601,8 @@ def admin_sync_match_result(
         score_home=score_home,
         score_away=score_away,
         winner_side=winner_side,
+        final_score_home=final_score_home,
+        final_score_away=final_score_away,
     )
 
     db.refresh(match)
@@ -5883,6 +5899,8 @@ def _knockout_match_base(match: Match) -> dict:
         "is_finished": bool(match.is_finished),
         "score_home": match.score_home,
         "score_away": match.score_away,
+        "final_score_home": match.final_score_home,
+        "final_score_away": match.final_score_away,
         "winner_side": match.winner_side,
         "home": _knockout_team_payload(match.home_team, match.home_team_api_name, match.home_external_team_id),
         "away": _knockout_team_payload(match.away_team, match.away_team_api_name, match.away_external_team_id),

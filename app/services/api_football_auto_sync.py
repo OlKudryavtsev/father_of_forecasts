@@ -11,7 +11,7 @@ from app.api_football import ApiFootballClient
 from app.models import FantasyPlayer, FantasyPlayerMatchStat, FantasyTeam, Match
 from app.runtime import TOURNAMENT_CODE
 from app.services.matches import apply_match_result_from_admin, is_playoff_match
-from app.wc2026_sync import get_fixture_score, get_winner_side
+from app.wc2026_sync import get_fixture_final_score, get_fixture_score, get_winner_side
 
 FINISHED_STATUSES = {"FT", "AET", "PEN"}
 
@@ -158,7 +158,10 @@ def sync_one_match_result_from_api(db: Session, match: Match, client: ApiFootbal
         db.commit()
         return {"ok": True, "updated": False, "message": f"status {status}"}
 
+    # Predictions are scored by regular time; keep the extra-time score only
+    # for display and the independent advancing-team bet.
     score_home, score_away = get_fixture_score(api_fixture)
+    final_score_home, final_score_away = get_fixture_final_score(api_fixture)
     if score_home is None or score_away is None:
         db.commit()
         return {"ok": False, "updated": False, "message": "API did not return score"}
@@ -172,6 +175,8 @@ def sync_one_match_result_from_api(db: Session, match: Match, client: ApiFootbal
         bool(match.is_finished)
         and match.score_home == score_home
         and match.score_away == score_away
+        and match.final_score_home == final_score_home
+        and match.final_score_away == final_score_away
         and match.winner_side == winner_side
     )
 
@@ -185,6 +190,8 @@ def sync_one_match_result_from_api(db: Session, match: Match, client: ApiFootbal
         score_home=score_home,
         score_away=score_away,
         winner_side=winner_side,
+        final_score_home=final_score_home,
+        final_score_away=final_score_away,
     )
 
     return {"ok": True, "updated": True, "message": f"updated {score_home}:{score_away}"}

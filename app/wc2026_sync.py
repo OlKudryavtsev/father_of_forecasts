@@ -146,10 +146,45 @@ def extract_fifa_match_no(api_fixture: dict) -> int | None:
     return None
 
 
-def get_fixture_score(api_fixture: dict) -> tuple[int | None, int | None]:
-    goals = api_fixture.get("goals") or {}
+def _score_pair(score_block: dict | None) -> tuple[int | None, int | None]:
+    """Return a validated numeric home/away pair from an API-Football block."""
+    score_block = score_block or {}
+    home = score_block.get("home")
+    away = score_block.get("away")
+    try:
+        home_value = int(home) if home is not None else None
+        away_value = int(away) if away is not None else None
+    except (TypeError, ValueError):
+        return None, None
+    return home_value, away_value
 
-    return goals.get("home"), goals.get("away")
+
+def get_fixture_score(api_fixture: dict) -> tuple[int | None, int | None]:
+    """Return the score after regular time (90 minutes) for prediction scoring.
+
+    API-Football's ``goals`` block is the final score and can include extra-time
+    goals.  The quiz/prediction rule is explicitly based on regular time, so
+    knockout fixtures use ``score.fulltime`` instead.  Older or incomplete API
+    payloads can omit that block; then ``goals`` remains a safe fallback for
+    ordinary non-extra-time fixtures.
+    """
+    score = api_fixture.get("score") or {}
+    fulltime = _score_pair(score.get("fulltime"))
+    if fulltime[0] is not None and fulltime[1] is not None:
+        return fulltime
+    return _score_pair(api_fixture.get("goals"))
+
+
+def get_fixture_final_score(api_fixture: dict) -> tuple[int | None, int | None]:
+    """Return the final score after extra time for display purposes.
+
+    For a penalty shoot-out this remains the tied football score; the winning
+    team is represented separately by ``winner_side``.
+    """
+    final = _score_pair(api_fixture.get("goals"))
+    if final[0] is not None and final[1] is not None:
+        return final
+    return get_fixture_score(api_fixture)
 
 
 def _score_side(score_block: dict | None) -> str | None:
@@ -216,6 +251,7 @@ def normalize_api_fixture(
     api_round = league.get("round")
 
     score_home, score_away = get_fixture_score(api_fixture)
+    final_score_home, final_score_away = get_fixture_final_score(api_fixture)
 
     return {
         "external_fixture_id": str(fixture["id"]),
@@ -248,8 +284,12 @@ def normalize_api_fixture(
         "venue": venue.get("name"),
         "city": venue.get("city"),
 
+        # Prediction score: regular time only.
         "score_home": score_home,
         "score_away": score_away,
+        # Display score: final after extra time, if applicable.
+        "final_score_home": final_score_home,
+        "final_score_away": final_score_away,
 
         "winner_side": get_winner_side(api_fixture),
 
@@ -319,6 +359,8 @@ def _apply_final_result_and_recalculate_predictions(
     score_home: int,
     score_away: int,
     winner_side: str | None,
+    final_score_home: int | None = None,
+    final_score_away: int | None = None,
 ) -> int:
     """Persist a final result and recalculate every prediction for the match.
 
@@ -327,6 +369,8 @@ def _apply_final_result_and_recalculate_predictions(
     """
     match.score_home = score_home
     match.score_away = score_away
+    match.final_score_home = final_score_home if final_score_home is not None else score_home
+    match.final_score_away = final_score_away if final_score_away is not None else score_away
     match.winner_side = winner_side
     match.is_finished = True
 
@@ -386,7 +430,7 @@ def upsert_match_from_api_fixture(
 
     # Result fields are deliberately excluded here: finished results are applied
     # below through apply_match_result_from_admin(), which recalculates points.
-    result_keys = {"score_home", "score_away", "winner_side", "is_finished"}
+    result_keys = {"score_home", "score_away", "final_score_home", "final_score_away", "winner_side", "is_finished"}
     for key, value in row.items():
         if key not in result_keys:
             setattr(match, key, value)
@@ -405,6 +449,8 @@ def upsert_match_from_api_fixture(
             not bool(match.is_finished)
             or match.score_home != row.get("score_home")
             or match.score_away != row.get("score_away")
+            or match.final_score_home != row.get("final_score_home")
+            or match.final_score_away != row.get("final_score_away")
             or match.winner_side != winner_side
         )
         points_stale = (
@@ -420,6 +466,8 @@ def upsert_match_from_api_fixture(
                 score_home=int(row["score_home"]),
                 score_away=int(row["score_away"]),
                 winner_side=winner_side,
+                final_score_home=row.get("final_score_home"),
+                final_score_away=row.get("final_score_away"),
             )
             recalculated = True
         else:
@@ -427,12 +475,16 @@ def upsert_match_from_api_fixture(
             # their final result without invoking the scorer unnecessarily.
             match.score_home = row.get("score_home")
             match.score_away = row.get("score_away")
+            match.final_score_home = row.get("final_score_home")
+            match.final_score_away = row.get("final_score_away")
             match.winner_side = winner_side
             match.is_finished = True
     else:
         # Keep live/unknown score metadata, but never mark the match as final.
         match.score_home = row.get("score_home")
         match.score_away = row.get("score_away")
+        match.final_score_home = row.get("final_score_home")
+        match.final_score_away = row.get("final_score_away")
         match.winner_side = row.get("winner_side")
         match.is_finished = bool(row.get("is_finished"))
 

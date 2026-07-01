@@ -624,6 +624,8 @@ def player_match_rows(db: Session, player_id: int | str) -> list[dict[str, Any]]
                     "starts_at": _utc(match.starts_at).isoformat(),
                     "score_home": match.score_home,
                     "score_away": match.score_away,
+                    "final_score_home": match.final_score_home,
+                    "final_score_away": match.final_score_away,
                     "is_finished": bool(match.is_finished),
                     "team": get_team_name_ru(team.get("name") or ""),
                     "minutes": int(games.get("minutes") or 0),
