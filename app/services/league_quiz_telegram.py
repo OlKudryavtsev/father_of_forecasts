@@ -474,16 +474,40 @@ async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEven
 
 
 async def process_league_quiz_telegram_events(db: Session, limit: int = 40) -> int:
+    """Deliver the oldest *pending* quiz events.
+
+    The delivery-complete marker is durable.  It must be part of the SQL
+    selection, not only an in-Python guard: otherwise the first 40 historical
+    completed events permanently occupy the polling window and newer events
+    never reach Telegram delivery.
+    """
+    event_done_exists = (
+        db.query(LeagueQuizTelegramDelivery.id)
+        .filter(
+            LeagueQuizTelegramDelivery.event_id == LeagueQuizEvent.id,
+            LeagueQuizTelegramDelivery.destination_key == DELIVERY_DONE_KEY,
+        )
+        .exists()
+    )
     events = (
         db.query(LeagueQuizEvent)
         .filter(LeagueQuizEvent.event_type.in_(SUPPORTED_EVENT_TYPES))
+        .filter(~event_done_exists)
         .order_by(LeagueQuizEvent.id.asc())
         .limit(limit)
         .all()
     )
     processed = 0
     for event in events:
-        if _event_skipped(event) or _delivery_exists(db, event.id, DELIVERY_DONE_KEY):
+        # A skipped event must be completed as well.  Otherwise it remains
+        # pending forever and can block a later polling window.
+        if _event_skipped(event):
+            _mark_event_done(db, event)
+            processed += 1
+            continue
+        # Keep the guard for a parallel worker that may have claimed the
+        # complete marker between the SELECT and this iteration.
+        if _delivery_exists(db, event.id, DELIVERY_DONE_KEY):
             continue
         try:
             await dispatch_league_quiz_telegram_event(db, event)

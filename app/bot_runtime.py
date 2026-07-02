@@ -273,6 +273,7 @@ async def league_quiz_telegram_loop():
         return
 
     interval_seconds = max(1, int(os.getenv("LEAGUE_QUIZ_TELEGRAM_INTERVAL_SECONDS", "1")))
+    print(f"League quiz Telegram delivery loop started: interval={interval_seconds}s")
     while True:
         db = SessionLocal()
         try:
