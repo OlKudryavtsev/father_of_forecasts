@@ -1490,3 +1490,8 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 
 ## v3.5.0
 Игровой слой квиза: `RELEASE_V3_5_0_QUIZ_GAME_LAYER.md`.
+
+
+## v3.5.1
+
+Исправлен импорт модели `League` в движке квизов. Это устраняет падение при создании квиза (`NameError: League is not defined`). Миграция не требуется.
