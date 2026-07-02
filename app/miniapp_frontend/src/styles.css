@@ -12661,3 +12661,263 @@ body,
 /* v3.5.3: each «Сто к одному» rank can include multiple tied answers and its measured value. */
 .hundred-editor-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .42fr); gap: 8px; }
 @media (max-width: 520px) { .hundred-editor-fields { grid-template-columns: 1fr; } }
+
+/* v3.5.4 — light-theme contrast pass and mandatory playoff choice */
+.app.theme-light {
+  --bg: #eef3f9;
+  --panel: #ffffff;
+  --panel-2: #e6edf6;
+  --text: #102033;
+  --muted: #50627a;
+  --line: rgba(15, 32, 60, 0.15);
+  --green: #087a53;
+  --green-soft: rgba(8, 122, 83, 0.12);
+  --blue: #1d4ed8;
+  --blue-soft: rgba(29, 78, 216, 0.11);
+  --red: #c6283b;
+  --red-soft: rgba(198, 40, 59, 0.11);
+  --gold: #9a5a0a;
+  --gold-soft: rgba(154, 90, 10, 0.12);
+  --shadow: 0 14px 32px rgba(24, 44, 74, 0.10);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(29, 78, 216, 0.10), transparent 28%),
+    radial-gradient(circle at 96% 10%, rgba(8, 122, 83, 0.09), transparent 26%),
+    #eef3f9;
+}
+
+.app.theme-light .section-label,
+.app.theme-light .muted,
+.app.theme-light .next-match-kicker,
+.app.theme-light .next-match-versus small,
+.app.theme-light .group-selection-hint,
+.app.theme-light .day-heading,
+.app.theme-light .match-card-top,
+.app.theme-light .match-date,
+.app.theme-light .hub-scorer-team,
+.app.theme-light .hub-player-button small,
+.app.theme-light .hub-scorers-card > header small {
+  color: #50627a;
+}
+
+.app.theme-light .card,
+.app.theme-light .match-card,
+.app.theme-light .ranking-row,
+.app.theme-light .stat-card,
+.app.theme-light .modal-card,
+.app.theme-light .next-match-hero,
+.app.theme-light .next-match-slot,
+.app.theme-light .tournament-mini,
+.app.theme-light .hub-preview-card,
+.app.theme-light .hub-scorers-card {
+  color: #102033;
+  border-color: rgba(15, 32, 60, 0.13);
+  box-shadow: 0 12px 28px rgba(24, 44, 74, 0.08);
+}
+
+.app.theme-light .next-match-hero,
+.app.theme-light .next-match-slot {
+  background:
+    radial-gradient(circle at 94% 2%, rgba(29, 78, 216, 0.12), transparent 32%),
+    linear-gradient(145deg, #ffffff, #f4f8fd);
+}
+
+/* Primary navigation and tab controls must not rely on translucent white text. */
+.app.theme-light .bottom-nav {
+  background: rgba(250, 252, 255, 0.97);
+  border-top-color: rgba(15, 32, 60, 0.14);
+  box-shadow: 0 -10px 28px rgba(24, 44, 74, 0.10);
+}
+
+.app.theme-light .bottom-nav button {
+  color: #50627a;
+  opacity: 1;
+}
+
+.app.theme-light .bottom-nav button.active {
+  color: #087a53;
+}
+
+.app.theme-light .center-mode-tabs,
+.app.theme-light .hub-switcher,
+.app.theme-light .tournament-view-tabs,
+.app.theme-light .group-tab-strip,
+.app.theme-light .match-sort-switch {
+  background: #e7eef7;
+  border-color: rgba(15, 32, 60, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.92);
+}
+
+.app.theme-light .center-mode-tabs button,
+.app.theme-light .hub-switcher button,
+.app.theme-light .tournament-view-tabs button,
+.app.theme-light .group-tab-strip button,
+.app.theme-light .match-sort-switch button {
+  color: #3d5069;
+  opacity: 1;
+  text-shadow: none;
+}
+
+.app.theme-light .center-mode-tabs button.active,
+.app.theme-light .hub-switcher button.active,
+.app.theme-light .tournament-view-tabs button.active,
+.app.theme-light .group-tab-strip button.active,
+.app.theme-light .match-sort-switch button.active {
+  color: #123e7a;
+  background: linear-gradient(135deg, #ffffff, #dff1eb);
+  border-color: rgba(8, 122, 83, 0.24);
+  box-shadow: 0 4px 12px rgba(24, 44, 74, 0.12), inset 0 0 0 1px rgba(255,255,255,0.90);
+}
+
+.app.theme-light .group-tab-strip button {
+  background: rgba(255,255,255,0.82);
+}
+
+.app.theme-light .group-tab-strip button.active {
+  color: #0c5f43;
+  background: #e4f4ec;
+}
+
+.app.theme-light .filter-strip button,
+.app.theme-light .modern-filters button {
+  color: #193451;
+  text-shadow: none;
+}
+
+.app.theme-light .filter-strip button:not(.active),
+.app.theme-light .modern-filters button:not(.active) {
+  opacity: 1;
+  filter: saturate(0.82) brightness(0.94);
+}
+
+.app.theme-light .filter-strip button.active,
+.app.theme-light .modern-filters button.active {
+  color: #102033;
+  filter: none;
+}
+
+.app.theme-light select,
+.app.theme-light input,
+.app.theme-light textarea,
+.app.theme-light .quiz-form select,
+.app.theme-light .quiz-form input,
+.app.theme-light .quiz-form textarea {
+  color: #102033;
+  background-color: #ffffff;
+  border-color: rgba(15, 32, 60, 0.17);
+}
+
+.app.theme-light .next-match-countdown,
+.app.theme-light .round-pill,
+.app.theme-light .group-pill,
+.app.theme-light .status-pill {
+  font-weight: 850;
+}
+
+/* Three explicit playoff options, including a visible neutral «Без прохода». */
+.app.theme-light .advancement-picker {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(29, 78, 216, 0.12), transparent 38%),
+    linear-gradient(145deg, #f9fcff, #edf6f4);
+  border-color: rgba(8, 122, 83, 0.27);
+  box-shadow: 0 8px 18px rgba(24, 44, 74, 0.07);
+}
+
+.app.theme-light .advancement-picker-head b {
+  color: #102033;
+}
+
+.app.theme-light .advancement-picker-head small {
+  color: #45617e;
+}
+
+.app.theme-light .advancement-options .advancement-option {
+  color: #172b45;
+  background: #ffffff;
+  border-color: rgba(15, 32, 60, 0.16);
+  opacity: 1;
+  box-shadow: 0 2px 7px rgba(24, 44, 74, 0.05);
+}
+
+.app.theme-light .advancement-options .advancement-option[aria-pressed="false"] {
+  opacity: 1;
+}
+
+.app.theme-light .advancement-option-check {
+  color: #ffffff;
+  background: #ffffff;
+  border-color: #8a9ab0;
+}
+
+.app.theme-light .advancement-option-copy small {
+  color: #526780;
+}
+
+.app.theme-light .advancement-options .advancement-option.active {
+  color: #073f30;
+  background: linear-gradient(90deg, #d9f5e8, #effaf5);
+  border-color: rgba(8, 122, 83, 0.62);
+  box-shadow: 0 0 0 2px rgba(8, 122, 83, 0.13), 0 5px 12px rgba(8, 122, 83, 0.10);
+}
+
+.app.theme-light .advancement-option.active .advancement-option-check {
+  color: #ffffff;
+  background: #087a53;
+  border-color: #087a53;
+}
+
+.app.theme-light .advancement-option.active .advancement-option-copy small {
+  color: #226450;
+}
+
+.advancement-option-none-icon {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  color: #62748a;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.app.theme-light .advancement-options .advancement-option-none {
+  background: #f7f9fc;
+  border-style: dashed;
+}
+
+.app.theme-light .advancement-options .advancement-option-none.active {
+  color: #1f4f8d;
+  background: linear-gradient(90deg, #e8f1ff, #f6f9ff);
+  border-color: rgba(29, 78, 216, 0.58);
+  box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.11), 0 5px 12px rgba(29, 78, 216, 0.08);
+}
+
+.app.theme-light .advancement-option-none.active .advancement-option-check {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.app.theme-light .advancement-option-none.active .advancement-option-copy small,
+.app.theme-light .advancement-option-none.active .advancement-option-none-icon {
+  color: #315f9c;
+}
+
+@media (max-width: 430px) {
+  .advancement-options .advancement-option {
+    min-height: 55px;
+  }
+  .advancement-picker-head small {
+    font-size: 10px;
+  }
+}
+
+.advancement-required-hint {
+  margin: 9px 1px 0;
+  color: #b54708;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+.app.theme-light .advancement-required-hint { color: #9a4a08; }

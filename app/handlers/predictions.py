@@ -95,7 +95,17 @@ async def predict_handler(message: Message):
         predicted_advancing_side = None
 
         if is_playoff_match(match):
-            choice = advancement_raw[0] if advancement_raw else "none"
+            if not advancement_raw:
+                await message.answer(
+                    "Для матча плей-офф обязательно выбери один вариант прохода:\n"
+                    "home — пройдёт первая команда\n"
+                    "away — пройдёт вторая команда\n"
+                    "none — без прохода (0 очков)\n\n"
+                    "Пример:\n"
+                    "/predict 5 1:1 home"
+                )
+                return
+            choice = advancement_raw[0]
 
             try:
                 advancement_bet_enabled, predicted_advancing_side = (
@@ -103,13 +113,9 @@ async def predict_handler(message: Message):
                 )
             except ValueError:
                 await message.answer(
-                    "Не понял ставку на проход.\n\n"
-                    "Используй:\n"
-                    "home — пройдет первая команда\n"
-                    "away — пройдет вторая команда\n"
-                    "none — не ставить на проход\n\n"
-                    "Пример:\n"
-                    "/predict 5 1:1 home"
+                    "Не понял выбор прохода.\n\n"
+                    "Используй home, away или none.\n"
+                    "Пример: /predict 5 1:1 none"
                 )
                 return
         else:
@@ -127,6 +133,7 @@ async def predict_handler(message: Message):
             pred_away=pred_away,
             advancement_bet_enabled=advancement_bet_enabled,
             predicted_advancing_side=predicted_advancing_side,
+            advancement_choice=choice if is_playoff_match(match) else None,
         )
 
         await message.answer(text)
@@ -338,10 +345,10 @@ async def predict_score_callback(callback: CallbackQuery):
         if is_playoff_match(match):
             await callback.message.answer(
                 f"Счет выбран: {pred_home}:{pred_away}\n\n"
-                "Это матч плей-офф. Хочешь рискнуть и поставить, "
-                "кто пройдет дальше?\n\n"
-                "Если угадаешь — +1 очко.\n"
-                "Если не угадаешь — -1 очко.",
+                "Это матч плей-офф. Выбери один обязательный вариант: "
+                "кто пройдёт дальше или «Без прохода».\n\n"
+                "Команда: +1 за верный проход, −1 за ошибку.\n"
+                "Без прохода: 0 очков.",
                 reply_markup=build_advancement_keyboard(
                     match_id=match.id,
                     pred_home=pred_home,
@@ -407,6 +414,7 @@ async def predict_advancement_callback(callback: CallbackQuery):
             pred_away=pred_away,
             advancement_bet_enabled=advancement_bet_enabled,
             predicted_advancing_side=predicted_advancing_side,
+            advancement_choice=choice,
         )
 
         await callback.message.answer(text)

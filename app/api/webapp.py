@@ -264,6 +264,10 @@ class PredictionPayload(BaseModel):
     pred_away: int = Field(ge=0, le=20)
     advancement_bet_enabled: bool = False
     predicted_advancing_side: str | None = None
+    # Explicit UI choice for playoff predictions: home / away / none.
+    # It is intentionally separate from the persisted Boolean so the API can
+    # distinguish an omitted choice from the participant selecting «Без прохода».
+    advancement_choice: str | None = None
 
 
 class AdminPredictionEditPayload(BaseModel):
@@ -2292,8 +2296,22 @@ async def save_prediction_endpoint(
     if payload.predicted_advancing_side not in (None, "home", "away"):
         raise HTTPException(status_code=400, detail="Invalid advancing side")
 
-    if not is_playoff_match(match) and payload.advancement_bet_enabled:
-        raise HTTPException(status_code=400, detail="Advancement bet is only available for playoff matches")
+    playoff = is_playoff_match(match)
+    advancement_choice = str(payload.advancement_choice or "").strip().lower() or None
+
+    if playoff:
+        if advancement_choice not in {"home", "away", "none"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Для матча плей-офф выберите команду на проход или вариант «Без прохода».",
+            )
+        advancement_bet_enabled = advancement_choice in {"home", "away"}
+        predicted_advancing_side = advancement_choice if advancement_bet_enabled else None
+    else:
+        if payload.advancement_bet_enabled or payload.predicted_advancing_side or advancement_choice:
+            raise HTTPException(status_code=400, detail="Advancement bet is only available for playoff matches")
+        advancement_bet_enabled = False
+        predicted_advancing_side = None
 
     success, text = await save_prediction_and_notify_admins(
         db=db,
@@ -2301,8 +2319,9 @@ async def save_prediction_endpoint(
         match=match,
         pred_home=payload.pred_home,
         pred_away=payload.pred_away,
-        advancement_bet_enabled=payload.advancement_bet_enabled,
-        predicted_advancing_side=payload.predicted_advancing_side,
+        advancement_bet_enabled=advancement_bet_enabled,
+        predicted_advancing_side=predicted_advancing_side,
+        advancement_choice=advancement_choice,
     )
 
     if not success:

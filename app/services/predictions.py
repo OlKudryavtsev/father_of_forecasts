@@ -48,6 +48,7 @@ def save_prediction(
         pred_away: int,
         advancement_bet_enabled: bool = False,
         predicted_advancing_side: str | None = None,
+        advancement_choice: str | None = None,
 ) -> tuple[bool, str]:
     """Provide bot helper logic for save_prediction."""
     from app.services.matches import is_playoff_match
@@ -64,6 +65,19 @@ def save_prediction(
             "Ставки на этот матч уже закрыты. "
             "Отец прогнозов суров, но справедлив.",
         )
+
+    playoff = is_playoff_match(match)
+    normalized_choice = str(advancement_choice or "").strip().lower() or None
+    if playoff:
+        if normalized_choice not in {"home", "away", "none"}:
+            return False, "Для матча плей-офф выберите команду на проход или вариант «Без прохода»."
+        advancement_bet_enabled = normalized_choice in {"home", "away"}
+        predicted_advancing_side = normalized_choice if advancement_bet_enabled else None
+    elif normalized_choice or advancement_bet_enabled or predicted_advancing_side:
+        return False, "Выбор прохода доступен только в матчах плей-офф."
+    else:
+        advancement_bet_enabled = False
+        predicted_advancing_side = None
 
     existing_prediction = db.query(Prediction).filter(
         Prediction.user_id == user.id,
@@ -131,6 +145,7 @@ async def save_prediction_and_notify_admins(
         pred_away: int,
         advancement_bet_enabled: bool = False,
         predicted_advancing_side: str | None = None,
+        advancement_choice: str | None = None,
 ) -> tuple[bool, str]:
     """Save match prediction without noisy admin/group notifications."""
     # По просьбе админа отключены уведомления о факте прогноза на матч:
@@ -145,6 +160,7 @@ async def save_prediction_and_notify_admins(
         pred_away=pred_away,
         advancement_bet_enabled=advancement_bet_enabled,
         predicted_advancing_side=predicted_advancing_side,
+        advancement_choice=advancement_choice,
     )
 
 

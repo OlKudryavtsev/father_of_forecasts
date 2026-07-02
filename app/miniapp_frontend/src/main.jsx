@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.5.3';
+const APP_VERSION = '3.5.4';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -3101,12 +3101,19 @@ function EmptyState({ iconName = 'ball', title, text }) {
   );
 }
 
+function savedPlayoffChoice(match) {
+  if (!match?.is_playoff) return null;
+  const side = match?.prediction?.predicted_advancing_side;
+  if (match?.prediction?.advancement_bet_enabled && ['home', 'away'].includes(side)) return side;
+  // Legacy saved playoff predictions without a selected side are represented as
+  // an explicit neutral choice when the participant opens them for editing.
+  return match?.prediction ? 'none' : null;
+}
+
 function ScorePicker({ match, onClose, onSaved }) {
   const [home, setHome] = useState(match?.prediction?.pred_home ?? 1);
   const [away, setAway] = useState(match?.prediction?.pred_away ?? 1);
-  const [advancingSide, setAdvancingSide] = useState(
-    match?.prediction?.advancement_bet_enabled ? (match?.prediction?.predicted_advancing_side || null) : null,
-  );
+  const [advancementChoice, setAdvancementChoice] = useState(() => savedPlayoffChoice(match));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const isPlayoff = Boolean(match?.is_playoff);
@@ -3114,7 +3121,7 @@ function ScorePicker({ match, onClose, onSaved }) {
   useEffect(() => {
     setHome(match?.prediction?.pred_home ?? 1);
     setAway(match?.prediction?.pred_away ?? 1);
-    setAdvancingSide(match?.prediction?.advancement_bet_enabled ? (match?.prediction?.predicted_advancing_side || null) : null);
+    setAdvancementChoice(savedPlayoffChoice(match));
   }, [match?.id]);
 
   useEffect(() => {
@@ -3129,6 +3136,10 @@ function ScorePicker({ match, onClose, onSaved }) {
   if (!match) return null;
 
   async function save() {
+    if (isPlayoff && !['home', 'away', 'none'].includes(advancementChoice)) {
+      setError(new Error('Для матча плей-офф выберите: первая команда, вторая команда или «Без прохода».'));
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -3138,8 +3149,9 @@ function ScorePicker({ match, onClose, onSaved }) {
           match_id: match.id,
           pred_home: home,
           pred_away: away,
-          advancement_bet_enabled: Boolean(isPlayoff && advancingSide),
-          predicted_advancing_side: isPlayoff ? advancingSide : null,
+          advancement_choice: isPlayoff ? advancementChoice : null,
+          advancement_bet_enabled: Boolean(isPlayoff && ['home', 'away'].includes(advancementChoice)),
+          predicted_advancing_side: isPlayoff && ['home', 'away'].includes(advancementChoice) ? advancementChoice : null,
         }),
       });
       trackAnalytics('prediction_save', {
@@ -3197,47 +3209,53 @@ function ScorePicker({ match, onClose, onSaved }) {
               <span aria-hidden="true">🕒</span>
               <span><b>Счёт — только за 90 минут.</b> Дополнительное время и пенальти учитываются только при выборе прохода.</span>
             </p>
-            <section className="advancement-picker" aria-label="Прогноз на проход">
-            <div className="advancement-picker-head">
-              <div>
-                <b>Кто пройдёт дальше?</b>
-                <small>Необязательно · +1 за верный проход, −1 за ошибку</small>
+            <section className="advancement-picker" aria-label="Выбор прохода в плей-офф">
+              <div className="advancement-picker-head">
+                <div>
+                  <b>Кто пройдёт дальше?</b>
+                  <small>Выберите один вариант · команда: +1 / −1 · «Без прохода»: 0</small>
+                </div>
+                <span aria-hidden="true">🎟️</span>
               </div>
-              <span>🎟️</span>
-            </div>
-            <div className="advancement-options">
-              <button
-                type="button"
-                aria-pressed={advancingSide === 'home'}
-                className={`advancement-option ${advancingSide === 'home' ? 'active' : ''}`}
-                onClick={() => setAdvancingSide('home')}
-              >
-                <span className="advancement-option-check">{advancingSide === 'home' ? '✓' : ''}</span>
-                <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
-                <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.home_team}</b></span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={advancingSide === 'away'}
-                className={`advancement-option ${advancingSide === 'away' ? 'active' : ''}`}
-                onClick={() => setAdvancingSide('away')}
-              >
-                <span className="advancement-option-check">{advancingSide === 'away' ? '✓' : ''}</span>
-                <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
-                <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.away_team}</b></span>
-              </button>
-            </div>
-            {advancingSide && (
-              <button type="button" className="advancement-skip" onClick={() => setAdvancingSide(null)}>
-                Не ставить на проход
-              </button>
-            )}
-          </section>
+              <div className="advancement-options" role="group" aria-label="Обязательный выбор прохода">
+                <button
+                  type="button"
+                  aria-pressed={advancementChoice === 'home'}
+                  className={`advancement-option ${advancementChoice === 'home' ? 'active' : ''}`}
+                  onClick={() => setAdvancementChoice('home')}
+                >
+                  <span className="advancement-option-check">{advancementChoice === 'home' ? '✓' : ''}</span>
+                  <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
+                  <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.home_team}</b></span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={advancementChoice === 'away'}
+                  className={`advancement-option ${advancementChoice === 'away' ? 'active' : ''}`}
+                  onClick={() => setAdvancementChoice('away')}
+                >
+                  <span className="advancement-option-check">{advancementChoice === 'away' ? '✓' : ''}</span>
+                  <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
+                  <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.away_team}</b></span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={advancementChoice === 'none'}
+                  className={`advancement-option advancement-option-none ${advancementChoice === 'none' ? 'active' : ''}`}
+                  onClick={() => setAdvancementChoice('none')}
+                >
+                  <span className="advancement-option-check">{advancementChoice === 'none' ? '✓' : ''}</span>
+                  <span className="advancement-option-none-icon" aria-hidden="true">—</span>
+                  <span className="advancement-option-copy"><small>Нейтральный выбор · 0 очков</small><b>Без прохода</b></span>
+                </button>
+              </div>
+              {!advancementChoice && <p className="advancement-required-hint">Сначала выберите один из трёх вариантов прохода.</p>}
+            </section>
           </>
         )}
 
         {error && <p className="error-text">{error.message}</p>}
-        <button className="primary full" disabled={saving} onClick={save}>{saving ? 'Сохраняю...' : 'Сохранить прогноз'}</button>
+        <button className="primary full" disabled={saving || (isPlayoff && !['home', 'away', 'none'].includes(advancementChoice))} onClick={save}>{saving ? 'Сохраняю...' : 'Сохранить прогноз'}</button>
       </section>
     </div>
   );
@@ -7860,7 +7878,7 @@ function RulesModal({ onClose }) {
           <ul className="nice-list">
             <li>🟢 +1 очко — если проход дальше угадан.</li>
             <li>🔴 -1 очко — если проход не угадан.</li>
-            <li>⚪ 0 очков — если участник решил не ставить на проход.</li>
+            <li>⚪ 0 очков — при обязательном выборе «Без прохода».</li>
           </ul>
         </div>
 

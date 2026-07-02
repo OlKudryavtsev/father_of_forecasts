@@ -58,7 +58,7 @@ def build_advancement_keyboard(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"Рискнуть: пройдет {match.home_team}",
+                    text=f"Пройдёт дальше: {match.home_team}",
                     callback_data=(
                         f"predict_adv:{match_id}:{pred_home}:{pred_away}:home"
                     ),
@@ -66,7 +66,7 @@ def build_advancement_keyboard(
             ],
             [
                 InlineKeyboardButton(
-                    text=f"Рискнуть: пройдет {match.away_team}",
+                    text=f"Пройдёт дальше: {match.away_team}",
                     callback_data=(
                         f"predict_adv:{match_id}:{pred_home}:{pred_away}:away"
                     ),
@@ -74,7 +74,7 @@ def build_advancement_keyboard(
             ],
             [
                 InlineKeyboardButton(
-                    text="Не ставить на проход",
+                    text="Без прохода · 0 очков",
                     callback_data=(
                         f"predict_adv:{match_id}:{pred_home}:{pred_away}:none"
                     ),

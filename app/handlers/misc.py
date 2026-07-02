@@ -64,10 +64,10 @@ async def match_custom_score_handler(message: Message, state: FSMContext):
 
             await message.answer(
                 f"Счет выбран: {pred_home}:{pred_away}\n\n"
-                "Это матч плей-офф. Хочешь рискнуть и поставить, "
-                "кто пройдет дальше?\n\n"
-                "Если угадаешь — +1 очко.\n"
-                "Если не угадаешь — -1 очко.",
+                "Это матч плей-офф. Выбери один обязательный вариант: "
+                "кто пройдёт дальше или «Без прохода».\n\n"
+                "Команда: +1 за верный проход, −1 за ошибку.\n"
+                "Без прохода: 0 очков.",
                 reply_markup=build_advancement_keyboard(
                     match_id=match.id,
                     pred_home=pred_home,
