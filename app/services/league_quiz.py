@@ -1214,17 +1214,17 @@ CANONICAL_ROUND_ORDER = {
 # duration for each clue. A quiz stores a complete editable copy in the DB.
 DEFAULT_QUIZ_TIMER_SETTINGS = {
     "choice_4": 30,
-    "choice_2": 20,
-    "true_false": 20,
-    "more_less": 20,
-    "yes_no": 20,
-    "jeopardy": 50,
-    "one_of_two": 45,
-    "what_where_when": 75,
-    "hundred_to_one": 50,
-    "countdown_stage_1": 25,
-    "countdown_stage_2": 25,
-    "countdown_stage_3": 35,
+    "choice_2": 30,
+    "true_false": 30,
+    "more_less": 30,
+    "yes_no": 30,
+    "jeopardy": 60,
+    "one_of_two": 60,
+    "what_where_when": 90,
+    "hundred_to_one": 90,
+    "countdown_stage_1": 30,
+    "countdown_stage_2": 30,
+    "countdown_stage_3": 30,
 }
 
 

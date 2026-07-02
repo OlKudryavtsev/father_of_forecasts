@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.4.3';
+const APP_VERSION = '3.4.4';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6586,17 +6586,17 @@ const QUIZ_ROUND_SEQUENCE = {
 
 const DEFAULT_QUIZ_TIMER_SETTINGS = {
   choice_4: 30,
-  choice_2: 20,
-  true_false: 20,
-  more_less: 20,
-  yes_no: 20,
-  jeopardy: 50,
-  one_of_two: 45,
-  what_where_when: 75,
-  hundred_to_one: 50,
-  countdown_stage_1: 25,
-  countdown_stage_2: 25,
-  countdown_stage_3: 35,
+  choice_2: 30,
+  true_false: 30,
+  more_less: 30,
+  yes_no: 30,
+  jeopardy: 60,
+  one_of_two: 60,
+  what_where_when: 90,
+  hundred_to_one: 90,
+  countdown_stage_1: 30,
+  countdown_stage_2: 30,
+  countdown_stage_3: 30,
 };
 
 const QUIZ_TIMER_FIELDS = [
@@ -6608,9 +6608,9 @@ const QUIZ_TIMER_FIELDS = [
 
 
 const QUIZ_WORKSPACE_TABS = [
-  { id: 'games', label: 'Игры', hint: 'регистрация и история' },
-  { id: 'planner', label: 'Планирование', hint: 'сценарий и вопросы' },
-  { id: 'bank', label: 'Банк вопросов', hint: 'создание и импорт' },
+  { id: 'games', label: 'Игры', hint: 'регистрация и история', icon: '▶' },
+  { id: 'planner', label: 'План', hint: 'сценарий и вопросы', icon: '✦' },
+  { id: 'bank', label: 'Банк', hint: 'вопросы и импорт', icon: '▦' },
 ];
 
 const FULL_QUIZ_TEMPLATE = [
@@ -6676,6 +6676,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [busy, setBusy] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [bank, setBank] = useState([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankQuery, setBankQuery] = useState('');
+  const [bankTypeFilter, setBankTypeFilter] = useState('all');
   const [workspaceTab, setWorkspaceTab] = useState('games');
   const [plannerMode, setPlannerMode] = useState('full');
   const [plannerRound, setPlannerRound] = useState('millionaire');
@@ -7279,6 +7282,17 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const quiz = detail?.quiz;
   const currentQuestion = detail?.current_question;
   const approvedBank = bank.filter((question) => question.status === 'approved');
+  const visibleBank = useMemo(() => {
+    const query = bankQuery.trim().toLocaleLowerCase('ru-RU');
+    return bank.filter((question) => {
+      const matchesType = bankTypeFilter === 'all' || question.question_type === bankTypeFilter;
+      if (!matchesType) return false;
+      if (!query) return true;
+      const haystack = [question.question_text, question.type_label, question.tags, ...(question.topics || [])]
+        .filter(Boolean).join(' ').toLocaleLowerCase('ru-RU');
+      return haystack.includes(query);
+    });
+  }, [bank, bankQuery, bankTypeFilter]);
   const activeQuizItems = quizzes.filter((item) => ['registration_open', 'running', 'paused'].includes(item.status));
   const historyQuizItems = quizzes.filter((item) => ['finished', 'cancelled'].includes(item.status));
   const renderQuizSessionCard = (item) => (
@@ -7294,26 +7308,19 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
 
   return (
     <main className="screen-content quiz-screen">
-      <div className="section-label">Квиз · {activeLeague?.name || 'Лига'}</div>
-      <section className="card quiz-intro-card">
-        <div>
-          <span className="quiz-kicker">v3.4.3 · Рабочее пространство</span>
-          <h1>Квиз лиги</h1>
-          <p>Участие в играх, планирование сценариев и банк вопросов — в отдельных вкладках.</p>
-        </div>
-        <span className="quiz-intro-icon">🧠</span>
-      </section>
+      <div className="section-label quiz-section-label">Квиз · {activeLeague?.name || 'Лига'}</div>
 
       {error && <div className="inline-error quiz-error">{error.message || 'Не удалось выполнить действие.'}<button type="button" onClick={() => setError(null)}>×</button></div>}
 
       <nav className="quiz-workspace-tabs" aria-label="Разделы квиза">
         {QUIZ_WORKSPACE_TABS.filter((tab) => tab.id === 'games' || (tab.id === 'planner' && canHost) || (tab.id === 'bank' && canEdit)).map((tab) => (
-          <button key={tab.id} type="button" className={workspaceTab === tab.id ? 'active' : ''} onClick={() => {
+          <button key={tab.id} type="button" className={workspaceTab === tab.id ? 'active' : ''} aria-current={workspaceTab === tab.id ? 'page' : undefined} onClick={() => {
             setWorkspaceTab(tab.id);
             setBankOpen(tab.id !== 'games');
             if (tab.id !== 'games') loadBank();
           }}>
-            <b>{tab.label}</b><small>{tab.hint}</small>
+            <span className="quiz-workspace-tab-icon" aria-hidden="true">{tab.icon}</span>
+            <span className="quiz-workspace-tab-copy"><b>{tab.label}</b><small>{tab.hint}</small></span>
           </button>
         ))}
       </nav>
@@ -7434,7 +7441,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
           {workspaceTab !== 'games' && canManage && (
             <section className="card quiz-admin-card">
               <div className="quiz-admin-toggle quiz-admin-heading">
-                <span><b>{workspaceTab === 'bank' ? 'Банк вопросов' : 'Планирование квиза'}</b><small>{workspaceTab === 'bank' ? 'создание, импорт, загрузка и качество контента' : 'режим игры, таймеры и сценарий раундов'}</small></span>
+                <span><b>{workspaceTab === 'bank' ? 'Банк вопросов' : 'Планирование квиза'}</b><small>{workspaceTab === 'bank' ? 'создание, импорт и загрузка наборов' : 'сценарий, таймеры и набор вопросов'}</small></span>
               </div>
               {bankOpen && <div className="quiz-admin-body">
                 {workspaceTab === 'bank' && canEdit && <>
@@ -7480,20 +7487,27 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
 
                 <section className="quiz-bank-list">
                   <div className="quiz-bank-title"><h3>Банк вопросов</h3><div><button type="button" onClick={loadBank} disabled={bankLoading}>Обновить</button><button type="button" onClick={exportBank} disabled={busy}>Экспорт JSON</button></div></div>
+                  <div className="quiz-bank-toolbar">
+                    <input value={bankQuery} onChange={(event) => setBankQuery(event.target.value)} placeholder="Поиск по тексту, теме или тегу" />
+                    <select value={bankTypeFilter} onChange={(event) => setBankTypeFilter(event.target.value)}>
+                      <option value="all">Все форматы</option>
+                      {Object.entries(QUIZ_TYPE_META).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}
+                    </select>
+                  </div>
                   <details className="quiz-import-box"><summary>Импортировать вопросы из JSON</summary><textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder='{ "questions": [ ... ] }' /><button type="button" disabled={busy || !importText.trim()} onClick={importBank}>Импортировать как черновики</button></details>
                   {previewQuestion && <section className="quiz-preview-card"><div><b>Предпросмотр · {previewQuestion.type_label}</b><button type="button" onClick={() => setPreviewQuestion(null)}>×</button></div><h4>{previewQuestion.question_text}</h4>{(previewQuestion.media || []).map((media) => <figure key={media.url}><img src={media.url} alt={media.caption || 'Изображение'} /><figcaption>{media.caption || ''}</figcaption></figure>)}{(previewQuestion.options || []).map((option) => <p key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}{option.is_correct ? ' ✓' : ''}</p>)}{quizBankSummary(previewQuestion) && <p className="muted">{quizBankSummary(previewQuestion)}</p>}{(previewQuestion.sources || []).map((source, index) => <a key={index} href={source.url || '#'} target="_blank" rel="noreferrer">{source.title || source.url}</a>)}</section>}
                   {historyQuestion && <section className="quiz-history-card"><div><b>История вопроса #{historyQuestion.question.id}</b><button type="button" onClick={() => setHistoryQuestion(null)}>×</button></div><p className="muted">Живых использований: {historyQuestion.summary?.live_uses || 0} · ответов: {historyQuestion.summary?.answered_count || 0} · верно: {historyQuestion.summary?.correct_rate ?? '—'}%</p>{historyQuestion.usage?.length ? <details><summary>Где использовался</summary><ol>{historyQuestion.usage.map((row) => <li key={`${row.session_id}-${row.round_order}-${row.question_order}`}><b>{row.quiz_title}</b><span>Раунд {row.round_order}: {row.round_title} · вопрос {row.question_order}</span><small>{row.used_at ? formatQuizDate(row.used_at) : ''} · участников {row.participants_count} · точность {row.correct_rate ?? '—'}%</small></li>)}</ol></details> : <p className="muted">В живых квизах вопрос ещё не использовался.</p>}{historyQuestion.rows.length ? <details><summary>Журнал изменений</summary><ol>{historyQuestion.rows.map((row) => <li key={row.id}><b>{row.action_type}</b><span>{row.created_at ? formatQuizDate(row.created_at) : ''}</span>{row.note && <small>{row.note}</small>}</li>)}</ol></details> : null}</section>}
-                  {bankLoading ? <LoadingCard text="Загружаю банк..." /> : bank.length ? bank.map((question) => <article className={`quiz-bank-item ${question.status}`} key={question.id}><div><span className={`quiz-status ${question.status === 'approved' ? 'active' : question.status === 'archived' ? 'danger' : 'neutral'}`}>{question.status === 'approved' ? 'Одобрен' : question.status === 'archived' ? 'Архив' : 'Черновик'}</span><b>{question.default_points} очк.</b></div><strong>{question.question_text}</strong><small>{question.type_label} · использован: {question.times_used}</small>{quizBankSummary(question) && <small>{quizBankSummary(question)}</small>}{(question.media || []).length > 0 && <small>🖼 медиа: {(question.media || []).length}</small>}<div className="quiz-bank-options">{(question.options || []).map((option) => <span key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}</span>)}</div><div className="quiz-bank-actions"><button type="button" onClick={() => setPreviewQuestion(question)}>Предпросмотр</button><button type="button" onClick={() => startEditingQuestion(question)} disabled={busy || question.status === 'archived'}>Изменить</button><button type="button" onClick={() => openQuestionHistory(question)} disabled={busy}>История</button>{question.status === 'draft' && <button type="button" disabled={busy} onClick={() => approveQuestion(question.id)}>Одобрить</button>}{question.status !== 'archived' ? <button type="button" className="danger" disabled={busy} onClick={() => archiveQuestion(question.id)}>В архив</button> : <button type="button" disabled={busy} onClick={() => restoreQuestion(question.id)}>В черновик</button>}</div></article>) : <p className="muted">Вопросов пока нет.</p>}
+                  {bankLoading ? <LoadingCard text="Загружаю банк..." /> : visibleBank.length ? visibleBank.map((question) => <article className={`quiz-bank-item ${question.status}`} key={question.id}><div><span className={`quiz-status ${question.status === 'approved' ? 'active' : question.status === 'archived' ? 'danger' : 'neutral'}`}>{question.status === 'approved' ? 'Одобрен' : question.status === 'archived' ? 'Архив' : 'Черновик'}</span><b>{question.default_points} очк.</b></div><strong>{question.question_text}</strong><small>{question.type_label} · использован: {question.times_used}</small>{quizBankSummary(question) && <small>{quizBankSummary(question)}</small>}{(question.media || []).length > 0 && <small>🖼 медиа: {(question.media || []).length}</small>}<div className="quiz-bank-options">{(question.options || []).map((option) => <span key={option.key} className={option.is_correct ? 'correct' : ''}>{option.key}. {option.text}</span>)}</div><div className="quiz-bank-actions"><button type="button" onClick={() => setPreviewQuestion(question)}>Предпросмотр</button><button type="button" onClick={() => startEditingQuestion(question)} disabled={busy || question.status === 'archived'}>Изменить</button><button type="button" onClick={() => openQuestionHistory(question)} disabled={busy}>История</button>{question.status === 'draft' && <button type="button" disabled={busy} onClick={() => approveQuestion(question.id)}>Одобрить</button>}{question.status !== 'archived' ? <button type="button" className="danger" disabled={busy} onClick={() => archiveQuestion(question.id)}>В архив</button> : <button type="button" disabled={busy} onClick={() => restoreQuestion(question.id)}>В черновик</button>}</div></article>) : <p className="muted">{bank.length ? 'По выбранному фильтру вопросов нет.' : 'Вопросов пока нет.'}</p>}
                 </section>
                 </>}
 
                 {workspaceTab === 'planner' && canHost && <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
                   <h3>Создать сценарий квиза</h3>
-                  <p className="muted">Сначала выберите режим, затем заполните нужные раунды. Полный квиз содержит 60 вопросов: 5 обычных вопросов каждого типа, 20 карточек «Своей игры» и 5 раундов «Сто к одному».</p>
+                  <p className="muted">Вопросы берутся из одобренных карточек Банка. Выберите режим, затем заполните раунды вручную или кнопкой автоподбора.</p>
                   <div className="quiz-planner-modes">
-                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Полный квиз <small>60 вопросов</small></button>
-                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Квиз одного типа <small>5 / 20 вопросов</small></button>
-                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); }}>Случайный вопрос <small>1 вопрос</small></button>
+                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}><b>Полный</b><small>60 вопросов</small></button>
+                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}><b>Один формат</b><small>5 / 20 вопросов</small></button>
+                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); }}><b>Случайный</b><small>1 вопрос</small></button>
                   </div>
                   {plannerMode === 'full' && <section className="planner-rounds"><div><b>Раунды полного квиза</b><button type="button" disabled={busy || !approvedBank.length} onClick={autoFillFullQuiz}>Автозаполнить все раунды</button></div><div className="planner-round-chips">{FULL_QUIZ_TEMPLATE.map((meta) => <button key={meta.round} type="button" className={plannerRound === meta.round ? 'active' : ''} onClick={() => setPlannerRound(meta.round)}>{meta.label}<small>{plannerRoundStatus(meta)}</small></button>)}</div></section>}
                   {plannerMode === 'single' && <label>Тип раунда<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label} · {meta.count} вопросов</option>)}</select></label>}
@@ -7505,7 +7519,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                     <div className="planner-picker-head"><div><b>{plannerMode === 'random' ? 'Один случайный вопрос' : `Раунд: ${plannerRound === 'any' ? 'Любой формат' : plannerRoundMeta(plannerRound).label}`}</b><p>{plannerMode === 'random' ? `Выбрано: ${selectedQuestionIds.length}/1` : `Выбрано: ${plannerRoundStatus(plannerRoundMeta(plannerRound))}`}</p></div><button type="button" disabled={busy || !approvedBank.length} onClick={() => plannerMode === 'full' ? autoFillPlannerRound(plannerRound) : plannerMode === 'single' ? autoFillPlannerRound(plannerRound) : autoFillRandomQuestion()}>{plannerMode === 'random' ? 'Выбрать случайный' : 'Автозаполнить раунд'}</button></div>
                     {approvedBank.length ? (plannerMode === 'random' && plannerRound === 'any' ? approvedBank : questionsForPlannerRound(plannerRound)).map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => {
                       if (plannerMode === 'random') { setSelectedQuestionIds((current) => current.includes(question.id) ? [] : [question.id]); } else { toggleQuestion(question.id); }
-                    }} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <p className="muted">Сначала добавьте и одобрите вопросы в Банке.</p>}
+                    }} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <div className="planner-empty-bank"><p className="muted">В Банке пока нет одобренных вопросов для этого раунда.</p><button type="button" onClick={() => { setWorkspaceTab('bank'); setBankOpen(true); }}>Открыть Банк вопросов</button></div>}
                   </div>
                   <label className="quiz-check-row"><input type="checkbox" checked={isTestRun} onChange={(event) => setIsTestRun(event.target.checked)} /><span><b>Тестовый прогон</b><small>Участвует только ведущий; рейтинг и статистика вопросов не меняются.</small></span></label>
                   {isTestRun && <label>Test chat ID (необязательно)<input value={testChatId} onChange={(event) => setTestChatId(event.target.value)} placeholder="например -1001234567890" /></label>}
