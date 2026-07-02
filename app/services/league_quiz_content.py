@@ -355,8 +355,8 @@ def import_bank_v4(db: Session, actor: User, league_id: int, questions: list[dic
     require_quiz_manager(db, actor, league_id)
     if not questions:
         raise ValueError("Файл импорта не содержит вопросов")
-    if len(questions) > 100:
-        raise ValueError("За один импорт можно добавить не более 100 вопросов")
+    if len(questions) > 500:
+        raise ValueError("За один импорт можно добавить не более 500 вопросов")
     created: list[LeagueQuizQuestion] = []
     for raw in questions:
         if not isinstance(raw, dict):
@@ -909,8 +909,8 @@ def import_bank_v4(db: Session, actor: User, league_id: int, questions: list[dic
     require_quiz_editor(db, actor, league_id)
     if not questions:
         raise ValueError("Файл импорта не содержит вопросов")
-    if len(questions) > 100:
-        raise ValueError("За один импорт можно добавить не более 100 вопросов")
+    if len(questions) > 500:
+        raise ValueError("За один импорт можно добавить не более 500 вопросов")
     created: list[LeagueQuizQuestion] = []
     try:
         for raw in questions:

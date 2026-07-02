@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.4.2';
+const APP_VERSION = '3.4.3';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6606,6 +6606,34 @@ const QUIZ_TIMER_FIELDS = [
   ['countdown_stage_1', 'Отсчёт · факт 1'], ['countdown_stage_2', 'Отсчёт · факт 2'], ['countdown_stage_3', 'Отсчёт · факт 3'],
 ];
 
+
+const QUIZ_WORKSPACE_TABS = [
+  { id: 'games', label: 'Игры', hint: 'регистрация и история' },
+  { id: 'planner', label: 'Планирование', hint: 'сценарий и вопросы' },
+  { id: 'bank', label: 'Банк вопросов', hint: 'создание и импорт' },
+];
+
+const FULL_QUIZ_TEMPLATE = [
+  { round: 'millionaire', questionType: 'choice_4', label: 'Кто хочет стать миллионером?', count: 5 },
+  { round: 'true_false', questionType: 'true_false', label: 'Правда или ложь', count: 5 },
+  { round: 'more_less', questionType: 'more_less', label: 'Больше или меньше', count: 5 },
+  { round: 'yes_no', questionType: 'yes_no', label: 'Да или нет', count: 5 },
+  { round: 'countdown', questionType: 'countdown', label: 'Обратный отсчёт', count: 5 },
+  { round: 'jeopardy', questionType: 'jeopardy', label: 'Своя игра', count: 20 },
+  { round: 'one_of_two', questionType: 'one_of_two', label: 'Один из двух', count: 5 },
+  { round: 'what_where_when', questionType: 'what_where_when', label: 'Что? Где? Когда?', count: 5 },
+  { round: 'hundred_to_one', questionType: 'hundred_to_one', label: 'Сто к одному', count: 5 },
+];
+
+const PLANNER_SINGLE_ROUNDS = [
+  ...FULL_QUIZ_TEMPLATE,
+  { round: 'choice_2', questionType: 'choice_2', label: 'Выбор из двух', count: 5 },
+];
+
+function plannerRoundMeta(round) {
+  return PLANNER_SINGLE_ROUNDS.find((item) => item.round === round) || PLANNER_SINGLE_ROUNDS[0];
+}
+
 function isQuizChoiceType(type) {
   return ['choice_2', 'choice_4', 'true_false', 'more_less', 'yes_no'].includes(type);
 }
@@ -6648,7 +6676,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [busy, setBusy] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [bank, setBank] = useState([]);
-  const [bankLoading, setBankLoading] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState('games');
+  const [plannerMode, setPlannerMode] = useState('full');
+  const [plannerRound, setPlannerRound] = useState('millionaire');
+  const [largeSeedRoundType, setLargeSeedRoundType] = useState('all');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState([]);
   const [questionType, setQuestionType] = useState('choice_4');
   const [questionText, setQuestionText] = useState('');
@@ -6762,8 +6793,8 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   }, [selectedQuizId, loadList, loadDetail]);
 
   useEffect(() => {
-    if (bankOpen) loadBank();
-  }, [bankOpen, loadBank]);
+    if (workspaceTab === 'bank' || workspaceTab === 'planner' || bankOpen) loadBank();
+  }, [workspaceTab, bankOpen, loadBank]);
 
   function changeQuestionType(value) {
     setQuestionType(value);
@@ -7060,27 +7091,154 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
+  async function seedLargeWc2026Bank() {
+    if (!activeLeagueId) return;
+    setBusy(true);
+    setSeedMessage('');
+    try {
+      const suffix = largeSeedRoundType && largeSeedRoundType !== 'all' ? `&round_type=${encodeURIComponent(largeSeedRoundType)}` : '';
+      const result = await api(`/api/webapp/quiz-bank/seed-wc2026-large?league_id=${activeLeagueId}${suffix}`, { method: 'POST' });
+      const created = Number(result.created_count || 0);
+      const existing = Number(result.existing_count || 0);
+      const scope = result.round_type ? (plannerRoundMeta(result.round_type)?.label || result.round_type) : 'всех форматов';
+      setSeedMessage(created ? `Добавлено: ${created} вопросов (${scope}).` : `Этот набор уже загружен: ${existing} вопросов (${scope}).`);
+      await loadBank();
+      trackAnalytics('quiz_seed_wc2026_large', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, result: created ? 'created' : 'existing' } });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function questionsForPlannerRound(round) {
+    const meta = plannerRoundMeta(round);
+    return approvedBank.filter((question) => question.question_type === meta.questionType);
+  }
+
+  function selectedForPlannerRound(round) {
+    const ids = new Set(selectedQuestionIds.map(Number));
+    return questionsForPlannerRound(round).filter((question) => ids.has(Number(question.id)));
+  }
+
+  function takeBalancedJeopardy(questions, target = 20) {
+    const groups = new Map();
+    questions.forEach((question) => {
+      const topic = question.question_payload?.topic || 'Без темы';
+      if (!groups.has(topic)) groups.set(topic, []);
+      groups.get(topic).push(question);
+    });
+    const selected = [];
+    [...groups.values()]
+      .filter((rows) => rows.length >= 5)
+      .sort((left, right) => right.length - left.length)
+      .slice(0, Math.max(1, Math.floor(target / 5)))
+      .forEach((rows) => selected.push(...rows.slice(0, 5)));
+    return selected.length >= target ? selected.slice(0, target) : questions.slice(0, target);
+  }
+
+  function setSelectionForRound(round, questions) {
+    const meta = plannerRoundMeta(round);
+    const replaceIds = new Set(questions.map((question) => Number(question.id)));
+    setSelectedQuestionIds((current) => [
+      ...current.filter((id) => !questionsForPlannerRound(round).some((question) => Number(question.id) === Number(id))),
+      ...[...replaceIds],
+    ]);
+  }
+
+  function autoFillPlannerRound(round = plannerRound) {
+    const meta = plannerRoundMeta(round);
+    const candidates = questionsForPlannerRound(round);
+    if (!candidates.length) {
+      setError(new Error(`В банке нет одобренных вопросов формата «${meta.label}».`));
+      return;
+    }
+    const chosen = meta.questionType === 'jeopardy'
+      ? takeBalancedJeopardy(candidates, meta.count)
+      : candidates.slice(0, meta.count);
+    if (chosen.length < meta.count) {
+      setError(new Error(`Для раунда «${meta.label}» нужно ${meta.count}, а в банке доступно ${chosen.length} вопросов.`));
+      return;
+    }
+    setSelectionForRound(round, chosen);
+  }
+
+  function autoFillFullQuiz() {
+    for (let pack = 1; pack <= 5; pack += 1) {
+      const tag = `полный-квиз-${pack}`;
+      const candidateByRound = {};
+      let complete = true;
+      FULL_QUIZ_TEMPLATE.forEach((meta) => {
+        const candidates = approvedBank.filter((question) => question.question_type === meta.questionType && String(question.tags || '').includes(tag));
+        const chosen = meta.questionType === 'jeopardy' ? takeBalancedJeopardy(candidates, meta.count) : candidates.slice(0, meta.count);
+        if (chosen.length < meta.count) complete = false;
+        candidateByRound[meta.round] = chosen;
+      });
+      if (complete) {
+        setSelectedQuestionIds(FULL_QUIZ_TEMPLATE.flatMap((meta) => candidateByRound[meta.round].map((question) => question.id)));
+        setPlannerRound('millionaire');
+        setSeedMessage(`Автозаполнение: собран неповторяющийся комплект №${pack} из 60 вопросов.`);
+        return;
+      }
+    }
+    setError(new Error('Не найден полный неповторяющийся комплект. Загрузите большой банк или заполните раунды вручную.'));
+  }
+
+  function autoFillRandomQuestion() {
+    const candidates = plannerRound === 'any' ? approvedBank : questionsForPlannerRound(plannerRound);
+    if (!candidates.length) {
+      setError(new Error('В выбранном разделе банка нет одобренных вопросов.'));
+      return;
+    }
+    setSelectedQuestionIds([candidates[0].id]);
+    setSeedMessage('Случайный вопрос выбран. При необходимости выберите другой вручную.');
+  }
+
   function toggleQuestion(questionId) {
     setSelectedQuestionIds((current) => current.includes(questionId)
       ? current.filter((id) => id !== questionId)
       : [...current, questionId]);
   }
 
+  function plannerRoundStatus(meta) {
+    const selected = selectedForPlannerRound(meta.round).length;
+    return `${selected}/${meta.count}`;
+  }
+
   async function createQuiz(event) {
     event.preventDefault();
     if (!selectedQuestionIds.length) {
-      setError(new Error('Выберите хотя бы один одобренный вопрос.'));
+      setError(new Error('Выберите вопросы или используйте автозаполнение.'));
       return;
+    }
+    const selectedBank = selectedQuestionIds.map((id) => approvedBank.find((question) => Number(question.id) === Number(id))).filter(Boolean);
+    let expectedRounds = [];
+    if (plannerMode === 'full') expectedRounds = FULL_QUIZ_TEMPLATE;
+    if (plannerMode === 'single') expectedRounds = [plannerRoundMeta(plannerRound)];
+    if (plannerMode === 'random') {
+      const first = selectedBank[0];
+      const meta = first ? (QUIZ_TYPE_META[first.question_type] || { round: first.question_type, roundTitle: 'Случайный вопрос' }) : null;
+      expectedRounds = meta ? [{ round: meta.round, questionType: first.question_type, label: 'Случайный вопрос', count: 1 }] : [];
+    }
+    if (plannerMode === 'random' && selectedBank.length !== 1) {
+      setError(new Error('Для режима «Случайный вопрос» выберите ровно один вопрос.'));
+      return;
+    }
+    if (plannerMode !== 'random') {
+      const missing = expectedRounds.find((meta) => selectedBank.filter((question) => question.question_type === meta.questionType).length !== meta.count);
+      if (missing) {
+        setError(new Error(`Для «${missing.label}» требуется ровно ${missing.count} вопросов. Сейчас: ${selectedBank.filter((question) => question.question_type === missing.questionType).length}.`));
+        return;
+      }
     }
     setBusy(true);
     try {
       const scheduled = scheduledStart ? new Date(scheduledStart) : null;
-      const selectedBank = selectedQuestionIds.map((id) => approvedBank.find((question) => Number(question.id) === Number(id))).filter(Boolean);
       const grouped = [];
       selectedBank.forEach((question) => {
         const meta = QUIZ_TYPE_META[question.question_type] || { round: question.question_type, roundTitle: 'Раунд квиза' };
         let round = grouped.find((item) => item.round_type === meta.round);
-        if (!round) { round = { title: meta.roundTitle, round_type: meta.round, question_ids: [] }; grouped.push(round); }
+        if (!round) { round = { title: plannerMode === 'random' ? 'Случайный вопрос' : meta.roundTitle, round_type: meta.round, question_ids: [] }; grouped.push(round); }
         round.question_ids.push(question.id);
       });
       grouped.sort((left, right) => (QUIZ_ROUND_SEQUENCE[left.round_type] || 999) - (QUIZ_ROUND_SEQUENCE[right.round_type] || 999));
@@ -7108,6 +7266,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       setScheduledStart('');
       setIsTestRun(false);
       setTestChatId('');
+      setWorkspaceTab('games');
       await loadList();
       trackAnalytics('quiz_admin', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: result.quiz?.id || 0, quiz_status: 'created' } });
     } catch (err) {
@@ -7120,36 +7279,59 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const quiz = detail?.quiz;
   const currentQuestion = detail?.current_question;
   const approvedBank = bank.filter((question) => question.status === 'approved');
+  const activeQuizItems = quizzes.filter((item) => ['registration_open', 'running', 'paused'].includes(item.status));
+  const historyQuizItems = quizzes.filter((item) => ['finished', 'cancelled'].includes(item.status));
+  const renderQuizSessionCard = (item) => (
+    <button key={item.id} type="button" className={`quiz-session-card ${Number(item.id) === Number(selectedQuizId) ? 'selected' : ''}`} onClick={() => {
+      setSelectedQuizId(item.id);
+      trackAnalytics('quiz_open', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: item.id } });
+    }}>
+      <span className={`quiz-status ${quizStatusTone(item.status)}`}>{quizStatusLabel(item.status)}</span>
+      <strong>{item.title}</strong>
+      <small>{item.questions_total} вопросов · {item.scheduled_start_at ? formatQuizDate(item.scheduled_start_at) : 'ручной старт'} · {item.registered_count} участников</small>
+    </button>
+  );
 
   return (
     <main className="screen-content quiz-screen">
       <div className="section-label">Квиз · {activeLeague?.name || 'Лига'}</div>
       <section className="card quiz-intro-card">
         <div>
-          <span className="quiz-kicker">v3.4 · Игровой поток</span>
-          <h1>Играем вживую</h1>
-          <p>Живой квиз с раундами, редактором банка, источниками и отдельным рейтингом лиги.</p>
+          <span className="quiz-kicker">v3.4.3 · Рабочее пространство</span>
+          <h1>Квиз лиги</h1>
+          <p>Участие в играх, планирование сценариев и банк вопросов — в отдельных вкладках.</p>
         </div>
         <span className="quiz-intro-icon">🧠</span>
       </section>
 
       {error && <div className="inline-error quiz-error">{error.message || 'Не удалось выполнить действие.'}<button type="button" onClick={() => setError(null)}>×</button></div>}
 
+      <nav className="quiz-workspace-tabs" aria-label="Разделы квиза">
+        {QUIZ_WORKSPACE_TABS.filter((tab) => tab.id === 'games' || (tab.id === 'planner' && canHost) || (tab.id === 'bank' && canEdit)).map((tab) => (
+          <button key={tab.id} type="button" className={workspaceTab === tab.id ? 'active' : ''} onClick={() => {
+            setWorkspaceTab(tab.id);
+            setBankOpen(tab.id !== 'games');
+            if (tab.id !== 'games') loadBank();
+          }}>
+            <b>{tab.label}</b><small>{tab.hint}</small>
+          </button>
+        ))}
+      </nav>
+
       {loading ? <LoadingCard text="Загружаю квизы лиги..." /> : (
         <>
+          {workspaceTab === 'games' && <>
           {!quizzes.length && !canManage && <EmptyState iconName="quiz" title="Квизов пока нет" text="Когда администратор лиги запланирует игру, она появится здесь." />}
-          {quizzes.length > 0 && (
-            <section className="quiz-session-list" aria-label="Квизы лиги">
-              {quizzes.map((item) => (
-                <button key={item.id} type="button" className={`quiz-session-card ${Number(item.id) === Number(selectedQuizId) ? 'selected' : ''}`} onClick={() => {
-                  setSelectedQuizId(item.id);
-                  trackAnalytics('quiz_open', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: item.id } });
-                }}>
-                  <span className={`quiz-status ${quizStatusTone(item.status)}`}>{quizStatusLabel(item.status)}</span>
-                  <strong>{item.title}</strong>
-                  <small>{item.questions_total} вопросов · {item.scheduled_start_at ? formatQuizDate(item.scheduled_start_at) : 'ручной старт'} · {item.registered_count} участников</small>
-                </button>
-              ))}
+          {activeQuizItems.length > 0 && (
+            <section className="quiz-session-list" aria-label="Запущенные и запланированные квизы">
+              <div className="quiz-list-heading"><h2>Запущенные квизы</h2><span>регистрация и игра</span></div>
+              {activeQuizItems.map(renderQuizSessionCard)}
+            </section>
+          )}
+          {historyQuizItems.length > 0 && (
+            <section className="quiz-session-list quiz-history-list" aria-label="История квизов">
+              <div className="quiz-list-heading"><h2>История квизов</h2><span>завершённые и отменённые</span></div>
+              {historyQuizItems.map(renderQuizSessionCard)}
             </section>
           )}
 
@@ -7247,19 +7429,28 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
             </section>
           )}
 
-          {canManage && (
+          </>}
+
+          {workspaceTab !== 'games' && canManage && (
             <section className="card quiz-admin-card">
-              <button type="button" className="quiz-admin-toggle" onClick={() => setBankOpen((value) => !value)}>
-                <span><b>Управление квизом</b><small>{canEdit ? 'банк вопросов и планирование игры' : 'планирование и проведение игры'}</small></span><span>{bankOpen ? '⌃' : '⌄'}</span>
-              </button>
+              <div className="quiz-admin-toggle quiz-admin-heading">
+                <span><b>{workspaceTab === 'bank' ? 'Банк вопросов' : 'Планирование квиза'}</b><small>{workspaceTab === 'bank' ? 'создание, импорт, загрузка и качество контента' : 'режим игры, таймеры и сценарий раундов'}</small></span>
+              </div>
               {bankOpen && <div className="quiz-admin-body">
-                {canEdit && <>
-                <section className="quiz-seed-card">
+                {workspaceTab === 'bank' && canEdit && <>
+                <section className="quiz-seed-card quiz-big-bank-card">
                   <div>
-                    <b>Тестовый набор ЧМ‑2026</b>
-                    <p>Добавит 9 одобренных вопросов: по одному для каждого формата квиза, включая текстовые раунды.</p>
+                    <b>Большой банк ЧМ‑2026</b>
+                    <p>305 одобренных вопросов: пять непересекающихся полных квизов по 60 вопросов и пять дополнительных карточек «Выбор из двух».</p>
                   </div>
-                  <button type="button" className="quiz-primary-button" disabled={busy} onClick={seedWc2026Questions}>Загрузить вопросы ЧМ‑2026</button>
+                  <label>Загрузить
+                    <select value={largeSeedRoundType} onChange={(event) => setLargeSeedRoundType(event.target.value)}>
+                      <option value="all">Все форматы · 305 вопросов</option>
+                      {PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" className="quiz-primary-button" disabled={busy} onClick={seedLargeWc2026Bank}>Загрузить большой банк</button>
+                  <details><summary>Небольшой набор для быстрой проверки</summary><button type="button" disabled={busy} onClick={seedWc2026Questions}>Загрузить 9 тестовых вопросов</button></details>
                   {seedMessage && <small>{seedMessage}</small>}
                 </section>
                 <form id="quiz-question-editor" className="quiz-form" onSubmit={createQuestion}>
@@ -7296,17 +7487,30 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                 </section>
                 </>}
 
-                {canHost && <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
-                  <h3>Запланировать квиз</h3>
-                  <p className="muted">Выбранные вопросы будут автоматически собраны в раунды по форматам. Полный квиз — просто выберите вопросы всех типов.</p>
-                  <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder="Например, Футбольный квиз №1" required /></label>
+                {workspaceTab === 'planner' && canHost && <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
+                  <h3>Создать сценарий квиза</h3>
+                  <p className="muted">Сначала выберите режим, затем заполните нужные раунды. Полный квиз содержит 60 вопросов: 5 обычных вопросов каждого типа, 20 карточек «Своей игры» и 5 раундов «Сто к одному».</p>
+                  <div className="quiz-planner-modes">
+                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Полный квиз <small>60 вопросов</small></button>
+                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Квиз одного типа <small>5 / 20 вопросов</small></button>
+                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); }}>Случайный вопрос <small>1 вопрос</small></button>
+                  </div>
+                  {plannerMode === 'full' && <section className="planner-rounds"><div><b>Раунды полного квиза</b><button type="button" disabled={busy || !approvedBank.length} onClick={autoFillFullQuiz}>Автозаполнить все раунды</button></div><div className="planner-round-chips">{FULL_QUIZ_TEMPLATE.map((meta) => <button key={meta.round} type="button" className={plannerRound === meta.round ? 'active' : ''} onClick={() => setPlannerRound(meta.round)}>{meta.label}<small>{plannerRoundStatus(meta)}</small></button>)}</div></section>}
+                  {plannerMode === 'single' && <label>Тип раунда<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label} · {meta.count} вопросов</option>)}</select></label>}
+                  {plannerMode === 'random' && <label>Формат случайного вопроса<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}><option value="any">Любой формат</option>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label}</option>)}</select></label>}
+                  <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder={plannerMode === 'random' ? 'Случайный вопрос' : 'Например, Футбольный квиз №1'} required /></label>
                   <div className="quiz-form-grid"><label>Старт (необязательно)<input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label><label>Показ ответа, сек.<input type="number" min="3" max="90" value={revealSeconds} onChange={(event) => setRevealSeconds(event.target.value)} /></label></div>
                   <details className="quiz-import-box"><summary>Таймеры раундов</summary><p className="muted">По умолчанию используются рекомендованные интервалы. Их можно изменить до старта квиза.</p><div className="quiz-form-grid">{QUIZ_TIMER_FIELDS.map(([key, label]) => <label key={key}>{label}<input type="number" min="10" max="300" value={timerSettings[key] ?? DEFAULT_QUIZ_TIMER_SETTINGS[key]} onChange={(event) => setTimerSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div></details>
-                  <div className="quiz-question-picker"><p>Выберите одобренные вопросы в нужном порядке:</p>{approvedBank.length ? approvedBank.map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => toggleQuestion(question.id)} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <p className="muted">Сначала добавьте и одобрите вопросы.</p>}</div>
+                  <div className="quiz-question-picker">
+                    <div className="planner-picker-head"><div><b>{plannerMode === 'random' ? 'Один случайный вопрос' : `Раунд: ${plannerRound === 'any' ? 'Любой формат' : plannerRoundMeta(plannerRound).label}`}</b><p>{plannerMode === 'random' ? `Выбрано: ${selectedQuestionIds.length}/1` : `Выбрано: ${plannerRoundStatus(plannerRoundMeta(plannerRound))}`}</p></div><button type="button" disabled={busy || !approvedBank.length} onClick={() => plannerMode === 'full' ? autoFillPlannerRound(plannerRound) : plannerMode === 'single' ? autoFillPlannerRound(plannerRound) : autoFillRandomQuestion()}>{plannerMode === 'random' ? 'Выбрать случайный' : 'Автозаполнить раунд'}</button></div>
+                    {approvedBank.length ? (plannerMode === 'random' && plannerRound === 'any' ? approvedBank : questionsForPlannerRound(plannerRound)).map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => {
+                      if (plannerMode === 'random') { setSelectedQuestionIds((current) => current.includes(question.id) ? [] : [question.id]); } else { toggleQuestion(question.id); }
+                    }} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <p className="muted">Сначала добавьте и одобрите вопросы в Банке.</p>}
+                  </div>
                   <label className="quiz-check-row"><input type="checkbox" checked={isTestRun} onChange={(event) => setIsTestRun(event.target.checked)} /><span><b>Тестовый прогон</b><small>Участвует только ведущий; рейтинг и статистика вопросов не меняются.</small></span></label>
                   {isTestRun && <label>Test chat ID (необязательно)<input value={testChatId} onChange={(event) => setTestChatId(event.target.value)} placeholder="например -1001234567890" /></label>}
                   <label className="quiz-check-row"><input type="checkbox" checked={enforceRepeatPolicy} onChange={(event) => setEnforceRepeatPolicy(event.target.checked)} /><span><b>Не повторять недавно использованные вопросы</b><small>Учитывается индивидуальный срок повтора каждого вопроса.</small></span></label>
-                  <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length}>{isTestRun ? `Создать тестовый прогон (${selectedQuestionIds.length})` : `Создать квиз (${selectedQuestionIds.length})`}</button>
+                  <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length}>{isTestRun ? `Создать тестовый прогон (${selectedQuestionIds.length})` : plannerMode === 'random' ? 'Запустить случайный вопрос' : `Создать квиз (${selectedQuestionIds.length})`}</button>
                 </form>}
 
               </div>}

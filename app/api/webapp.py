@@ -103,6 +103,7 @@ from app.services.league_quiz import (
     submit_choice_answer,
     submit_text_answer,
 )
+from app.services.league_quiz_big_bank import seed_large_wc2026_bank
 from app.services.league_quiz_content import (
     approve_bank_question_v4,
     create_bank_question_v4,
@@ -151,6 +152,8 @@ ANALYTICS_ALLOWED_EVENTS = {
     "quiz_register",
     "quiz_answer",
     "quiz_admin",
+    "quiz_seed_wc2026",
+    "quiz_seed_wc2026_large",
     "video_open",
     "tournament_prediction_open",
     "tournament_prediction_save",
@@ -195,6 +198,8 @@ ANALYTICS_EVENT_LABELS = {
     "tournament_prediction_save": "Сохранил турнирный прогноз",
     "admin_open": "Открыл администрирование",
     "analytics_open": "Открыл аналитику",
+    "quiz_seed_wc2026": "Загрузил тестовый набор квиза",
+    "quiz_seed_wc2026_large": "Загрузил большой банк квиза",
 }
 
 ANALYTICS_SCREEN_LABELS = {
@@ -322,7 +327,7 @@ class LeagueQuizQuestionCreatePayload(BaseModel):
 
 class LeagueQuizImportPayload(BaseModel):
     league_id: int
-    questions: list[dict] = Field(min_length=1, max_length=100)
+    questions: list[dict] = Field(min_length=1, max_length=500)
 
 
 class LeagueQuizAnswerReviewPayload(BaseModel):
@@ -5124,6 +5129,31 @@ def seed_league_quiz_wc2026_questions(
         "ok": True,
         "created_count": result["created_count"],
         "existing_count": result["existing_count"],
+        "questions": [serialize_bank_question(question, include_correct=True) for question in result["questions"]],
+    }
+
+
+@router.post("/quiz-bank/seed-wc2026-large")
+def seed_league_quiz_wc2026_large_bank(
+    league_id: int,
+    round_type: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Load the non-overlapping WC-2026 bank for five complete quiz scenarios."""
+    try:
+        result = seed_large_wc2026_bank(db, current_user, league_id, round_type)
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Не удалось загрузить большой банк вопросов. Проверьте, что применены миграции квиза 027–030.") from error
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+    return {
+        "ok": True,
+        "created_count": result["created_count"],
+        "existing_count": result["existing_count"],
+        "total_count": result["total_count"],
+        "round_type": result.get("round_type"),
         "questions": [serialize_bank_question(question, include_correct=True) for question in result["questions"]],
     }
 
