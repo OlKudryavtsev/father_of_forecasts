@@ -652,3 +652,223 @@ async def _dispatch_quiz_finished(db: Session, event: LeagueQuizEvent, quiz: Lea
         card_text = format_final_card_text(card, personal_recap)
         body = f"🏁 {quiz.title} завершён.\n\n{card_text}\n\n{text}" if card_text else f"🏁 {quiz.title} завершён.\n\n{text}"
         await _send_private(db, event, user, body, "quiz_finished", build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()))
+
+
+# =============================================================================
+# v3.5.6 — delivery-safe quiz notifications and concise single-round flow.
+# =============================================================================
+def _single_round_quiz(quiz: LeagueQuizSession) -> bool:
+    declared = int(getattr(quiz, "rounds_total", 0) or 0)
+    if declared:
+        return declared <= 1
+    return False
+
+
+async def _dispatch_quiz_started(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    text = f"▶️ Старт квиза «{quiz.title}»\n\nВопросы будут приходить в личный чат с ботом. Удачи!"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        await _send_private(db, event, user, text, "quiz_started", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
+    username = await get_bot_username()
+    await _send_group(
+        db, event, league, text, "quiz_started",
+        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть текущий квиз", action="open"),
+    )
+
+
+async def _dispatch_round_started(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    if _single_round_quiz(quiz):
+        return
+    payload = event.payload or {}
+    order = payload.get("round_order") or "—"
+    title = str(payload.get("title") or "Раунд")
+    text = f"▶️ Старт раунда {order}: «{title}»"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        await _send_private(db, event, user, text, "quiz_round_started", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
+    username = await get_bot_username()
+    await _send_group(
+        db, event, league, text, "quiz_round_started",
+        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть квиз", action="open"),
+    )
+
+
+async def _dispatch_question_event(
+    db: Session,
+    event: LeagueQuizEvent,
+    quiz: LeagueQuizSession,
+    league: League,
+    message_kind: str,
+) -> None:  # noqa: F811
+    question_id = int((event.payload or {}).get("session_question_id") or 0)
+    question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
+    payload = _payload_question(event, question)
+    for user in _registered_users(db, quiz.id):
+        await _send_question_to_user(db, event, quiz, question, user, message_kind)
+    username = await get_bot_username()
+    await _send_group(
+        db,
+        event,
+        league,
+        _question_text(quiz, payload) + "\n\nОтветы отправляйте боту в личном чате или в приложении.",
+        message_kind,
+        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть квиз", action="open"),
+    )
+
+
+async def _dispatch_question_revealed(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    question_id = int((event.payload or {}).get("session_question_id") or 0)
+    question = db.query(LeagueQuizSessionQuestion).filter(LeagueQuizSessionQuestion.id == question_id).first()
+    if not question:
+        return
+    correct_text = get_correct_answer_text(question)
+    answer_block = (
+        f"Правильный ответ:\n{correct_text}"
+        if question.question_type == "hundred_to_one"
+        else f"Правильный ответ: {correct_text}"
+    )
+    explanation = f"\n\n{question.explanation_snapshot}" if question.explanation_snapshot else ""
+    for user in _registered_users(db, quiz.id):
+        answer = (
+            db.query(LeagueQuizSessionAnswer)
+            .filter(LeagueQuizSessionAnswer.session_question_id == question.id, LeagueQuizSessionAnswer.user_id == user.id)
+            .first()
+        )
+        personal = f"Верно · +{answer.points_awarded or 0} очк." if answer and answer.is_correct else ("Пока без очков." if answer else "Ответ не получен.")
+        await _send_private(
+            db,
+            event,
+            user,
+            f"✅ {_question_header(_payload_question(event, question))}\n\n{answer_block}\n{personal}{explanation}",
+            "quiz_reveal",
+            build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()),
+        )
+    await _send_group(
+        db,
+        event,
+        league,
+        f"✅ {_question_header(_payload_question(event, question))}\n\n{answer_block}{explanation}",
+        "quiz_reveal",
+    )
+
+
+async def _dispatch_round_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    if _single_round_quiz(quiz):
+        return
+    payload = event.payload or {}
+    round_id = int(payload.get("round_id") or 0)
+    round_row = db.query(LeagueQuizSessionRound).filter(LeagueQuizSessionRound.id == round_id).first()
+    order = payload.get("round_order") or (round_row.round_order if round_row else "—")
+    title = str(payload.get("title") or (round_row.title if round_row else "Раунд"))
+    group_recap = None
+    if round_row and not bool(getattr(quiz, "is_test_run", False)):
+        group_recap = get_or_create_quiz_recap(db, quiz_session=quiz, round_row=round_row, user=None, use_openai=True).get("text")
+    text = f"📊 Раунд {order} «{title}» завершён.\n\nПромежуточная таблица:\n{_scoreboard_text(db, quiz.id, title='')}"
+    if group_recap:
+        text += f"\n\n🎙️ Отец: {group_recap}"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        card_text = ""
+        if round_row and not bool(getattr(quiz, "is_test_run", False)):
+            result_row = (
+                db.query(LeagueQuizRoundResult)
+                .filter(
+                    LeagueQuizRoundResult.session_id == quiz.id,
+                    LeagueQuizRoundResult.round_id == round_row.id,
+                    LeagueQuizRoundResult.user_id == user.id,
+                )
+                .first()
+            )
+            personal_recap = get_or_create_quiz_recap(
+                db, quiz_session=quiz, round_row=round_row, user=user, use_openai=True
+            ).get("text")
+            card_text = format_round_card_text(_round_card_from_row(result_row, title), personal_recap)
+        body = text if not card_text else f"{card_text}\n\n{text}"
+        await _send_private(db, event, user, body, "quiz_round_finished", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
+    username = await get_bot_username()
+    await _send_group(
+        db, event, league, text, "quiz_round_finished",
+        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть таблицу", action="open"),
+    )
+
+
+async def _dispatch_quiz_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    rows = build_quiz_scoreboard(db, quiz.id)
+    winner = rows[0]["display_name"] if rows else "нет зарегистрированных участников"
+    table = _scoreboard_text(db, quiz.id, title="")
+    group_recap = None
+    if not bool(getattr(quiz, "is_test_run", False)):
+        group_recap = get_or_create_quiz_recap(db, quiz_session=quiz, round_row=None, user=None, use_openai=True).get("text")
+    text = f"🏁 Квиз «{quiz.title}» завершён.\n\nПобедитель: {winner}.\n\nИтоговая таблица:\n{table}"
+    if group_recap:
+        text += f"\n\n🎙️ Отец: {group_recap}"
+    username = await get_bot_username()
+    await _send_group(
+        db, event, league, text, "quiz_finished",
+        build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть результаты", action="open"),
+    )
+    for user in _registered_users(db, quiz.id):
+        card = build_final_result_card(db, quiz, user)
+        personal_recap = get_or_create_quiz_recap(db, quiz_session=quiz, round_row=None, user=user, use_openai=True).get("text") if card else None
+        card_text = format_final_card_text(card, personal_recap)
+        body = f"🏁 {quiz.title} завершён.\n\n{card_text}\n\n{text}" if card_text else f"🏁 {quiz.title} завершён.\n\n{text}"
+        await _send_private(db, event, user, body, "quiz_finished", build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()))
+
+
+def _quiz_event_signature(event: LeagueQuizEvent) -> tuple | None:
+    data = dict(event.payload or {})
+    if event.event_type in {"quiz_created", "quiz_started", "quiz_finished"}:
+        return (event.event_type,)
+    if event.event_type in {"round_started", "round_finished"}:
+        return (event.event_type, int(data.get("round_id") or 0) or int(data.get("round_order") or 0))
+    if event.event_type in {"question_opened", "question_revealed"}:
+        return (event.event_type, int(data.get("session_question_id") or 0))
+    if event.event_type == "countdown_stage_opened":
+        return (event.event_type, int(data.get("session_question_id") or 0), int(data.get("countdown_stage") or 0))
+    return None
+
+
+def _prior_equivalent_event_was_delivered(db: Session, event: LeagueQuizEvent) -> bool:
+    signature = _quiz_event_signature(event)
+    if not signature:
+        return False
+    earlier = (
+        db.query(LeagueQuizEvent)
+        .filter(
+            LeagueQuizEvent.session_id == event.session_id,
+            LeagueQuizEvent.event_type == event.event_type,
+            LeagueQuizEvent.id < event.id,
+        )
+        .order_by(LeagueQuizEvent.id.asc())
+        .all()
+    )
+    for row in earlier:
+        if _quiz_event_signature(row) != signature:
+            continue
+        was_sent = (
+            db.query(LeagueQuizTelegramDelivery.id)
+            .filter(
+                LeagueQuizTelegramDelivery.event_id == row.id,
+                LeagueQuizTelegramDelivery.destination_key != DELIVERY_DONE_KEY,
+                LeagueQuizTelegramDelivery.status == "sent",
+            )
+            .first()
+        )
+        if was_sent:
+            return True
+    return False
+
+
+_dispatch_league_quiz_telegram_event_v356_base = dispatch_league_quiz_telegram_event
+
+
+async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEvent) -> None:  # noqa: F811
+    if event.event_type not in SUPPORTED_EVENT_TYPES or _event_skipped(event):
+        return
+    if _delivery_exists(db, event.id, DELIVERY_DONE_KEY):
+        return
+    if _prior_equivalent_event_was_delivered(db, event):
+        print(f"League quiz duplicate event skipped: event={event.id} type={event.event_type}")
+        _mark_event_done(db, event)
+        return
+    await _dispatch_league_quiz_telegram_event_v356_base(db, event)

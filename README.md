@@ -1515,3 +1515,7 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 
 ## v3.5.5
 - Telegram quiz delivery deduplication, open-only group links, and ranked 100-to-1 result presentation.
+
+
+## v3.5.6
+Critical startup repair: Telegram delivery overrides are located in `app/services/league_quiz_telegram.py`; no migration is required.

@@ -428,3 +428,8 @@
 ## v3.5.5
 - Fixed duplicate quiz Telegram events and running-quiz deep links.
 - Improved one-round quiz notifications and 100-to-1 answer rendering.
+
+
+## v3.5.6
+- Fixed production import crash caused by misplaced Telegram delivery wrappers.
+- Retained quiz event deduplication and readable Hundred-to-One result formatting.
