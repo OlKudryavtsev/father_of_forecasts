@@ -557,3 +557,74 @@ async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEven
     elif event.event_type in {"quiz_cancelled", "quiz_paused", "quiz_resumed"}:
         await _dispatch_status_change(db, event, quiz, delivery_league)
     _mark_event_done(db, event)
+
+# =============================================================================
+# v3.5.0 — result cards and factual recap wording. We intentionally replace
+# only the two final-notification renderers; the durable delivery lock remains
+# the existing _send_private/_send_group implementation.
+# =============================================================================
+from app.services.league_quiz_gamification import (
+    _round_card_from_row,
+    build_final_result_card,
+    format_final_card_text,
+    format_round_card_text,
+    get_or_create_quiz_recap,
+)
+from app.models import LeagueQuizRoundResult, LeagueQuizSessionRound
+
+
+async def _dispatch_round_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    payload = event.payload or {}
+    round_id = int(payload.get("round_id") or 0)
+    round_row = db.query(LeagueQuizSessionRound).filter(LeagueQuizSessionRound.id == round_id).first()
+    order = payload.get("round_order") or (round_row.round_order if round_row else "—")
+    title = str(payload.get("title") or (round_row.title if round_row else "Раунд"))
+    group_recap = None
+    if round_row and not bool(getattr(quiz, "is_test_run", False)):
+        group_recap = get_or_create_quiz_recap(
+            db, quiz_session=quiz, round_row=round_row, user=None, use_openai=True
+        ).get("text")
+    text = f"📊 Раунд {order} «{title}» завершён.\n\nПромежуточная таблица:\n{_scoreboard_text(db, quiz.id, title='')}"
+    if group_recap:
+        text += f"\n\n🎙️ Отец: {group_recap}"
+    miniapp_url = get_miniapp_url()
+    for user in _registered_users(db, quiz.id):
+        card_text = ""
+        if round_row and not bool(getattr(quiz, "is_test_run", False)):
+            row = (
+                db.query(LeagueQuizRoundResult)
+                .filter(
+                    LeagueQuizRoundResult.session_id == quiz.id,
+                    LeagueQuizRoundResult.round_id == round_row.id,
+                    LeagueQuizRoundResult.user_id == user.id,
+                )
+                .first()
+            )
+            personal_recap = get_or_create_quiz_recap(
+                db, quiz_session=quiz, round_row=round_row, user=user, use_openai=True
+            ).get("text")
+            card_text = format_round_card_text(_round_card_from_row(row, title), personal_recap)
+        body = text if not card_text else f"{card_text}\n\n{text}"
+        await _send_private(db, event, user, body, "quiz_round_finished", build_private_quiz_open_keyboard(quiz.id, miniapp_url))
+    username = await get_bot_username()
+    await _send_group(db, event, league, text, "quiz_round_finished", build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть таблицу"))
+
+
+async def _dispatch_quiz_finished(db: Session, event: LeagueQuizEvent, quiz: LeagueQuizSession, league: League) -> None:  # noqa: F811
+    rows = build_quiz_scoreboard(db, quiz.id)
+    winner = rows[0]["display_name"] if rows else "нет зарегистрированных участников"
+    table = _scoreboard_text(db, quiz.id, title="")
+    group_recap = None
+    if not bool(getattr(quiz, "is_test_run", False)):
+        group_recap = get_or_create_quiz_recap(db, quiz_session=quiz, round_row=None, user=None, use_openai=True).get("text")
+    text = f"🏁 Квиз «{quiz.title}» завершён.\n\nПобедитель: {winner}.\n\nИтоговая таблица:\n{table}"
+    if group_recap:
+        text += f"\n\n🎙️ Отец: {group_recap}"
+    username = await get_bot_username()
+    await _send_group(db, event, league, text, "quiz_finished", build_group_quiz_open_keyboard(username, quiz.id, "🧠 Открыть результаты"))
+    for user in _registered_users(db, quiz.id):
+        card = build_final_result_card(db, quiz, user)
+        personal_recap = get_or_create_quiz_recap(db, quiz_session=quiz, round_row=None, user=user, use_openai=True).get("text") if card else None
+        card_text = format_final_card_text(card, personal_recap)
+        body = f"🏁 {quiz.title} завершён.\n\n{card_text}\n\n{text}" if card_text else f"🏁 {quiz.title} завершён.\n\n{text}"
+        await _send_private(db, event, user, body, "quiz_finished", build_private_quiz_open_keyboard(quiz.id, get_miniapp_url()))

@@ -42,6 +42,7 @@ from app.models import (
     QuizQuestion,
     LeagueQuizQuestion,
     LeagueQuizSession,
+    LeagueQuizSessionRound,
     TournamentPrediction,
     User,
     UserNotificationSetting,
@@ -104,6 +105,10 @@ from app.services.league_quiz import (
     submit_text_answer,
 )
 from app.services.league_quiz_big_bank import seed_large_wc2026_bank
+from app.services.league_quiz_gamification import (
+    build_player_quiz_stats,
+    get_or_create_quiz_recap,
+)
 from app.services.league_quiz_content import (
     approve_bank_question_v4,
     create_bank_question_v4,
@@ -5306,6 +5311,54 @@ def review_league_quiz_question_answer(
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {"ok": True, "answer_id": answer.id, **detail}
+
+
+@router.get("/quiz-stats")
+def get_league_quiz_player_stats(
+    league_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Personal game-layer statistics; never mixes with forecast statistics."""
+    try:
+        require_user_league(db, current_user, league_id)
+    except PermissionError as error:
+        _raise_quiz_api_error(error)
+    return {"stats": build_player_quiz_stats(db, current_user, league_id)}
+
+
+@router.post("/quizzes/{session_id}/recaps/round/{round_id}")
+def generate_league_quiz_round_recap(
+    session_id: int,
+    round_id: int,
+    personal: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return one cached, fact-based funny recap after a completed round."""
+    quiz_session = db.query(LeagueQuizSession).filter(LeagueQuizSession.id == session_id).first()
+    if not quiz_session:
+        raise HTTPException(status_code=404, detail="Квиз не найден")
+    try:
+        require_user_league(db, current_user, quiz_session.league_id)
+    except PermissionError as error:
+        _raise_quiz_api_error(error)
+    round_row = (
+        db.query(LeagueQuizSessionRound)
+        .filter(LeagueQuizSessionRound.id == round_id, LeagueQuizSessionRound.session_id == session_id)
+        .first()
+    )
+    if not round_row or round_row.status != "finished":
+        raise HTTPException(status_code=400, detail="Итог раунда пока недоступен")
+    recap = get_or_create_quiz_recap(
+        db,
+        quiz_session=quiz_session,
+        round_row=round_row,
+        user=current_user if personal else None,
+        use_openai=True,
+    )
+    db.commit()
+    return {"ok": True, "recap": recap}
 
 
 @router.get("/quizzes")

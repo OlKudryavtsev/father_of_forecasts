@@ -1486,3 +1486,7 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 - v3.4.6: `RELEASE_V3_4_6_QUIZ_PLANNER_FIT_AND_BANK_PANELS.md`
 
 - `RELEASE_V3_4_7_QUIZ_BANK_TOGGLE_FIX.md` — fix for Bank fold panels on iPhone.
+
+
+## v3.5.0
+Игровой слой квиза: `RELEASE_V3_5_0_QUIZ_GAME_LAYER.md`.

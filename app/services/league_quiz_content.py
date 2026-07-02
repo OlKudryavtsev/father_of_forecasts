@@ -1053,6 +1053,32 @@ def review_answer_v4(db: Session, actor: User, session_id: int, session_question
     db.add(LeagueQuizScoreEvent(session_id=session.id, round_id=question.round_id, session_question_id=question.id, user_id=answer.user_id, event_type="manual_review", delta_points=delta, reason=clean_reason, created_at=utcnow()))
     db.add(LeagueQuizAnswerReview(session_id=session.id, session_question_id=question.id, answer_id=answer.id, actor_user_id=actor.id, decision="accepted" if accepted else "rejected", previous_is_correct=previous_correct, previous_points=previous_points, new_is_correct=bool(accepted), new_points=new_points, reason=clean_reason))
     db.add(LeagueQuizAdminAction(session_id=session.id, actor_user_id=actor.id, action_type="answer_manually_reviewed", payload={"session_question_id": question.id, "answer_id": answer.id, "accepted": bool(accepted), "delta_points": delta, "reason": clean_reason}))
+
+    # Result cards and statistics are derived from already-scored answers.
+    # Rebuild the affected round after a moderator changes an answer so that
+    # a late manual decision never leaves a stale place, score or recap card.
+    if not bool(getattr(session, "is_test_run", False)):
+        try:
+            from app.services.league_quiz_gamification import capture_round_results, finalize_quiz_game_layer
+            # SessionLocal intentionally has autoflush disabled; make the
+            # moderator's new score visible to the derived game-layer queries.
+            db.flush()
+            round_row = db.query(LeagueQuizSessionRound).filter(LeagueQuizSessionRound.id == question.round_id).first()
+            if round_row and round_row.status == "finished":
+                capture_round_results(db, session, round_row)
+            if session.status == "finished":
+                for finished_round in db.query(LeagueQuizSessionRound).filter(
+                    LeagueQuizSessionRound.session_id == session.id,
+                    LeagueQuizSessionRound.status == "finished",
+                ).order_by(LeagueQuizSessionRound.round_order.asc()).all():
+                    capture_round_results(db, session, finished_round)
+                # Achievements are historical awards once unlocked; this call
+                # only adds newly earned ones after an accepted answer.
+                finalize_quiz_game_layer(db, session)
+        except Exception:
+            # Manual moderation remains authoritative even when a decorative
+            # game-layer refresh is temporarily unavailable.
+            pass
     db.commit(); db.refresh(answer)
     return answer
 

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.4.7';
+const APP_VERSION = '3.5.0';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6721,6 +6721,8 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [importText, setImportText] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewRows, setReviewRows] = useState([]);
+  const [quizStats, setQuizStats] = useState(null);
+  const [quizStatsLoading, setQuizStatsLoading] = useState(false);
 
   const loadList = useCallback(async () => {
     if (!activeLeagueId) {
@@ -6777,6 +6779,20 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     }
   }, [activeLeagueId, canEdit, canHost]);
 
+  const loadQuizStats = useCallback(async () => {
+    if (!activeLeagueId) { setQuizStats(null); return; }
+    setQuizStatsLoading(true);
+    try {
+      const result = await api(`/api/webapp/quiz-stats?league_id=${activeLeagueId}`);
+      setQuizStats(result.stats || null);
+    } catch (err) {
+      // Statistics must never block joining or answering a quiz.
+      console.warn('Quiz stats unavailable', err);
+    } finally {
+      setQuizStatsLoading(false);
+    }
+  }, [activeLeagueId]);
+
   useEffect(() => {
     setLoading(true);
     setDetail(null);
@@ -6799,6 +6815,10 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   useEffect(() => {
     if (workspaceTab === 'bank' || workspaceTab === 'planner' || bankOpen) loadBank();
   }, [workspaceTab, bankOpen, loadBank]);
+
+  useEffect(() => {
+    if (workspaceTab === 'games') loadQuizStats();
+  }, [workspaceTab, loadQuizStats]);
 
   function changeQuestionType(value) {
     setQuestionType(value);
@@ -7298,6 +7318,20 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   }, [bank, bankQuery, bankTypeFilter]);
   const activeQuizItems = quizzes.filter((item) => ['registration_open', 'running', 'paused'].includes(item.status));
   const historyQuizItems = quizzes.filter((item) => ['finished', 'cancelled'].includes(item.status));
+  const renderGameLayerCard = (card, kind = 'round', recap = null) => {
+    if (!card) return null;
+    const achievementRows = card.achievements || [];
+    return <section className={`quiz-game-card ${kind}`}>
+      <div className="quiz-game-card-head"><span>{kind === 'final' ? '🏅 Итог квиза' : '🎯 Итог раунда'}</span><b>{card.place}-е место</b></div>
+      <div className="quiz-game-card-score"><strong>{kind === 'final' ? card.score_total : `${card.round_score >= 0 ? '+' : ''}${card.round_score}`}</strong><small>{kind === 'final' ? 'очков всего' : 'за раунд'}</small><em>{card.place_change_label || (card.place_change > 0 ? `↑ ${card.place_change}` : card.place_change < 0 ? `↓ ${Math.abs(card.place_change)}` : '—')}</em></div>
+      {kind === 'round' && <p className="quiz-game-card-facts">Верных: {card.correct_answers}/{card.answered_count}{card.best_answer_points ? ` · лучший ответ: +${card.best_answer_points}` : ''}</p>}
+      {kind === 'final' && card.best_answer_points ? <p className="quiz-game-card-facts">Лучший ответ: +{card.best_answer_points} очк.</p> : null}
+      {card.record && <p className="quiz-game-record">⭐ {card.record}</p>}
+      {achievementRows.length > 0 && <div className="quiz-game-achievements">{achievementRows.map((item) => <span key={item.code}>{item.icon} {item.title}</span>)}</div>}
+      {recap?.text && <p className="quiz-game-recap">🎙️ {recap.text}</p>}
+    </section>;
+  };
+
   const renderQuizSessionCard = (item) => (
     <button key={item.id} type="button" className={`quiz-session-card ${Number(item.id) === Number(selectedQuizId) ? 'selected' : ''}`} onClick={() => {
       setSelectedQuizId(item.id);
@@ -7343,6 +7377,28 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
               <div className="quiz-session-list quiz-history-list">{historyQuizItems.map(renderQuizSessionCard)}</div>
             </section>
           )}
+
+          {(quizStatsLoading || quizStats) && <section className="card quiz-stats-card">
+            <div className="quiz-stats-head"><div><h2>Ваш квиз-профиль</h2><p>Достижения, серии и сильные стороны</p></div>{quizStats?.summary?.accuracy != null && <b>{quizStats.summary.accuracy}%</b>}</div>
+            {quizStatsLoading && !quizStats ? <p className="muted">Считаю игровые результаты…</p> : quizStats && <>
+              <div className="quiz-stats-grid"><div><small>Квизов</small><b>{quizStats.summary?.completed_quizzes || 0}</b></div><div><small>Ответов</small><b>{quizStats.summary?.answers || 0}</b></div><div><small>Серия</small><b>{quizStats.streaks?.correct_current || 0}</b></div><div><small>Топ‑3 подряд</small><b>{quizStats.streaks?.top3_current || 0}</b></div></div>
+              {(quizStats.achievements || []).length > 0 && <div className="quiz-stats-achievements">{quizStats.achievements.slice(0, 5).map((item) => <span key={item.code}>{item.icon} {item.title}</span>)}</div>}
+              <p className="quiz-stats-summary">Любимый формат: <b>{quizStats.favorite_type?.label || 'пока нет данных'}</b>{quizStats.best_type ? <> · лучший: <b>{quizStats.best_type.label} ({quizStats.best_type.accuracy}%)</b></> : null}{quizStats.weakest_type ? <> · зона роста: <b>{quizStats.weakest_type.label} ({quizStats.weakest_type.accuracy}%)</b></> : null}</p>
+              <details className="quiz-stats-details">
+                <summary>Статистика по форматам и темам</summary>
+                <div className="quiz-stats-breakdown">
+                  <div>
+                    <h3>Форматы</h3>
+                    {(quizStats.types || []).length ? quizStats.types.map((item) => <p key={item.key}><span>{item.label}</span><b>{item.accuracy}%</b><small>{item.correct}/{item.attempts}</small></p>) : <p className="muted">Ответов пока нет.</p>}
+                  </div>
+                  <div>
+                    <h3>Темы</h3>
+                    {(quizStats.topics || []).length ? quizStats.topics.slice(0, 8).map((item) => <p key={item.key}><span>{item.label}</span><b>{item.accuracy}%</b><small>{item.correct}/{item.attempts}</small></p>) : <p className="muted">Темы появятся после завершённых квизов.</p>}
+                  </div>
+                </div>
+              </details>
+            </>}
+          </section>}
 
           {detailLoading && !detail ? <LoadingCard text="Открываю квиз..." /> : quiz && (
             <section className="card quiz-live-card">
@@ -7413,6 +7469,8 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
 
               {!currentQuestion && quiz.status === 'running' && <LoadingCard text="Готовлю следующий вопрос..." />}
               {quiz.status === 'finished' && <div className="quiz-finished">🏆 Квиз завершён. Итоговая таблица ниже.</div>}
+              {detail?.gamification?.latest_round_card && quiz.status !== 'finished' && renderGameLayerCard(detail.gamification.latest_round_card, 'round', detail.gamification.latest_round_recap)}
+              {detail?.gamification?.final_card && renderGameLayerCard(detail.gamification.final_card, 'final', detail.gamification.final_recap)}
 
               <section className="quiz-scoreboard">
                 <div className="quiz-scoreboard-title"><h3>Таблица квиза</h3><span>после закрытого вопроса</span></div>

@@ -2586,3 +2586,101 @@ def list_bank_questions(db: Session, actor: User, league_id: int, include_archiv
     if not include_archived:
         query = query.filter(LeagueQuizQuestion.status != QUESTION_STATUS_ARCHIVED)
     return query.order_by(LeagueQuizQuestion.updated_at.desc(), LeagueQuizQuestion.id.desc()).all()
+
+# =============================================================================
+# v3.5.0 — game layer hooks. The wrapper style keeps the preceding production
+# engine intact while adding only post-scoring facts; scores themselves are not
+# recalculated here.
+# =============================================================================
+_question_payload_snapshot_v350_base = _question_payload_snapshot
+
+def _question_payload_snapshot(question: LeagueQuizQuestion) -> dict[str, Any]:  # noqa: F811
+    payload = _question_payload_snapshot_v350_base(question)
+    payload["_quiz_meta"] = {
+        "topics": list(getattr(question, "topics", None) or []),
+        "tags": getattr(question, "tags", None),
+        "difficulty": getattr(question, "difficulty", None),
+    }
+    return payload
+
+
+_finish_round_v350_base = _finish_round
+
+def _finish_round(db: Session, quiz_session: LeagueQuizSession, round_row: LeagueQuizSessionRound, now: datetime) -> None:  # noqa: F811
+    was_finished = round_row.status == "finished"
+    _finish_round_v350_base(db, quiz_session, round_row, now)
+    if was_finished or bool(getattr(quiz_session, "is_test_run", False)):
+        return
+    from app.services.league_quiz_gamification import capture_round_results
+    capture_round_results(db, quiz_session, round_row)
+    # SessionLocal uses autoflush=False; persist the just-created engine event
+    # before querying it for the delivery snapshot.
+    db.flush()
+    # Preserve the original immutable event while enriching it with a compact
+    # snapshot that Telegram can use without reading a newer state.
+    event = (
+        db.query(LeagueQuizEvent)
+        .filter(LeagueQuizEvent.session_id == quiz_session.id, LeagueQuizEvent.event_type == "round_finished")
+        .order_by(LeagueQuizEvent.id.desc())
+        .first()
+    )
+    if event:
+        payload = dict(event.payload or {})
+        # The most recent round_finished event belongs to this transition.
+        # Do not rely on an extra JSON comparison here: PostgreSQL can deserialize
+        # numeric JSON values differently from the in-memory object.
+        payload["game_layer_ready"] = True
+        event.payload = payload
+        # JSON values are mutable; explicitly mark the column dirty so this
+        # marker survives the same transaction on PostgreSQL and SQLite.
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(event, "payload")
+
+
+_finish_quiz_v350_base = _finish_quiz
+
+def _finish_quiz(db: Session, quiz_session: LeagueQuizSession, now: datetime) -> None:  # noqa: F811
+    already_finished = quiz_session.status == SESSION_FINISHED
+    _finish_quiz_v350_base(db, quiz_session, now)
+    if already_finished or bool(getattr(quiz_session, "is_test_run", False)):
+        return
+    from app.services.league_quiz_gamification import capture_round_results, finalize_quiz_game_layer
+    rounds = (
+        db.query(LeagueQuizSessionRound)
+        .filter(LeagueQuizSessionRound.session_id == quiz_session.id)
+        .order_by(LeagueQuizSessionRound.round_order.asc())
+        .all()
+    )
+    for round_row in rounds:
+        capture_round_results(db, quiz_session, round_row)
+    finalize_quiz_game_layer(db, quiz_session)
+    # SessionLocal uses autoflush=False; the quiz_finished event was created by
+    # the base engine just above and must be flushed before we enrich it.
+    db.flush()
+    event = (
+        db.query(LeagueQuizEvent)
+        .filter(LeagueQuizEvent.session_id == quiz_session.id, LeagueQuizEvent.event_type == "quiz_finished")
+        .order_by(LeagueQuizEvent.id.desc())
+        .first()
+    )
+    if event:
+        payload = dict(event.payload or {})
+        payload["game_layer_ready"] = True
+        event.payload = payload
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(event, "payload")
+
+
+_build_quiz_detail_v350_base = build_quiz_detail
+
+def build_quiz_detail(db: Session, actor: User, session_id: int) -> dict[str, Any]:  # noqa: F811
+    data = _build_quiz_detail_v350_base(db, actor, session_id)
+    try:
+        quiz_session = _get_session(db, session_id)
+        from app.services.league_quiz_gamification import build_session_gamification_detail
+        data["gamification"] = build_session_gamification_detail(db, quiz_session, actor)
+    except Exception as error:
+        # A game-layer display failure must never block answering a live quiz.
+        print(f"League quiz game-layer detail fallback: session={session_id} error={error}")
+        data["gamification"] = {"enabled": False}
+    return data

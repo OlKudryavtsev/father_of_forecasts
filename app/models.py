@@ -1303,3 +1303,77 @@ class LeagueQuizAnswerReview(Base):
     session_question = relationship("LeagueQuizSessionQuestion")
     answer = relationship("LeagueQuizSessionAnswer")
     actor = relationship("User")
+
+# v3.5.0 — league quiz game layer: immutable round results, achievements and
+# cached recaps. These tables are intentionally separate from forecasts and the
+# legacy gamification system.
+class LeagueQuizRoundResult(Base):
+    __tablename__ = "league_quiz_round_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    round_id = Column(Integer, ForeignKey("league_quiz_session_rounds.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    round_order = Column(Integer, nullable=False)
+    round_score = Column(Integer, nullable=False, default=0, server_default="0")
+    score_total = Column(Integer, nullable=False, default=0, server_default="0")
+    place = Column(Integer, nullable=False)
+    previous_place = Column(Integer, nullable=True)
+    place_change = Column(Integer, nullable=False, default=0, server_default="0")
+    best_question_id = Column(Integer, ForeignKey("league_quiz_session_questions.id", ondelete="SET NULL"), nullable=True)
+    best_answer_label = Column(String(240), nullable=True)
+    best_answer_points = Column(Integer, nullable=False, default=0, server_default="0")
+    correct_answers = Column(Integer, nullable=False, default=0, server_default="0")
+    answered_count = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    session = relationship("LeagueQuizSession")
+    round = relationship("LeagueQuizSessionRound")
+    user = relationship("User")
+    best_question = relationship("LeagueQuizSessionQuestion")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "round_id", "user_id", name="uq_league_quiz_round_result"),
+    )
+
+
+class LeagueQuizAchievement(Base):
+    __tablename__ = "league_quiz_achievements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    achievement_code = Column(String(64), nullable=False)
+    unlocked_in_session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    metadata_json = Column(JSON, nullable=False, default=dict, server_default="{}")
+    unlocked_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    league = relationship("League")
+    user = relationship("User")
+    session = relationship("LeagueQuizSession")
+
+    __table_args__ = (
+        UniqueConstraint("league_id", "user_id", "achievement_code", name="uq_league_quiz_achievement"),
+    )
+
+
+class LeagueQuizRecap(Base):
+    __tablename__ = "league_quiz_recaps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("league_quiz_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    round_id = Column(Integer, ForeignKey("league_quiz_session_rounds.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    scope_key = Column(String(160), nullable=False)
+    recap_text = Column(Text, nullable=False)
+    source = Column(String(24), nullable=False, default="template", server_default="template")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    session = relationship("LeagueQuizSession")
+    round = relationship("LeagueQuizSessionRound")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "scope_key", name="uq_league_quiz_recap_scope"),
+    )
