@@ -12657,3 +12657,7 @@ body,
 .quiz-stats-breakdown p span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quiz-stats-breakdown p b { color: var(--accent, #42d9aa); }
 .quiz-stats-breakdown p small { color: var(--text-muted, #aab2c8); min-width: 36px; text-align: right; }
+
+/* v3.5.3: each «Сто к одному» rank can include multiple tied answers and its measured value. */
+.hundred-editor-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .42fr); gap: 8px; }
+@media (max-width: 520px) { .hundred-editor-fields { grid-template-columns: 1fr; } }

@@ -1395,22 +1395,57 @@ def _validate_stage_three_question_payload(payload: dict[str, Any]) -> tuple[str
         points = 500
     elif question_type == "hundred_to_one":
         answers_raw = raw_config.get("top_answers") or raw_config.get("answers") or []
-        if not isinstance(answers_raw, list) or len(answers_raw) != 10:
-            raise ValueError("Для «Сто к одному» заполните все десять строк")
+        if not isinstance(answers_raw, list) or not answers_raw:
+            raise ValueError("Для «Сто к одному» добавьте хотя бы одну строку рейтинга")
+        if len(answers_raw) > 10:
+            raise ValueError("Для «Сто к одному» можно задать не более десяти позиций")
+
         top_answers: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for index, raw_answer in enumerate(answers_raw, start=1):
-            if isinstance(raw_answer, dict):
-                primary = " ".join(str(raw_answer.get("answer") or raw_answer.get("text") or "").strip().split())
-                aliases = _clean_aliases([primary, *(raw_answer.get("aliases") or [])])
+        seen_positions: set[int] = set()
+        seen_answers: set[str] = set()
+        for index, raw_row in enumerate(answers_raw, start=1):
+            if isinstance(raw_row, dict):
+                raw_position = raw_row.get("position", index)
+                try:
+                    position = int(raw_position)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Позиция в «Сто к одному» должна быть числом от 1 до 10") from exc
+                raw_value = " ".join(str(raw_row.get("value") or "").strip().split())
+                raw_members = raw_row.get("answers")
+                if raw_members is None:
+                    raw_members = [raw_row]
             else:
-                primary = " ".join(str(raw_answer or "").strip().split())
-                aliases = _clean_aliases([primary])
-            norm_primary = _normalize_text(primary)
-            if norm_primary in seen:
-                raise ValueError("В топ-10 не должно быть одинаковых строк")
-            seen.add(norm_primary)
-            top_answers.append({"position": index, "answer": primary, "aliases": aliases})
+                position = index
+                raw_value = ""
+                raw_members = [raw_row]
+
+            if not 1 <= position <= 10:
+                raise ValueError("Позиция в «Сто к одному» должна быть от 1 до 10")
+            if position in seen_positions:
+                raise ValueError("Каждая позиция в «Сто к одному» должна быть задана только один раз")
+            if len(raw_value) > 160:
+                raise ValueError("Показатель строки «Сто к одному» слишком длинный")
+            if not isinstance(raw_members, list) or not raw_members:
+                raise ValueError("В каждой позиции «Сто к одному» нужен хотя бы один ответ")
+
+            members: list[dict[str, Any]] = []
+            for raw_member in raw_members:
+                if isinstance(raw_member, dict):
+                    primary = " ".join(str(raw_member.get("answer") or raw_member.get("text") or "").strip().split())
+                    aliases = _clean_aliases([primary, *(raw_member.get("aliases") or [])])
+                else:
+                    primary = " ".join(str(raw_member or "").strip().split())
+                    aliases = _clean_aliases([primary])
+                norm_primary = _normalize_text(primary)
+                if norm_primary in seen_answers:
+                    raise ValueError("Один и тот же ответ нельзя повторять в разных строках топ-10")
+                seen_answers.add(norm_primary)
+                members.append({"answer": primary, "aliases": aliases})
+
+            seen_positions.add(position)
+            top_answers.append({"position": position, "value": raw_value or None, "answers": members})
+
+        top_answers.sort(key=lambda item: int(item["position"]))
         config = {"top_answers": top_answers}
         points = 1000
 
@@ -1785,17 +1820,50 @@ def _answer_matches_aliases(answer_text: str | None, aliases: list[str], allow_e
     return False
 
 
+def _hundred_top_answer_groups(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return canonical hundred-to-one rank groups and read legacy payloads safely."""
+    groups: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(config.get("top_answers") or [], start=1):
+        if not isinstance(raw_row, dict):
+            continue
+        try:
+            position = int(raw_row.get("position") or index)
+        except (TypeError, ValueError):
+            position = index
+        raw_members = raw_row.get("answers")
+        if not isinstance(raw_members, list):
+            raw_members = [raw_row]
+        members: list[dict[str, Any]] = []
+        for raw_member in raw_members:
+            if not isinstance(raw_member, dict):
+                continue
+            answer = " ".join(str(raw_member.get("answer") or raw_member.get("text") or "").strip().split())
+            if not answer:
+                continue
+            aliases = list(raw_member.get("aliases") or [answer])
+            members.append({"answer": answer, "aliases": aliases})
+        if members:
+            groups.append({"position": position, "value": raw_row.get("value") or None, "answers": members})
+    return sorted(groups, key=lambda item: int(item["position"]))
+
+
 def _answer_result_for_text_question(question: LeagueQuizSessionQuestion, answer: LeagueQuizSessionAnswer) -> tuple[bool, int, str]:
     config = _payload_dict(getattr(question, "payload_snapshot", None))
     text = answer.answer_text or ""
     qtype = question.question_type
     if qtype == "hundred_to_one":
-        for row in config.get("top_answers") or []:
-            aliases = row.get("aliases") or [row.get("answer")]
-            if _answer_matches_aliases(text, aliases, allow_embedded=True):
-                position = int(row.get("position") or 0)
-                answer.answer_payload = {**_payload_dict(answer.answer_payload), "position": position}
-                return True, position * 100, f"Строка {position} из топ-10"
+        for row in _hundred_top_answer_groups(config):
+            for member in row.get("answers") or []:
+                aliases = member.get("aliases") or [member.get("answer")]
+                if _answer_matches_aliases(text, aliases, allow_embedded=True):
+                    position = int(row.get("position") or 0)
+                    answer.answer_payload = {
+                        **_payload_dict(answer.answer_payload),
+                        "position": position,
+                        "matched_answer": member.get("answer"),
+                        "rank_value": row.get("value"),
+                    }
+                    return True, position * 100, f"Строка {position} из топ-10"
         return False, 0, "Ответ не вошёл в топ-10"
     aliases = list(config.get("answer_aliases") or [])
     is_correct = _answer_matches_aliases(text, aliases, allow_embedded=(qtype == "one_of_two"))
@@ -2090,8 +2158,10 @@ def get_correct_answer_text(question: LeagueQuizSessionQuestion) -> str:
     config = _payload_dict(getattr(question, "payload_snapshot", None))
     if question.question_type == "hundred_to_one":
         rows = []
-        for item in config.get("top_answers") or []:
-            rows.append(f"{item.get('position')}. {item.get('answer')}")
+        for item in _hundred_top_answer_groups(config):
+            names = " / ".join(str(member.get("answer")) for member in item.get("answers") or [] if member.get("answer"))
+            value = f" — {item.get('value')}" if item.get("value") else ""
+            rows.append(f"{item.get('position')}. {names}{value}")
         return "\n".join(rows) or "—"
     aliases = config.get("answer_aliases") or []
     return str(aliases[0]) if aliases else "—"

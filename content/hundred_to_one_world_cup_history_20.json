@@ -1,0 +1,3023 @@
+{
+  "questions": [
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по числу сыгранных матчей в финальных стадиях мужских чемпионатов мира за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "114 матчей",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "112 матчей",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "88 матчей",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "83 матча",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "74 матча",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "73 матча",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "67 матчей",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "60 матчей",
+            "answers": [
+              {
+                "answer": "Мексика",
+                "aliases": [
+                  "Мексика",
+                  "Mexico"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "59 матчей",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "55 матчей",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Рейтинг составлен по колонке Pd (сыгранные матчи) сводной исторической таблицы RSSSF за 1930–2022 годы. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка Pd."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Статистика"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, сыгранные-матчи",
+      "difficulty": "medium",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по количеству забитых голов в финальных стадиях мужских чемпионатов мира за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "237 голов",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "232 гола",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "152 гола",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "136 голов",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "128 голов",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "108 голов",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "104 гола",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "96 голов",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "89 голов",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "87 голов",
+            "answers": [
+              {
+                "answer": "Венгрия",
+                "aliases": [
+                  "Венгрия",
+                  "Hungary"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Значения взяты из колонки GF исторической таблицы RSSSF за 1930–2022 годы. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка GF."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Голы",
+        "Сборные"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, голы",
+      "difficulty": "medium",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 исторической таблицы чемпионатов мира по фактически набранным очкам за 1930–2022 годы: два очка за победу до 1990 года и три — с 1994-го.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "203 очка",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "186 очков",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "134 очка",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "125 очков",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "116 очков",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "100 очков",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "97 очков",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "96 очков",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "73 очка",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "66 очков",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "RSSSF публикует эту метрику в колонке APt: фактические очки по правилам разных эпох. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка APt."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Статистика"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, очки",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по разнице забитых и пропущенных голов в финальных стадиях ЧМ за 1930–2022 годы. При равенстве показателя несколько сборных делят одну позицию.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "+129",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "+102",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "+51",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              },
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              },
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "+44",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "+36",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "+33",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "+30",
+            "answers": [
+              {
+                "answer": "Венгрия",
+                "aliases": [
+                  "Венгрия",
+                  "Hungary"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "+20",
+            "answers": [
+              {
+                "answer": "Португалия",
+                "aliases": [
+                  "Португалия",
+                  "Portugal"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Разница рассчитана как GF минус GA по сводной таблице RSSSF. Аргентина, Франция и Италия имеют одинаковый показатель +51 и получают по 300 очков. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонки GF и GA; разница рассчитана из опубликованных значений."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, разница-голов, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по числу матчей без поражений в финальных стадиях ЧМ за 1930–2022 годы: победы плюс ничьи.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "95 матчей без поражений",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "89 матчей без поражений",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "66 матчей без поражений",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "64 матча без поражений",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "54 матча без поражений",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "53 матча без поражений",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "48 матчей без поражений",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "44 матча без поражений",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "38 матчей без поражений",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "32 матча без поражений",
+            "answers": [
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Показатель рассчитан как W + D по исторической таблице RSSSF. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонки W и D; показатель рассчитан как W + D."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Статистика"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, матчи-без-поражений",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по количеству ничьих в финальных стадиях мужских чемпионатов мира за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "22 ничьи",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "21 ничья",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              },
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "19 ничьих",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "17 ничьих",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              },
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "15 ничьих",
+            "answers": [
+              {
+                "answer": "Мексика",
+                "aliases": [
+                  "Мексика",
+                  "Mexico"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "14 ничьих",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              },
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "13 ничьих",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              },
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Равные показатели объединены на одну строку и дают одинаковое число очков. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка D."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Статистика"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, ничьи, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную с одним из десяти наибольших количеств поражений в финальных стадиях ЧМ за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "28 поражений",
+            "answers": [
+              {
+                "answer": "Мексика",
+                "aliases": [
+                  "Мексика",
+                  "Mexico"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "24 поражения",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "23 поражения",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "21 поражение",
+            "answers": [
+              {
+                "answer": "Южная Корея",
+                "aliases": [
+                  "Южная Корея",
+                  "Корея",
+                  "South Korea"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "20 поражений",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              },
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              },
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "19 поражений",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              },
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              },
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              },
+              {
+                "answer": "Швейцария",
+                "aliases": [
+                  "Швейцария",
+                  "Switzerland"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Рейтинг построен по колонке L. При равенстве количества поражений сборные занимают одну позицию. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка L."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Статистика"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, поражения, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную с одним из десяти наибольших количеств пропущенных голов в финальных стадиях ЧМ за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "130 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "108 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "101 пропущенный гол",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              },
+              {
+                "answer": "Мексика",
+                "aliases": [
+                  "Мексика",
+                  "Mexico"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "85 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "78 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Южная Корея",
+                "aliases": [
+                  "Южная Корея",
+                  "Корея",
+                  "South Korea"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "77 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "76 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "75 пропущенных голов",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "74 пропущенных гола",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Топ-10 мест строится по колонке GA. Сборные с 73 пропущенными мячами остаются уже за пределами десятого места. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка GA."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, пропущенные-голы, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по числу участий в финальных стадиях мужских чемпионатов мира за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "22 участия",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "20 участий",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "18 участий",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              },
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "17 участий",
+            "answers": [
+              {
+                "answer": "Мексика",
+                "aliases": [
+                  "Мексика",
+                  "Mexico"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "16 участий",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              },
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              },
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "14 участий",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              },
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Учитываются участия в финальной стадии, а не квалификационные кампании. Равные показатели объединены. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка Part."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Участия"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, участия, равные-позиции",
+      "difficulty": "medium",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по числу финалов ЧМ за 1930–2022 годы: титулы плюс вторые места.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "8 финалов",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "7 финалов",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "6 финалов",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              },
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "5 финалов",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "4 финала",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "3 финала",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "2 финала",
+            "answers": [
+              {
+                "answer": "Венгрия",
+                "aliases": [
+                  "Венгрия",
+                  "Hungary"
+                ]
+              },
+              {
+                "answer": "Чехословакия",
+                "aliases": [
+                  "Чехословакия",
+                  "Czechoslovakia"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "1 финал",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              },
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              },
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Показатель рассчитан как Win + RU по опубликованным колонкам титулов и вторых мест. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонки Win и RU; показатель равен сумме Win + RU."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Финалы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, финалы, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по числу попаданий в призовую тройку ЧМ за 1930–2022 годы: чемпион, финалист или полуфиналист.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "13 попаданий в топ-3",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "11 попаданий в топ-3",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "8 попаданий в топ-3",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "7 попаданий в топ-3",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              },
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "6 попаданий в топ-3",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "5 попаданий в топ-3",
+            "answers": [
+              {
+                "answer": "Венгрия",
+                "aliases": [
+                  "Венгрия",
+                  "Hungary"
+                ]
+              },
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "4 попадания в топ-3",
+            "answers": [
+              {
+                "answer": "Чехословакия",
+                "aliases": [
+                  "Чехословакия",
+                  "Czechoslovakia"
+                ]
+              },
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Показатель рассчитан как сумма Win, RU и SF по данным RSSSF. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонки Win, RU и SF; показатель равен их сумме."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Плей-офф"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, топ-3, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную с одним из десяти наибольших количеств выходов в четвертьфинал ЧМ за 1930–2022 годы.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "7 четвертьфиналов",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "6 четвертьфиналов",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "5 четвертьфиналов",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "4 четвертьфинала",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              },
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "3 четвертьфинала",
+            "answers": [
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              },
+              {
+                "answer": "Швейцария",
+                "aliases": [
+                  "Швейцария",
+                  "Switzerland"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "2 четвертьфинала",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              },
+              {
+                "answer": "Мексика",
+                "aliases": [
+                  "Мексика",
+                  "Mexico"
+                ]
+              },
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              },
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "В таблице RSSSF колонка QF фиксирует выходы в четвертьфинал с учётом особенностей форматов ранних чемпионатов мира. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Таблица 1930–2022, колонка QF и методические примечания к ранним форматам."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Плей-офф"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, четвертьфиналы, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по забитым голам в эпоху Кубка Жюля Риме — финальные турниры 1930–1970 годов.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "103 гола",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "87 голов",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "70 голов",
+            "answers": [
+              {
+                "answer": "Венгрия",
+                "aliases": [
+                  "Венгрия",
+                  "Hungary"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "56 голов",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "48 голов",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "40 голов",
+            "answers": [
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "38 голов",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "33 гола",
+            "answers": [
+              {
+                "answer": "Югославия",
+                "aliases": [
+                  "Югославия",
+                  "Yugoslavia"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "32 гола",
+            "answers": [
+              {
+                "answer": "Чехословакия",
+                "aliases": [
+                  "Чехословакия",
+                  "Czechoslovakia"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "31 гол",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Это отдельная историческая эпоха девяти турниров, завершившаяся на ЧМ-1970 в Мексике. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел Coupe Jules Rimet 1930–1970, колонка GF."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Кубок Жюля Риме",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, кубок-жюля-риме, сборные, голы",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 исторической таблицы RSSSF эпохи 1930–1970 годов по набранным очкам.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "57 очков",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "47 очков",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "34 очка",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "32 очка",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "28 очков",
+            "answers": [
+              {
+                "answer": "Венгрия",
+                "aliases": [
+                  "Венгрия",
+                  "Hungary"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "26 очков",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "23 очка",
+            "answers": [
+              {
+                "answer": "СССР",
+                "aliases": [
+                  "СССР",
+                  "Советский Союз",
+                  "Soviet Union"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "21 очко",
+            "answers": [
+              {
+                "answer": "Югославия",
+                "aliases": [
+                  "Югославия",
+                  "Yugoslavia"
+                ]
+              },
+              {
+                "answer": "Швеция",
+                "aliases": [
+                  "Швеция",
+                  "Sweden"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "19 очков",
+            "answers": [
+              {
+                "answer": "Чехословакия",
+                "aliases": [
+                  "Чехословакия",
+                  "Czechoslovakia"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Югославия и Швеция имеют равный показатель 21; в раунде обе принимаются как восьмая строка. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел Coupe Jules Rimet 1930–1970, колонка Pts."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Кубок Жюля Риме",
+        "Сборные"
+      ],
+      "tags": "сто-к-одному, история-чм, кубок-жюля-риме, очки, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по забитым голам в финальных стадиях ЧМ периода 1974–2014 годов.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "137 голов",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "118 голов",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "100 голов",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "84 гола",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "80 голов",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "72 гола",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "68 голов",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "45 голов",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "40 голов",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "39 голов",
+            "answers": [
+              {
+                "answer": "Польша",
+                "aliases": [
+                  "Польша",
+                  "Poland"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Рейтинг относится только к одиннадцати турнирам 1974–2014 годов, а не ко всей истории чемпионатов мира. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел FIFA World Cup 1974–2014, колонка GF."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, голы, 1974-2014",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 исторической таблицы RSSSF периода 1974–2014 годов по очкам.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "105 очков",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "100 очков",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "80 очков",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "77 очков",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "66 очков",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "56 очков",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "53 очка",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "46 очков",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "35 очков",
+            "answers": [
+              {
+                "answer": "Польша",
+                "aliases": [
+                  "Польша",
+                  "Poland"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "34 очка",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Для данного периода RSSSF использует историческую систему в два очка за победу. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел FIFA World Cup 1974–2014, колонка Pts."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Статистика"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, очки, 1974-2014",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по разнице голов в финальных стадиях ЧМ периода 1974–2014 годов. При равенстве несколько сборных занимают одну позицию.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "+75",
+            "answers": [
+              {
+                "answer": "Германия (включая ФРГ)",
+                "aliases": [
+                  "Германия",
+                  "ФРГ",
+                  "Западная Германия",
+                  "Germany",
+                  "West Germany"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "+65",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "+43",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "+42",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "+33",
+            "answers": [
+              {
+                "answer": "Италия",
+                "aliases": [
+                  "Италия",
+                  "Italy"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "+30",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "+29",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "+17",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "+5",
+            "answers": [
+              {
+                "answer": "Польша",
+                "aliases": [
+                  "Польша",
+                  "Poland"
+                ]
+              },
+              {
+                "answer": "Португалия",
+                "aliases": [
+                  "Португалия",
+                  "Portugal"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Разница рассчитана как GF минус GA по опубликованным значениям RSSSF. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел FIFA World Cup 1974–2014, колонки GF и GA; разница рассчитана из опубликованных значений."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, разница-голов, 1974-2014, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 исторической таблицы RSSSF по очкам на двух последних завершённых ЧМ: 2018 и 2022.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "35 очков",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "24 очка",
+            "answers": [
+              {
+                "answer": "Хорватия",
+                "aliases": [
+                  "Хорватия",
+                  "Croatia"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "22 очка",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "20 очков",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              },
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "18 очков",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "16 очков",
+            "answers": [
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 8,
+            "value": "14 очков",
+            "answers": [
+              {
+                "answer": "Португалия",
+                "aliases": [
+                  "Португалия",
+                  "Portugal"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "12 очков",
+            "answers": [
+              {
+                "answer": "Марокко",
+                "aliases": [
+                  "Марокко",
+                  "Morocco"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 10,
+            "value": "11 очков",
+            "answers": [
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Период включает только финальные турниры 2018 и 2022 годов. У Бразилии и Англии одинаковое число очков, поэтому обе получают 400 очков. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел 2018–2022, колонка Pts."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "2018 и 2022"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, очки, 2018-2022, равные-позиции",
+      "difficulty": "medium",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по забитым голам на ЧМ 2018 и 2022 годов вместе.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "30 голов",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "25 голов",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "22 гола",
+            "answers": [
+              {
+                "answer": "Хорватия",
+                "aliases": [
+                  "Хорватия",
+                  "Croatia"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "21 гол",
+            "answers": [
+              {
+                "answer": "Аргентина",
+                "aliases": [
+                  "Аргентина",
+                  "Argentina"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "18 голов",
+            "answers": [
+              {
+                "answer": "Португалия",
+                "aliases": [
+                  "Португалия",
+                  "Portugal"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "17 голов",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 7,
+            "value": "16 голов",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              },
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "11 голов",
+            "answers": [
+              {
+                "answer": "Россия",
+                "aliases": [
+                  "Россия",
+                  "Russia"
+                ]
+              },
+              {
+                "answer": "Япония",
+                "aliases": [
+                  "Япония",
+                  "Japan"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Россия и Япония имеют по 11 голов, Бразилия и Испания — по 16; равные показатели объединены в строки. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел 2018–2022, колонка GF."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "2018 и 2022",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, голы, 2018-2022, равные-позиции",
+      "difficulty": "medium",
+      "repeat_after_days": 180
+    },
+    {
+      "question_type": "hundred_to_one",
+      "question_text": "Сто к одному. Назовите сборную из топ-10 по разнице голов на ЧМ 2018 и 2022 годов вместе.",
+      "question_payload": {
+        "top_answers": [
+          {
+            "position": 1,
+            "value": "+16",
+            "answers": [
+              {
+                "answer": "Франция",
+                "aliases": [
+                  "Франция",
+                  "France"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 2,
+            "value": "+13",
+            "answers": [
+              {
+                "answer": "Англия",
+                "aliases": [
+                  "Англия",
+                  "England"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 3,
+            "value": "+10",
+            "answers": [
+              {
+                "answer": "Бразилия",
+                "aliases": [
+                  "Бразилия",
+                  "Brazil"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 4,
+            "value": "+9",
+            "answers": [
+              {
+                "answer": "Бельгия",
+                "aliases": [
+                  "Бельгия",
+                  "Belgium"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 5,
+            "value": "+7",
+            "answers": [
+              {
+                "answer": "Испания",
+                "aliases": [
+                  "Испания",
+                  "Spain"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 6,
+            "value": "+6",
+            "answers": [
+              {
+                "answer": "Хорватия",
+                "aliases": [
+                  "Хорватия",
+                  "Croatia"
+                ]
+              },
+              {
+                "answer": "Нидерланды",
+                "aliases": [
+                  "Нидерланды",
+                  "Голландия",
+                  "Netherlands"
+                ]
+              },
+              {
+                "answer": "Португалия",
+                "aliases": [
+                  "Португалия",
+                  "Portugal"
+                ]
+              }
+            ]
+          },
+          {
+            "position": 9,
+            "value": "+4",
+            "answers": [
+              {
+                "answer": "Россия",
+                "aliases": [
+                  "Россия",
+                  "Russia"
+                ]
+              },
+              {
+                "answer": "Уругвай",
+                "aliases": [
+                  "Уругвай",
+                  "Uruguay"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "default_points": 1000,
+      "explanation": "Разница рассчитана как GF минус GA в разделе RSSSF, посвящённом двум турнирам 2018 и 2022 годов. В этом раунде позиция 1 даёт 100 очков, позиция 10 — 1000; ответы с одинаковым показателем объединены в одну позицию.",
+      "sources": [
+        {
+          "title": "RSSSF: World Cup Final Tournaments 1930–2022 — Total Rankings",
+          "url": "https://www.rsssf.org/tables/3002f.html",
+          "note": "Раздел 2018–2022, колонки GF и GA; разница рассчитана из опубликованных значений."
+        }
+      ],
+      "topics": [
+        "История чемпионатов мира",
+        "Сборные",
+        "2018 и 2022",
+        "Голы"
+      ],
+      "tags": "сто-к-одному, история-чм, сборные, разница-голов, 2018-2022, равные-позиции",
+      "difficulty": "hard",
+      "repeat_after_days": 180
+    }
+  ]
+}

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.5.2';
+const APP_VERSION = '3.5.3';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6660,6 +6660,23 @@ function quizBankSummary(question) {
   return '';
 }
 
+function defaultHundredRows() {
+  return Array.from({ length: 10 }, () => ({ answers: '', value: '' }));
+}
+
+function quizHundredRowsFromPayload(payload) {
+  const rows = defaultHundredRows();
+  (payload?.top_answers || []).forEach((item, fallbackIndex) => {
+    const position = Math.max(1, Math.min(10, Number(item?.position || fallbackIndex + 1) || fallbackIndex + 1));
+    const members = Array.isArray(item?.answers) ? item.answers : [item];
+    rows[position - 1] = {
+      answers: members.map((member) => member?.answer || member?.text || '').filter(Boolean).join(' | '),
+      value: item?.value || '',
+    };
+  });
+  return rows;
+}
+
 function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const activeLeague = (leaguesData?.leagues || []).find((league) => Number(league.id) === Number(activeLeagueId));
   const quizPermissions = activeLeague?.quiz_permissions || {};
@@ -6700,7 +6717,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [questionAliases, setQuestionAliases] = useState('');
   const [questionTopic, setQuestionTopic] = useState('');
   const [countdownFacts, setCountdownFacts] = useState(['', '', '']);
-  const [hundredAnswers, setHundredAnswers] = useState(Array.from({ length: 10 }, () => ''));
+  const [hundredAnswers, setHundredAnswers] = useState(defaultHundredRows());
   const [textAnswer, setTextAnswer] = useState('');
   const [quizTitle, setQuizTitle] = useState('');
   const [roundTitle, setRoundTitle] = useState('Раунд с вариантами');
@@ -6828,7 +6845,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setQuestionAliases('');
     setQuestionTopic('');
     setCountdownFacts(['', '', '']);
-    setHundredAnswers(Array.from({ length: 10 }, () => ''));
+    setHundredAnswers(defaultHundredRows());
   }
 
   function resetQuestionEditor(type = 'choice_4') {
@@ -6849,7 +6866,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setQuestionAliases('');
     setQuestionTopic('');
     setCountdownFacts(['', '', '']);
-    setHundredAnswers(Array.from({ length: 10 }, () => ''));
+    setHundredAnswers(defaultHundredRows());
   }
 
   function sourceRowsForRequest() {
@@ -6865,7 +6882,19 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     }
     if (questionType === 'jeopardy') questionPayload.topic = questionTopic.trim();
     if (questionType === 'countdown') questionPayload.facts = countdownFacts;
-    if (questionType === 'hundred_to_one') questionPayload.top_answers = hundredAnswers.map((answer) => ({ answer, aliases: [answer] }));
+    if (questionType === 'hundred_to_one') {
+      questionPayload.top_answers = hundredAnswers
+        .map((row, index) => {
+          const answers = String(row?.answers || '')
+            .split('|')
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .map((answer) => ({ answer, aliases: [answer] }));
+          if (!answers.length) return null;
+          return { position: index + 1, value: String(row?.value || '').trim() || null, answers };
+        })
+        .filter(Boolean);
+    }
     return {
       league_id: activeLeagueId,
       question_type: questionType,
@@ -6903,7 +6932,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setQuestionAliases((question.aliases || config.answer_aliases || []).join('\n'));
     setQuestionTopic(config.topic || '');
     setCountdownFacts(Array.isArray(config.facts) && config.facts.length === 3 ? config.facts : ['', '', '']);
-    setHundredAnswers((config.top_answers || []).length ? config.top_answers.map((item) => item.answer || '').concat(Array.from({ length: Math.max(0, 10 - config.top_answers.length) }, () => '')) : Array.from({ length: 10 }, () => ''));
+    setHundredAnswers(quizHundredRowsFromPayload(config));
     setQuestionSources((question.sources || []).length ? (question.sources || []).map((item) => ({ title: item.title || '', url: item.url || '', note: item.note || '' })) : [{ title: '', url: '', note: '' }]);
     const media = (question.media || config.media || [])[0] || {};
     setMediaUrl(media.url || '');
@@ -7539,7 +7568,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   {questionType === 'jeopardy' && <label>Тема «Своей игры»<input value={questionTopic} onChange={(event) => setQuestionTopic(event.target.value)} placeholder="Например, Рекорды ЧМ" required /></label>}
                   {['jeopardy', 'one_of_two', 'what_where_when', 'countdown'].includes(questionType) && <label>Правильный ответ и допустимые варианты<textarea value={questionAliases} onChange={(event) => setQuestionAliases(event.target.value)} placeholder="Каждый вариант с новой строки или через запятую" required /></label>}
                   {questionType === 'countdown' && <div className="quiz-stage-editor"><b>Три факта — от сложного к простому</b>{countdownFacts.map((fact, index) => <label key={index}>Подсказка {index + 1}<textarea value={fact} onChange={(event) => setCountdownFacts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} required /></label>)}</div>}
-                  {questionType === 'hundred_to_one' && <div className="hundred-editor"><b>Топ-10: от самой очевидной строки к самой сложной</b>{hundredAnswers.map((value, index) => <label key={index}><span>{index + 1} · {100 * (index + 1)} очк.</span><input value={value} onChange={(event) => setHundredAnswers((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} required /></label>)}</div>}
+                  {questionType === 'hundred_to_one' && <div className="hundred-editor"><b>Топ-10: 1-я строка — 100 очков, 10-я — 1000. Несколько равных ответов укажите через «|».</b>{hundredAnswers.map((row, index) => <label key={index}><span>{index + 1} · {100 * (index + 1)} очк.</span><div className="hundred-editor-fields"><input value={row.answers} onChange={(event) => setHundredAnswers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, answers: event.target.value } : item))} placeholder="Ответ или несколько через |" /><input value={row.value} onChange={(event) => setHundredAnswers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} placeholder="Показатель, например 114 матчей" /></div></label>)}</div>}
 
                   <div className="quiz-form-grid"><label>Баллы<input type="number" min="0" max="10000" value={questionPoints} onChange={(event) => setQuestionPoints(event.target.value)} disabled={['one_of_two', 'what_where_when', 'countdown', 'hundred_to_one'].includes(questionType)} required /></label><label>Сложность<select value={questionDifficulty} onChange={(event) => setQuestionDifficulty(event.target.value)} required><option value="easy">Лёгкая</option><option value="medium">Средняя</option><option value="hard">Сложная</option></select></label><label>Повтор не раньше, дней<input type="number" min="0" max="365" value={questionRepeatAfterDays} onChange={(event) => setQuestionRepeatAfterDays(event.target.value)} required /></label></div>
                   <label>Темы<textarea value={questionTopics} onChange={(event) => setQuestionTopics(event.target.value)} placeholder="Например: ЧМ-2026, сборные" required /></label>
