@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.4.4';
+const APP_VERSION = '3.4.5';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6608,9 +6608,9 @@ const QUIZ_TIMER_FIELDS = [
 
 
 const QUIZ_WORKSPACE_TABS = [
-  { id: 'games', label: 'Игры', hint: 'регистрация и история', icon: '▶' },
-  { id: 'planner', label: 'План', hint: 'сценарий и вопросы', icon: '✦' },
-  { id: 'bank', label: 'Банк', hint: 'вопросы и импорт', icon: '▦' },
+  { id: 'games', label: 'Игры' },
+  { id: 'planner', label: 'План' },
+  { id: 'bank', label: 'Банк' },
 ];
 
 const FULL_QUIZ_TEMPLATE = [
@@ -7319,8 +7319,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
             setBankOpen(tab.id !== 'games');
             if (tab.id !== 'games') loadBank();
           }}>
-            <span className="quiz-workspace-tab-icon" aria-hidden="true">{tab.icon}</span>
-            <span className="quiz-workspace-tab-copy"><b>{tab.label}</b><small>{tab.hint}</small></span>
+            {tab.label}
           </button>
         ))}
       </nav>
@@ -7330,15 +7329,15 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
           {workspaceTab === 'games' && <>
           {!quizzes.length && !canManage && <EmptyState iconName="quiz" title="Квизов пока нет" text="Когда администратор лиги запланирует игру, она появится здесь." />}
           {activeQuizItems.length > 0 && (
-            <section className="quiz-session-list" aria-label="Запущенные и запланированные квизы">
-              <div className="quiz-list-heading"><h2>Запущенные квизы</h2><span>регистрация и игра</span></div>
-              {activeQuizItems.map(renderQuizSessionCard)}
+            <section className="quiz-session-section" aria-label="Запущенные и запланированные квизы">
+              <div className="quiz-list-heading"><div><h2>Запущенные квизы</h2><p>Регистрация, игра и паузы</p></div></div>
+              <div className="quiz-session-list">{activeQuizItems.map(renderQuizSessionCard)}</div>
             </section>
           )}
           {historyQuizItems.length > 0 && (
-            <section className="quiz-session-list quiz-history-list" aria-label="История квизов">
-              <div className="quiz-list-heading"><h2>История квизов</h2><span>завершённые и отменённые</span></div>
-              {historyQuizItems.map(renderQuizSessionCard)}
+            <section className="quiz-session-section quiz-history-section" aria-label="История квизов">
+              <div className="quiz-list-heading"><div><h2>История квизов</h2><p>Завершённые и отменённые игры</p></div></div>
+              <div className="quiz-session-list quiz-history-list">{historyQuizItems.map(renderQuizSessionCard)}</div>
             </section>
           )}
 
@@ -7504,11 +7503,12 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                 {workspaceTab === 'planner' && canHost && <form className="quiz-form quiz-create-form" onSubmit={createQuiz}>
                   <h3>Создать сценарий квиза</h3>
                   <p className="muted">Вопросы берутся из одобренных карточек Банка. Выберите режим, затем заполните раунды вручную или кнопкой автоподбора.</p>
-                  <div className="quiz-planner-modes">
-                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}><b>Полный</b><small>60 вопросов</small></button>
-                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}><b>Один формат</b><small>5 / 20 вопросов</small></button>
-                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); }}><b>Случайный</b><small>1 вопрос</small></button>
+                  <div className="quiz-planner-modes" aria-label="Режим квиза">
+                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Полный</button>
+                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Формат</button>
+                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); }}>Случайный</button>
                   </div>
+                  <p className="quiz-planner-mode-hint">{plannerMode === 'full' ? '60 вопросов · 9 раундов' : plannerMode === 'single' ? 'Один формат · 5 вопросов, «Своя игра» — 20' : 'Один вопрос из выбранного формата'}</p>
                   {plannerMode === 'full' && <section className="planner-rounds"><div><b>Раунды полного квиза</b><button type="button" disabled={busy || !approvedBank.length} onClick={autoFillFullQuiz}>Автозаполнить все раунды</button></div><div className="planner-round-chips">{FULL_QUIZ_TEMPLATE.map((meta) => <button key={meta.round} type="button" className={plannerRound === meta.round ? 'active' : ''} onClick={() => setPlannerRound(meta.round)}>{meta.label}<small>{plannerRoundStatus(meta)}</small></button>)}</div></section>}
                   {plannerMode === 'single' && <label>Тип раунда<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label} · {meta.count} вопросов</option>)}</select></label>}
                   {plannerMode === 'random' && <label>Формат случайного вопроса<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}><option value="any">Любой формат</option>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label}</option>)}</select></label>}
