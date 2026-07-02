@@ -57,6 +57,8 @@ SUPPORTED_EVENT_TYPES = {
     "quiz_cancelled",
     "quiz_paused",
     "quiz_resumed",
+    "quiz_invitation_resent",
+    "question_resent",
 }
 
 
@@ -452,13 +454,13 @@ async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEven
     if not quiz or not league:
         _mark_event_done(db, event)
         return
-    if event.event_type == "quiz_created":
+    if event.event_type in {"quiz_created", "quiz_invitation_resent"}:
         await _dispatch_quiz_created(db, event, quiz, league)
     elif event.event_type == "quiz_started":
         await _dispatch_quiz_started(db, event, quiz, league)
     elif event.event_type == "round_started":
         await _dispatch_round_started(db, event, quiz, league)
-    elif event.event_type == "question_opened":
+    elif event.event_type in {"question_opened", "question_resent"}:
         await _dispatch_question_event(db, event, quiz, league, "quiz_question")
     elif event.event_type == "countdown_stage_opened":
         await _dispatch_question_event(db, event, quiz, league, "quiz_countdown_stage")
@@ -562,13 +564,13 @@ async def dispatch_league_quiz_telegram_event(db: Session, event: LeagueQuizEven
         # Replace the real league chat with the explicit test destination.
         delivery_league = SimpleNamespace(chat_id=quiz.test_chat_id, name=f"Тест: {league.name}")
 
-    if event.event_type == "quiz_created":
+    if event.event_type in {"quiz_created", "quiz_invitation_resent"}:
         await _dispatch_quiz_created(db, event, quiz, delivery_league)
     elif event.event_type == "quiz_started":
         await _dispatch_quiz_started(db, event, quiz, delivery_league)
     elif event.event_type == "round_started":
         await _dispatch_round_started(db, event, quiz, delivery_league)
-    elif event.event_type == "question_opened":
+    elif event.event_type in {"question_opened", "question_resent"}:
         await _dispatch_question_event(db, event, quiz, delivery_league, "quiz_question")
     elif event.event_type == "countdown_stage_opened":
         await _dispatch_question_event(db, event, quiz, delivery_league, "quiz_countdown_stage")

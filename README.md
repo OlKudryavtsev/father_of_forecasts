@@ -1519,3 +1519,12 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 
 ## v3.5.6
 Critical startup repair: Telegram delivery overrides are located in `app/services/league_quiz_telegram.py`; no migration is required.
+
+
+## v3.6.0 — Панель ведущего и контроль Банка
+
+- Панель ведущего: участники, статус ответа, просмотр всех закрытых вопросов, исходные ответы, ручное начисление/коррекция баллов, повторное приглашение и вопроса, таймер, пропуск вопроса, доставки Telegram и журнал действий.
+- «Сто к одному»: обязательны позиции 1–10 без пропусков и показатель для каждой позиции.
+- До JSON-импорта показывается проверка точных и похожих дублей; сервер блокирует точный дубль без `legacy_question_text`.
+- История квизов показана выпадающим списком, без горизонтальной прокрутки.
+- Миграция не требуется. Подробнее: `RELEASE_V3_6_0_HOST_DESK_AND_BANK_GUARDRAILS.md`.

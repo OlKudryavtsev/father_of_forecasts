@@ -1446,6 +1446,15 @@ def _validate_stage_three_question_payload(payload: dict[str, Any]) -> tuple[str
             top_answers.append({"position": position, "value": raw_value or None, "answers": members})
 
         top_answers.sort(key=lambda item: int(item["position"]))
+        # «Сто к одному» is an ordered game board, not a sparse sports ranking.
+        # Ties belong inside one position; the playable board must always expose
+        # all ten rows, so the point ladder 100..1000 is deterministic.
+        positions = [int(item["position"]) for item in top_answers]
+        if positions != list(range(1, 11)):
+            raise ValueError("Для «Сто к одному» заполните все позиции с 1 по 10 без пропусков")
+        for item in top_answers:
+            if not str(item.get("value") or "").strip():
+                raise ValueError("Для каждой позиции «Сто к одному» укажите проверяемый показатель")
         config = {"top_answers": top_answers}
         points = 1000
 
@@ -2827,3 +2836,49 @@ def get_correct_answer_text(question: LeagueQuizSessionQuestion) -> str:  # noqa
             if name:
                 rows.append(f"{position}. {name} — {value} — {points} баллов")
     return "\n".join(rows) if len(rows) > 1 else "—"
+
+
+# =============================================================================
+# v3.6.0 — host controls: skip, restart a timer and diagnostic state.
+# =============================================================================
+def host_restart_current_question_timer(db: Session, actor: User, session_id: int) -> LeagueQuizSession:
+    quiz_session = _get_session(db, session_id)
+    require_quiz_manager(db, actor, quiz_session.league_id)
+    if quiz_session.status != SESSION_RUNNING:
+        raise ValueError("Таймер можно перезапустить только в идущем квизе")
+    question = _current_session_question(db, quiz_session.id)
+    if not question or question.status != QUESTION_OPEN:
+        raise ValueError("Сейчас нет открытого вопроса с таймером")
+    now = utcnow()
+    stage = int(_payload_dict(getattr(question, "runtime_state", None)).get("stage") or 1)
+    question.closes_at = now + timedelta(seconds=get_question_timer_seconds(quiz_session, question, stage))
+    _admin_action(db, quiz_session, actor, "question_timer_restarted", {"session_question_id": question.id, "seconds": get_question_timer_seconds(quiz_session, question, stage)})
+    db.commit(); db.refresh(quiz_session)
+    return quiz_session
+
+
+def host_skip_current_question(db: Session, actor: User, session_id: int) -> LeagueQuizSession:
+    """Skip the active question without scoring answers and immediately advance."""
+    quiz_session = _get_session(db, session_id)
+    require_quiz_manager(db, actor, quiz_session.league_id)
+    if quiz_session.status != SESSION_RUNNING:
+        raise ValueError("Пропустить вопрос можно только в идущем квизе")
+    question = _current_session_question(db, quiz_session.id)
+    if not question or question.status != QUESTION_OPEN:
+        raise ValueError("Сейчас нет открытого вопроса для пропуска")
+    now = utcnow()
+    # Keep submitted text available in the audit, but do not award points.
+    for answer in db.query(LeagueQuizSessionAnswer).filter(LeagueQuizSessionAnswer.session_question_id == question.id).all():
+        if not answer.scored_at:
+            answer.is_correct = False
+            answer.points_awarded = 0
+            answer.scored_at = now
+    question.status = QUESTION_CLOSED
+    question.closed_at = now
+    question.revealed_at = now
+    question.revealed_until = now
+    _event(db, quiz_session, "question_revealed", {**_question_event_payload(db, quiz_session, question), "skipped": True, "telegram_skip": True})
+    _admin_action(db, quiz_session, actor, "question_skipped", {"session_question_id": question.id})
+    _open_next_question(db, quiz_session, now)
+    db.commit(); db.refresh(quiz_session)
+    return quiz_session

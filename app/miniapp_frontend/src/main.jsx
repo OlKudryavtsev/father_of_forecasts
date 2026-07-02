@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.5.5';
+const APP_VERSION = '3.6.0';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6756,6 +6756,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [importText, setImportText] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewRows, setReviewRows] = useState([]);
+  const [reviewQuestionId, setReviewQuestionId] = useState(null);
+  const [hostDashboard, setHostDashboard] = useState(null);
+  const [hostDashboardOpen, setHostDashboardOpen] = useState(false);
   const [quizStats, setQuizStats] = useState(null);
   const [quizStatsLoading, setQuizStatsLoading] = useState(false);
 
@@ -6828,6 +6831,17 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     }
   }, [activeLeagueId]);
 
+  const loadHostDashboard = useCallback(async (quizId = selectedQuizId, silent = false) => {
+    if (!quizId || !canHost) { setHostDashboard(null); return; }
+    try {
+      const result = await api(`/api/webapp/quizzes/${quizId}/host-dashboard`);
+      setHostDashboard(result);
+      if (!silent) setError(null);
+    } catch (err) {
+      if (!silent) setError(err);
+    }
+  }, [selectedQuizId, canHost]);
+
   useEffect(() => {
     setLoading(true);
     setDetail(null);
@@ -6843,9 +6857,14 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     const timer = window.setInterval(() => {
       loadList();
       loadDetail(selectedQuizId, true);
+      loadHostDashboard(selectedQuizId, true);
     }, 2000);
     return () => window.clearInterval(timer);
   }, [selectedQuizId, loadList, loadDetail]);
+
+  useEffect(() => {
+    if (canHost && selectedQuizId) loadHostDashboard(selectedQuizId, true);
+  }, [canHost, selectedQuizId, loadHostDashboard]);
 
   useEffect(() => {
     if (workspaceTab === 'bank' || workspaceTab === 'planner' || bankOpen) loadBank();
@@ -7140,29 +7159,56 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
-  async function loadReviews() {
-    const quizId = detail?.quiz?.id; const questionId = detail?.current_question?.id;
+  async function loadReviews(questionId = reviewQuestionId || detail?.current_question?.id) {
+    const quizId = detail?.quiz?.id;
     if (!quizId || !questionId) return;
     setBusy(true);
     try {
       const result = await api(`/api/webapp/quizzes/${quizId}/questions/${questionId}/answers`);
       setReviewRows(result.answers || []);
+      setReviewQuestionId(Number(questionId));
       setReviewOpen(true);
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
-  async function reviewAnswer(answer, accepted) {
+  async function reviewAnswer(answer, accepted, manualPoints = null) {
     const reason = window.prompt(accepted ? 'Почему ответ нужно зачесть?' : 'Почему ответ нужно отклонить?');
     if (!reason || !reason.trim()) return;
-    const quizId = detail?.quiz?.id; const questionId = detail?.current_question?.id;
+    const quizId = detail?.quiz?.id; const questionId = reviewQuestionId || detail?.current_question?.id;
     if (!quizId || !questionId) return;
     setBusy(true);
     try {
       const result = await api(`/api/webapp/quizzes/${quizId}/questions/${questionId}/answers/${answer.answer_id}/review`, {
-        method: 'POST', body: JSON.stringify({ accepted, reason: reason.trim() }),
+        method: 'POST', body: JSON.stringify({ accepted, reason: reason.trim(), points_awarded: manualPoints }),
       });
       setDetail(result);
-      await loadReviews();
+      await loadReviews(questionId);
+      await loadHostDashboard(quizId, true);
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function setManualReviewPoints(answer) {
+    const raw = window.prompt('Сколько баллов поставить за этот ответ?', String(answer.points_awarded ?? 0));
+    if (raw === null) return;
+    const points = Number(raw);
+    if (!Number.isInteger(points)) { setError(new Error('Баллы должны быть целым числом.')); return; }
+    await reviewAnswer(answer, points !== 0, points);
+  }
+
+  async function hostAction(action, payload = {}) {
+    const quizId = detail?.quiz?.id;
+    if (!quizId) return;
+    setBusy(true);
+    try {
+      let result;
+      if (action === 'resend') {
+        result = await api(`/api/webapp/quizzes/${quizId}/host/resend`, { method: 'POST', body: JSON.stringify(payload) });
+      } else {
+        result = await api(`/api/webapp/quizzes/${quizId}/host/${action}`, { method: 'POST' });
+        if (result?.quiz) setDetail(result);
+      }
+      await loadHostDashboard(quizId, true);
+      await loadList();
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
@@ -7423,7 +7469,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
           {historyQuizItems.length > 0 && (
             <section className="quiz-session-section quiz-history-section" aria-label="История квизов">
               <div className="quiz-list-heading"><div><h2>История квизов</h2><p>Завершённые и отменённые игры</p></div></div>
-              <div className="quiz-session-list quiz-history-list">{historyQuizItems.map(renderQuizSessionCard)}</div>
+              <label className="quiz-history-select"><span>Открыть квиз из истории</span><select value={historyQuizItems.some((item) => Number(item.id) === Number(selectedQuizId)) ? String(selectedQuizId) : ''} onChange={(event) => { const value = Number(event.target.value || 0); if (value) setSelectedQuizId(value); }}><option value="">Выберите квиз</option>{historyQuizItems.map((item) => <option key={item.id} value={item.id}>{item.title} · {item.scheduled_start_at ? formatQuizDate(item.scheduled_start_at) : 'ручной старт'} · {item.questions_total} вопр.</option>)}</select></label>
             </section>
           )}
 
@@ -7533,6 +7579,23 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   {quiz.status === 'paused' && <button type="button" disabled={busy} onClick={() => adminAction('resume')}>▶ Продолжить</button>}
                   {['registration_open', 'running', 'paused'].includes(quiz.status) && <button type="button" className="danger" disabled={busy} onClick={() => adminAction('cancel')}>Отменить квиз</button>}
                 </div>
+              )}
+
+              {quiz.can_manage && (
+                <section className="quiz-host-desk">
+                  <div className="quiz-host-desk-head"><div><b>Панель ведущего</b><p>Ответы, доставка сообщений и оперативное управление.</p></div><button type="button" disabled={busy} onClick={() => { setHostDashboardOpen((value) => !value); if (!hostDashboardOpen) loadHostDashboard(); }}>{hostDashboardOpen ? 'Скрыть' : 'Открыть'}</button></div>
+                  {hostDashboardOpen && <>
+                    <div className="quiz-host-actions">
+                      {quiz.status === 'registration_open' && <button type="button" disabled={busy} onClick={() => hostAction('resend', { kind: 'invitation' })}>Повторить приглашение</button>}
+                      {currentQuestion && <button type="button" disabled={busy} onClick={() => hostAction('resend', { kind: 'question', session_question_id: currentQuestion.id })}>Повторить вопрос</button>}
+                      {currentQuestion?.status === 'open' && <button type="button" disabled={busy} onClick={() => hostAction('restart-timer')}>Перезапустить таймер</button>}
+                      {currentQuestion?.status === 'open' && <button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm('Пропустить вопрос без начисления очков?')) hostAction('skip-current'); }}>Пропустить вопрос</button>}
+                    </div>
+                    <div className="quiz-host-summary"><span>Зарегистрировано: <b>{hostDashboard?.participants?.length ?? quiz.registered_count}</b></span>{currentQuestion && <span>Ответили: <b>{(hostDashboard?.participants || []).filter((row) => row.answered_current).length}/{hostDashboard?.participants?.length ?? quiz.registered_count}</b></span>}</div>
+                    <details open className="quiz-host-answers"><summary>Ответы и ручная проверка</summary><div className="quiz-host-question-picker">{(hostDashboard?.questions || []).map((question) => <button key={question.id} type="button" className={Number(reviewQuestionId || currentQuestion?.id) === Number(question.id) ? 'selected' : ''} disabled={busy || !['revealed', 'closed'].includes(question.status)} onClick={() => loadReviews(question.id)}>Р{question.round_order} · В{question.question_order}</button>)}</div>{reviewOpen && <div className="quiz-review-list">{reviewRows.length ? reviewRows.map((row) => <article key={row.answer_id}><div><b>{row.display_name}</b><span>{row.answer_text || row.selected_option_key || '—'}</span><small>{row.is_correct ? 'Авто: верно' : 'Авто: неверно'} · {row.points_awarded} очк.</small>{row.manual_review && <small>Ручное решение: {row.manual_review.decision === 'accepted' ? 'зачтено' : 'отклонено'} · {row.manual_review.reason}</small>}</div><div className="quiz-review-actions"><button type="button" disabled={busy} onClick={() => reviewAnswer(row, true)}>Зачесть</button><button type="button" disabled={busy} onClick={() => setManualReviewPoints(row)}>Баллы…</button><button type="button" disabled={busy} className="danger" onClick={() => reviewAnswer(row, false)}>Отклонить</button></div></article>) : <p className="muted">Для выбранного вопроса ответов нет.</p>}</div>}</details>
+                    <details className="quiz-host-delivery"><summary>Доставка Telegram и журнал</summary><div className="quiz-host-delivery-list">{(hostDashboard?.deliveries || []).slice(0, 12).map((row) => <p key={row.id}><b className={row.status === 'failed' ? 'danger-text' : ''}>{row.status}</b> · {row.event_type} · {row.destination}{row.error_text ? ` — ${row.error_text}` : ''}</p>)}{!(hostDashboard?.deliveries || []).length && <p className="muted">Сообщения ещё не формировались.</p>}</div><div className="quiz-host-delivery-list">{(hostDashboard?.actions || []).slice(0, 8).map((row) => <p key={row.id}>{row.action_type}</p>)}</div></details>
+                  </>}
+                </section>
               )}
 
               {canModerate && currentQuestion && ['revealed', 'closed'].includes(currentQuestion.status) && (

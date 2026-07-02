@@ -22,6 +22,8 @@ from app.models import (
     LeagueQuizQuestionOption,
     LeagueQuizQuestionSource,
     LeagueQuizScoreEvent,
+    LeagueQuizEvent,
+    LeagueQuizTelegramDelivery,
     LeagueQuizSession,
     LeagueQuizSessionAnswer,
     LeagueQuizSessionParticipant,
@@ -1250,3 +1252,191 @@ def import_bank_v4(db: Session, actor: User, league_id: int, questions: list[dic
         "updated_count": len(updated),
         "questions": [*created, *updated],
     }
+
+
+# =============================================================================
+# v3.6.0 — bank preflight and host review desk.
+# =============================================================================
+def _question_fingerprint_v360(value: Any) -> str:
+    return _normalize_text(" ".join(str(value or "").split()))
+
+
+def preflight_bank_import_v360(db: Session, actor: User, league_id: int, questions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return duplicate/similarity warnings before the user commits an import."""
+    require_quiz_editor(db, actor, league_id)
+    existing = db.query(LeagueQuizQuestion).filter(LeagueQuizQuestion.league_id == league_id).all()
+    existing_rows = [(row.id, row.question_type, _question_fingerprint_v360(row.question_text), row.question_text) for row in existing]
+    seen: dict[tuple[str, str], int] = {}
+    warnings: list[dict[str, Any]] = []
+    for idx, raw in enumerate(questions, start=1):
+        if not isinstance(raw, dict):
+            warnings.append({"row": idx, "level": "error", "message": "Строка импорта должна быть объектом"})
+            continue
+        qtype = str(raw.get("question_type") or "")
+        text = str(raw.get("question_text") or "")
+        key = (qtype, _question_fingerprint_v360(text))
+        if key in seen:
+            warnings.append({"row": idx, "level": "error", "message": f"Точный дубль строки {seen[key]} в этом файле"})
+        else:
+            seen[key] = idx
+        tokens = set(re.findall(r"[a-zа-яё0-9]+", key[1]))
+        for existing_id, existing_type, existing_text, existing_raw in existing_rows:
+            if existing_type != qtype or not existing_text:
+                continue
+            if existing_text == key[1]:
+                warnings.append({"row": idx, "level": "warning", "question_id": existing_id, "message": f"В банке уже есть точный текст вопроса #{existing_id}"})
+                break
+            existing_tokens = set(re.findall(r"[a-zа-яё0-9]+", existing_text))
+            union = len(tokens | existing_tokens)
+            similarity = (len(tokens & existing_tokens) / union) if union else 0
+            if similarity >= 0.78:
+                warnings.append({"row": idx, "level": "warning", "question_id": existing_id, "message": f"Похоже на вопрос #{existing_id}: {existing_raw[:110]}"})
+                break
+    return {"ok": not any(item["level"] == "error" for item in warnings), "warnings": warnings}
+
+
+_import_bank_v4_v360_base = import_bank_v4
+
+def import_bank_v4(db: Session, actor: User, league_id: int, questions: list[dict[str, Any]]) -> dict[str, Any]:  # noqa: F811
+    # Exact duplicates without an explicit legacy update key are blocked server-side.
+    require_quiz_editor(db, actor, league_id)
+    existing_keys = {
+        (row.question_type, _question_fingerprint_v360(row.question_text))
+        for row in db.query(LeagueQuizQuestion).filter(LeagueQuizQuestion.league_id == league_id).all()
+    }
+    seen: set[tuple[str, str]] = set()
+    for raw in questions:
+        if not isinstance(raw, dict):
+            continue
+        key = (str(raw.get("question_type") or ""), _question_fingerprint_v360(raw.get("question_text")))
+        if key in seen:
+            raise ValueError("Импорт содержит точные дубликаты вопросов")
+        seen.add(key)
+        if key in existing_keys and not str(raw.get("legacy_question_text") or "").strip():
+            raise ValueError("В банке уже есть такой вопрос. Добавьте legacy_question_text для обновления или измените текст.")
+    return _import_bank_v4_v360_base(db, actor, league_id, questions)
+
+
+def _host_session_question_rows_v360(db: Session, session_id: int) -> list[dict[str, Any]]:
+    rows = (
+        db.query(LeagueQuizSessionQuestion, LeagueQuizSessionRound)
+        .join(LeagueQuizSessionRound, LeagueQuizSessionRound.id == LeagueQuizSessionQuestion.round_id)
+        .filter(LeagueQuizSessionRound.session_id == session_id)
+        .order_by(LeagueQuizSessionRound.round_order.asc(), LeagueQuizSessionQuestion.question_order.asc())
+        .all()
+    )
+    result=[]
+    for question, round_row in rows:
+        answer_count = db.query(LeagueQuizSessionAnswer.id).filter(LeagueQuizSessionAnswer.session_question_id == question.id).count()
+        result.append({
+            "id": question.id, "round_id": round_row.id, "round_order": round_row.round_order,
+            "round_title": round_row.title, "question_order": question.question_order,
+            "question_type": question.question_type, "text": question.question_text_snapshot,
+            "status": question.status, "points": int(question.points or 0), "answers_count": int(answer_count),
+        })
+    return result
+
+
+def build_host_dashboard_v360(db: Session, actor: User, session_id: int) -> dict[str, Any]:
+    session = db.query(LeagueQuizSession).filter(LeagueQuizSession.id == session_id).first()
+    if not session:
+        raise ValueError("Квиз не найден")
+    require_quiz_manager(db, actor, session.league_id)
+    from app.services.league_quiz import _current_session_question, _registered_participants
+    current = _current_session_question(db, session.id)
+    participants = _registered_participants(db, session.id)
+    answered_ids = set()
+    if current:
+        answered_ids = {row.user_id for row in db.query(LeagueQuizSessionAnswer.user_id).filter(LeagueQuizSessionAnswer.session_question_id == current.id).all()}
+    people=[]
+    for participant in participants:
+        user = participant.user
+        people.append({
+            "user_id": participant.user_id,
+            "display_name": user.display_name if user and user.display_name else f"Игрок {participant.user_id}",
+            "score_total": int(participant.score_total or 0),
+            "answered_current": participant.user_id in answered_ids if current else None,
+        })
+    recent_events = db.query(LeagueQuizEvent).filter(LeagueQuizEvent.session_id == session.id).order_by(LeagueQuizEvent.id.desc()).limit(50).all()
+    deliveries = (
+        db.query(LeagueQuizTelegramDelivery, LeagueQuizEvent)
+        .join(LeagueQuizEvent, LeagueQuizEvent.id == LeagueQuizTelegramDelivery.event_id)
+        .filter(LeagueQuizEvent.session_id == session.id)
+        .order_by(LeagueQuizTelegramDelivery.id.desc()).limit(60).all()
+    )
+    delivery_rows=[{
+        "id": delivery.id, "event_id": event.id, "event_type": event.event_type,
+        "destination": delivery.destination_key, "message_kind": delivery.message_kind,
+        "status": delivery.status, "error_text": delivery.error_text,
+        "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
+        "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
+    } for delivery,event in deliveries]
+    actions = db.query(LeagueQuizAdminAction).filter(LeagueQuizAdminAction.session_id == session.id).order_by(LeagueQuizAdminAction.id.desc()).limit(40).all()
+    return {
+        "current_question_id": current.id if current else None,
+        "participants": people,
+        "questions": _host_session_question_rows_v360(db, session.id),
+        "deliveries": delivery_rows,
+        "events": [{"id": e.id, "event_type": e.event_type, "created_at": e.created_at.isoformat() if e.created_at else None, "payload": e.payload or {}} for e in recent_events],
+        "actions": [{"id": a.id, "action_type": a.action_type, "created_at": a.created_at.isoformat() if a.created_at else None, "payload": a.payload or {}} for a in actions],
+    }
+
+
+def host_resend_v360(db: Session, actor: User, session_id: int, kind: str, session_question_id: int | None = None) -> LeagueQuizEvent:
+    session = db.query(LeagueQuizSession).filter(LeagueQuizSession.id == session_id).first()
+    if not session:
+        raise ValueError("Квиз не найден")
+    require_quiz_manager(db, actor, session.league_id)
+    if kind == "invitation":
+        event = LeagueQuizEvent(session_id=session.id, event_type="quiz_invitation_resent", payload={"host_resend": True})
+    elif kind == "question":
+        question = db.query(LeagueQuizSessionQuestion).join(LeagueQuizSessionRound, LeagueQuizSessionRound.id == LeagueQuizSessionQuestion.round_id).filter(
+            LeagueQuizSessionQuestion.id == int(session_question_id or 0), LeagueQuizSessionRound.session_id == session.id).first()
+        if not question:
+            raise ValueError("Вопрос квиза не найден")
+        from app.services.league_quiz import _question_event_payload
+        event = LeagueQuizEvent(session_id=session.id, event_type="question_resent", payload={**_question_event_payload(db, session, question), "host_resend": True})
+    else:
+        raise ValueError("Неизвестный тип повторной отправки")
+    db.add(event)
+    db.add(LeagueQuizAdminAction(session_id=session.id, actor_user_id=actor.id, action_type=f"telegram_resend_{kind}", payload={"session_question_id": session_question_id}))
+    db.commit(); db.refresh(event)
+    return event
+
+
+_review_answer_v4_v360_base = review_answer_v4
+
+def review_answer_v4(db: Session, actor: User, session_id: int, session_question_id: int, answer_id: int, accepted: bool, reason: str, manual_points: int | None = None) -> LeagueQuizSessionAnswer:  # noqa: F811
+    if manual_points is None:
+        return _review_answer_v4_v360_base(db, actor, session_id, session_question_id, answer_id, accepted, reason)
+    session, question = _session_question_for_review(db, session_id, session_question_id)
+    require_quiz_moderator(db, actor, session.league_id)
+    if question.status not in {QUESTION_REVEALED, QUESTION_CLOSED}:
+        raise ValueError("Проверять ответы можно после закрытия вопроса")
+    clean_reason = _clean_string(reason, 2000, "Комментарий")
+    if not clean_reason:
+        raise ValueError("Для ручного решения укажите комментарий")
+    try:
+        new_points = int(manual_points)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Баллы должны быть целым числом") from exc
+    if not -10000 <= new_points <= 10000:
+        raise ValueError("Баллы должны быть от −10 000 до 10 000")
+    answer = db.query(LeagueQuizSessionAnswer).filter(LeagueQuizSessionAnswer.id == answer_id, LeagueQuizSessionAnswer.session_question_id == question.id).first()
+    if not answer:
+        raise ValueError("Ответ не найден")
+    previous_correct = answer.is_correct
+    previous_points = int(answer.points_awarded or 0)
+    delta = new_points - previous_points
+    answer.is_correct = bool(accepted)
+    answer.points_awarded = new_points
+    answer.scored_at = utcnow()
+    answer.answer_payload = {**dict(answer.answer_payload or {}), "manual_review": {"accepted": bool(accepted), "points_awarded": new_points, "reason": clean_reason, "actor_user_id": actor.id}}
+    participant = db.query(LeagueQuizSessionParticipant).filter(LeagueQuizSessionParticipant.session_id == session.id, LeagueQuizSessionParticipant.user_id == answer.user_id).first()
+    if participant:
+        participant.score_total = int(participant.score_total or 0) + delta
+    db.add(LeagueQuizScoreEvent(session_id=session.id, round_id=question.round_id, session_question_id=question.id, user_id=answer.user_id, event_type="manual_review", delta_points=delta, reason=clean_reason, created_at=utcnow()))
+    db.add(LeagueQuizAnswerReview(session_id=session.id, session_question_id=question.id, answer_id=answer.id, actor_user_id=actor.id, decision="accepted" if accepted else "rejected", previous_is_correct=previous_correct, previous_points=previous_points, new_is_correct=bool(accepted), new_points=new_points, reason=clean_reason))
+    db.add(LeagueQuizAdminAction(session_id=session.id, actor_user_id=actor.id, action_type="answer_points_corrected", payload={"session_question_id": question.id, "answer_id": answer.id, "accepted": bool(accepted), "points": new_points, "delta_points": delta, "reason": clean_reason}))
+    db.commit(); db.refresh(answer)
+    return answer

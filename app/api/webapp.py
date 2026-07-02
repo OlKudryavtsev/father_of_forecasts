@@ -103,6 +103,8 @@ from app.services.league_quiz import (
     start_quiz_session,
     submit_choice_answer,
     submit_text_answer,
+    host_restart_current_question_timer,
+    host_skip_current_question,
 )
 from app.services.league_quiz_big_bank import seed_large_wc2026_bank
 from app.services.league_quiz_gamification import (
@@ -342,6 +344,12 @@ class LeagueQuizImportPayload(BaseModel):
 class LeagueQuizAnswerReviewPayload(BaseModel):
     accepted: bool
     reason: str = Field(min_length=1, max_length=2000)
+    points_awarded: int | None = Field(default=None, ge=-10000, le=10000)
+
+
+class LeagueQuizHostResendPayload(BaseModel):
+    kind: str = Field(pattern="^(invitation|question)$")
+    session_question_id: int | None = Field(default=None, ge=1)
 
 
 class LeagueQuizRoundCreatePayload(BaseModel):
@@ -5325,12 +5333,76 @@ def review_league_quiz_question_answer(
 ) -> dict:
     try:
         answer = review_answer_v4(
-            db, current_user, session_id, session_question_id, answer_id, payload.accepted, payload.reason
+            db, current_user, session_id, session_question_id, answer_id, payload.accepted, payload.reason, payload.points_awarded
         )
         detail = build_quiz_detail(db, current_user, session_id)
     except (ValueError, PermissionError) as error:
         _raise_quiz_api_error(error)
     return {"ok": True, "answer_id": answer.id, **detail}
+
+
+@router.post("/quiz-bank/preflight")
+def preflight_league_quiz_bank_import(
+    payload: LeagueQuizImportPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return preflight_bank_import_v360(db, current_user, payload.league_id, payload.questions)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.get("/quizzes/{session_id}/host-dashboard")
+def get_league_quiz_host_dashboard(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return build_host_dashboard_v360(db, current_user, session_id)
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.post("/quizzes/{session_id}/host/resend")
+def resend_league_quiz_notification(
+    session_id: int,
+    payload: LeagueQuizHostResendPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        event = host_resend_v360(db, current_user, session_id, payload.kind, payload.session_question_id)
+        return {"ok": True, "event_id": event.id}
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.post("/quizzes/{session_id}/host/restart-timer")
+def restart_league_quiz_timer(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        host_restart_current_question_timer(db, current_user, session_id)
+        return {"ok": True, **build_quiz_detail(db, current_user, session_id)}
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
+
+
+@router.post("/quizzes/{session_id}/host/skip-current")
+def skip_league_quiz_current_question(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        host_skip_current_question(db, current_user, session_id)
+        return {"ok": True, **build_quiz_detail(db, current_user, session_id)}
+    except (ValueError, PermissionError) as error:
+        _raise_quiz_api_error(error)
 
 
 @router.get("/quiz-stats")
