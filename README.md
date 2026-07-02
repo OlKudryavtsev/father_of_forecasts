@@ -1,3 +1,10 @@
+## v3.6.2 — «Своя игра» board
+
+- Табло темы × стоимость между вопросами; ведущий выбирает вопрос нажатием на ячейку.
+- Сыгранные ячейки затемняются и отмечаются галочкой.
+- Табло доступно всем участникам; открывать ячейки может только ведущий.
+- Адаптировано под экран iPhone и светлую/тёмную темы.
+
 ## v3.6.1 — Critical host dashboard import and quiz history selector contrast fix
 
 - fixes the missing v3.6.0 API imports for the host dashboard, bank preflight and resend actions;

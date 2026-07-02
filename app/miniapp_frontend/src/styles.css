@@ -12068,15 +12068,40 @@ body,
 .quiz-stage-editor label, .hundred-editor label { display: grid; gap: 5px; }
 .hundred-editor label { grid-template-columns: minmax(88px, auto) 1fr; align-items: center; }
 .hundred-editor label span { color: var(--text-muted, #aaa); font-size: 12px; }
-.jeopardy-board-card { display: grid; gap: 12px; margin: 14px 0; padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; }
-.jeopardy-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
-.jeopardy-board button { min-height: 74px; display: grid; align-content: space-between; gap: 5px; border-radius: 12px; }
-.jeopardy-board button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; opacity: .82; }
-.jeopardy-board button b { font-size: 20px; }
-.jeopardy-board button.closed, .jeopardy-board button.revealed { opacity: .35; text-decoration: line-through; }
-.jeopardy-board button.pending:not(.host) { cursor: default; }
+/* v3.6.2 — host-selected «Своя игра» board */
+.jeopardy-board-card { display: grid; gap: 12px; margin: 14px 0; padding: 14px; border: 1px solid rgba(86,132,255,.42); border-radius: 18px; background: radial-gradient(circle at 92% 3%, rgba(255,213,63,.11), transparent 32%), linear-gradient(145deg, rgba(43,67,164,.38), rgba(12,25,76,.62)); box-shadow: 0 14px 28px rgba(6,15,53,.24); }
+.jeopardy-board-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.jeopardy-board-heading > div { display: grid; gap: 3px; }
+.jeopardy-board-heading b { color: #fff; font-size: 17px; }
+.jeopardy-board-heading p { margin: 0; color: #d5ddff; font-size: 12px; line-height: 1.35; }
+.jeopardy-board-kicker { color: #ffd64d; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.jeopardy-board-progress { flex: 0 0 auto; min-width: 48px; padding: 6px 8px; border: 1px solid rgba(255,226,107,.38); border-radius: 10px; color: #fff38a; background: rgba(4,14,58,.34); font-size: 12px; font-weight: 900; text-align: center; }
+.jeopardy-board-scroll { overflow-x: auto; overscroll-behavior-inline: contain; padding: 2px; -webkit-overflow-scrolling: touch; }
+.jeopardy-board-table { --jeopardy-columns: 5; display: grid; grid-template-columns: minmax(126px, 1.55fr) repeat(var(--jeopardy-columns), minmax(62px, .68fr)); min-width: max-content; overflow: hidden; border: 2px solid #162b88; border-radius: 13px; background: #14226d; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.jeopardy-board-corner, .jeopardy-board-value-head, .jeopardy-board-topic, .jeopardy-board-cell, .jeopardy-board-empty { min-height: 58px; display: grid; place-items: center; border-right: 2px solid #152574; border-bottom: 2px solid #152574; }
+.jeopardy-board-corner { padding: 8px; color: #fff; background: linear-gradient(135deg, #3457c7, #263c9d); font-size: 13px; font-weight: 900; text-transform: uppercase; text-align: center; }
+.jeopardy-board-value-head { color: #fff13f; background: linear-gradient(180deg, #2b47b8, #20368d); font-size: clamp(18px, 5vw, 25px); font-weight: 950; line-height: 1; text-shadow: 0 2px 0 #061140; }
+.jeopardy-board-topic { padding: 7px 9px; color: #fff; background: linear-gradient(135deg, #3457c7, #263c9d); font-size: 12px; font-weight: 900; line-height: 1.08; text-align: center; word-break: break-word; }
+.jeopardy-board-cell { padding: 0; color: #fff43b; background: linear-gradient(145deg, #1d36a5, #15257a); border-radius: 0; font: inherit; cursor: default; text-shadow: 0 2px 0 #061140; transition: transform .16s ease, filter .16s ease, background .16s ease; }
+.jeopardy-board-cell b { font-size: clamp(20px, 6vw, 31px); font-weight: 950; line-height: 1; }
+.jeopardy-board-cell.host.pending { cursor: pointer; }
+.jeopardy-board-cell.host.pending:active { transform: scale(.96); }
+@media (hover: hover) { .jeopardy-board-cell.host.pending:hover { filter: brightness(1.2); background: linear-gradient(145deg, #3158d7, #1d35a2); } }
+.jeopardy-board-cell.revealed, .jeopardy-board-cell.closed { color: rgba(210,222,255,.58); background: linear-gradient(145deg, #18234d, #101936); text-shadow: none; }
+.jeopardy-board-cell.revealed span, .jeopardy-board-cell.closed span { font-size: 21px; font-weight: 950; }
+.jeopardy-board-cell.guest.pending { color: #fff43b; opacity: 1; }
+.jeopardy-board-empty { background: #17224f; }
+.jeopardy-board-wait { margin: 0; color: #d7e0ff; font-size: 12px; font-weight: 750; text-align: center; }
+.app.theme-light .jeopardy-board-card { border-color: #244ebc; background: radial-gradient(circle at 92% 3%, rgba(255,213,63,.2), transparent 32%), linear-gradient(145deg, #edf2ff, #dbe7ff); box-shadow: 0 12px 24px rgba(41,75,146,.18); }
+.app.theme-light .jeopardy-board-heading b { color: #14245b; }
+.app.theme-light .jeopardy-board-heading p, .app.theme-light .jeopardy-board-wait { color: #405274; }
+.app.theme-light .jeopardy-board-kicker { color: #9a5a0a; }
+.app.theme-light .jeopardy-board-progress { color: #23417c; border-color: #6687d7; background: #fff; }
 @media (max-width: 420px) {
-  .jeopardy-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .jeopardy-board-card { margin-inline: -2px; padding: 12px; }
+  .jeopardy-board-table { grid-template-columns: minmax(108px, 1.35fr) repeat(var(--jeopardy-columns), minmax(56px, .62fr)); }
+  .jeopardy-board-corner, .jeopardy-board-value-head, .jeopardy-board-topic, .jeopardy-board-cell, .jeopardy-board-empty { min-height: 52px; }
+  .jeopardy-board-topic { font-size: 11px; }
   .quiz-text-answer { flex-direction: column; }
   .hundred-editor label { grid-template-columns: 1fr; }
 }

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.6.0';
+const APP_VERSION = '3.6.2';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -7039,7 +7039,70 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     try {
       const result = await api(`/api/webapp/quizzes/${quiz.id}/jeopardy/${questionId}/open`, { method: 'POST' });
       setDetail(result); await loadList();
+      trackAnalytics('quiz_jeopardy_cell_selected', { screen: 'quiz', properties: { league_id: activeLeagueId || 0, quiz_id: quiz.id, question_id: questionId } });
     } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  function renderJeopardyBoard() {
+    const quiz = detail?.quiz;
+    const round = (detail?.rounds || []).find((item) => item.status === 'running' && item.round_type === 'jeopardy');
+    const cells = round?.board || [];
+    if (!quiz || !cells.length) return null;
+
+    const topics = [...new Set(cells.map((cell) => String(cell.topic || 'Без темы')))];
+    const points = [...new Set(cells.map((cell) => Number(cell.points || 0)).filter((value) => value > 0))].sort((left, right) => left - right);
+    const cellByKey = new Map();
+    cells.forEach((cell) => {
+      const key = `${String(cell.topic || 'Без темы')}::${Number(cell.points || 0)}`;
+      if (!cellByKey.has(key)) cellByKey.set(key, cell);
+    });
+    const chosen = cells.filter((cell) => cell.status !== 'pending').length;
+    const total = cells.length;
+    const isHost = Boolean(quiz.can_manage);
+
+    return (
+      <section className="jeopardy-board-card" aria-label="Табло раунда Своя игра">
+        <div className="jeopardy-board-heading">
+          <div>
+            <span className="jeopardy-board-kicker">Табло раунда</span>
+            <b>{quiz.current_round_title || round?.title || 'Своя игра'}</b>
+            <p className="muted">{isHost ? 'Нажмите на номинал, чтобы открыть вопрос.' : 'Ведущий выбирает вопрос на табло.'}</p>
+          </div>
+          <span className="jeopardy-board-progress">{chosen}/{total}</span>
+        </div>
+        <div className="jeopardy-board-scroll">
+          <div className="jeopardy-board-table" style={{ '--jeopardy-columns': points.length || 1 }}>
+            <div className="jeopardy-board-corner">Тема</div>
+            {points.map((value) => <div className="jeopardy-board-value-head" key={`head-${value}`}>{value}</div>)}
+            {topics.map((topic) => (
+              <React.Fragment key={topic}>
+                <div className="jeopardy-board-topic" title={topic}>{topic}</div>
+                {points.map((value) => {
+                  const cell = cellByKey.get(`${topic}::${value}`);
+                  if (!cell) return <div className="jeopardy-board-empty" key={`${topic}-${value}`} aria-label={`Нет вопроса на ${value} очков`} />;
+                  const isPending = cell.status === 'pending';
+                  const label = isPending ? `${topic}: ${value} очков` : `${topic}: вопрос сыгран`;
+                  return (
+                    <button
+                      key={cell.id}
+                      type="button"
+                      className={`jeopardy-board-cell ${cell.status} ${isHost ? 'host' : 'guest'}`}
+                      disabled={!isHost || busy || !isPending}
+                      aria-label={label}
+                      title={label}
+                      onClick={() => openJeopardyCell(cell.id)}
+                    >
+                      {isPending ? <b>{value}</b> : <span>✓</span>}
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        {!isHost && <p className="jeopardy-board-wait">Ожидаем выбор ведущего…</p>}
+      </section>
+    );
   }
 
   async function adminAction(action) {
@@ -7547,19 +7610,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                 </article>
               )}
 
-              {!currentQuestion && quiz.status === 'running' && quiz.current_round_type === 'jeopardy' && (
-                <section className="jeopardy-board-card">
-                  <div><b>{quiz.current_round_title || 'Своя игра'}</b><p className="muted">Ведущий выбирает ячейку. Неверный ответ уменьшает счёт на стоимость вопроса.</p></div>
-                  <div className="jeopardy-board">
-                    {(detail.rounds || []).filter((round) => round.status === 'running' && round.round_type === 'jeopardy').flatMap((round) => round.board || []).map((cell) => (
-                      <button key={cell.id} type="button" disabled={!quiz.can_manage || busy || cell.status !== 'pending'} onClick={() => openJeopardyCell(cell.id)} className={`${cell.status} ${quiz.can_manage ? 'host' : ''}`}>
-                        <small>{cell.topic}</small><b>{cell.points}</b>
-                      </button>
-                    ))}
-                  </div>
-                  {!quiz.can_manage && <p className="muted">Ожидаем выбор ведущего…</p>}
-                </section>
-              )}
+              {!currentQuestion && quiz.status === 'running' && quiz.current_round_type === 'jeopardy' && renderJeopardyBoard()}
 
 
               {!currentQuestion && quiz.status === 'running' && <LoadingCard text="Готовлю следующий вопрос..." />}
