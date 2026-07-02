@@ -1512,3 +1512,6 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 - «Сто к одному» поддерживает объективные рейтинги с равными местами, показателями и несколькими ответами на одной строке.
 - В `content/hundred_to_one_world_cup_history_20.json` добавлен готовый импорт из 20 вопросов по истории чемпионатов мира.
 - Инструкция по безопасной архивации старых карточек — в `RELEASE_V3_5_3_HUNDRED_TO_ONE_RANKED_BANK.md`.
+
+## v3.5.5
+- Telegram quiz delivery deduplication, open-only group links, and ranked 100-to-1 result presentation.

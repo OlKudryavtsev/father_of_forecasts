@@ -5223,6 +5223,7 @@ def import_league_quiz_bank(
     return {
         "ok": True,
         "created_count": result["created_count"],
+        "updated_count": result.get("updated_count", 0),
         "questions": [serialize_bank_question(question, include_correct=True) for question in result["questions"]],
     }
 

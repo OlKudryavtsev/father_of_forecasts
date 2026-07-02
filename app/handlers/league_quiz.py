@@ -36,6 +36,7 @@ from app.services.users import get_or_create_user
 from app.states import LeagueQuizTextAnswerForm
 
 _START_QUIZ_RE = re.compile(r"^quiz_(\d+)$", re.IGNORECASE)
+_START_OPEN_QUIZ_RE = re.compile(r"^openquiz_(\d+)$", re.IGNORECASE)
 
 
 def extract_quiz_session_id_from_start_text(text: str | None) -> int | None:
@@ -43,6 +44,15 @@ def extract_quiz_session_id_from_start_text(text: str | None) -> int | None:
     if len(parts) < 2:
         return None
     match = _START_QUIZ_RE.fullmatch(parts[1].strip())
+    return int(match.group(1)) if match else None
+
+
+def extract_open_quiz_session_id_from_start_text(text: str | None) -> int | None:
+    """Return an open-only quiz deep-link target without registering the user."""
+    parts = (text or "").strip().split(maxsplit=1)
+    if len(parts) < 2:
+        return None
+    match = _START_OPEN_QUIZ_RE.fullmatch(parts[1].strip())
     return int(match.group(1)) if match else None
 
 
@@ -148,7 +158,12 @@ async def league_quiz_handler(message: Message):
                 username = await get_bot_username()
                 await message.answer(
                     f"🧠 {session.title}\nСтатус: {session.status}\n\nУчастие и ответы — в личном диалоге с ботом или в приложении.",
-                    reply_markup=build_group_quiz_open_keyboard(username, session.id),
+                    reply_markup=build_group_quiz_open_keyboard(
+                        username,
+                        session.id,
+                        "🎮 Участвовать в квизе" if session.status == SESSION_REGISTRATION_OPEN else "🧠 Открыть текущий квиз",
+                        action="register" if session.status == SESSION_REGISTRATION_OPEN else "open",
+                    ),
                 )
                 continue
 

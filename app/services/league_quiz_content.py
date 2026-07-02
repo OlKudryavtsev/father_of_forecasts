@@ -1156,3 +1156,97 @@ def list_bank_questions(db: Session, actor: User, league_id: int, include_archiv
     if not include_archived:
         query = query.filter(LeagueQuizQuestion.status != QUESTION_STATUS_ARCHIVED)
     return query.order_by(LeagueQuizQuestion.updated_at.desc(), LeagueQuizQuestion.id.desc()).all()
+
+
+# =============================================================================
+# v3.5.5 — safe bank refresh imports.
+# A payload may declare ``legacy_question_text`` to update an earlier imported
+# question in place instead of creating a duplicate. This is intentionally
+# opt-in, so ordinary JSON imports remain append-only.
+# =============================================================================
+def import_bank_v4(db: Session, actor: User, league_id: int, questions: list[dict[str, Any]]) -> dict[str, Any]:  # noqa: F811
+    require_quiz_editor(db, actor, league_id)
+    if not questions:
+        raise ValueError("Файл импорта не содержит вопросов")
+    if len(questions) > 500:
+        raise ValueError("За один импорт можно добавить не более 500 вопросов")
+    created: list[LeagueQuizQuestion] = []
+    updated: list[LeagueQuizQuestion] = []
+    touched: set[int] = set()
+    try:
+        for raw in questions:
+            if not isinstance(raw, dict):
+                raise ValueError("Каждый импортируемый вопрос должен быть объектом")
+            payload = dict(raw)
+            legacy_text = " ".join(str(payload.pop("legacy_question_text", "") or "").strip().split())
+            payload.pop("import_key", None)
+            if not payload.get("sources") and raw.get("source_url"):
+                payload["sources"] = [{"title": raw.get("source_title"), "url": raw.get("source_url"), "note": raw.get("source_note")}]
+
+            question = None
+            if legacy_text:
+                matches = (
+                    db.query(LeagueQuizQuestion)
+                    .filter(
+                        LeagueQuizQuestion.league_id == league_id,
+                        LeagueQuizQuestion.question_type == str(payload.get("question_type") or ""),
+                        LeagueQuizQuestion.question_text == legacy_text,
+                    )
+                    .order_by(LeagueQuizQuestion.id.asc())
+                    .all()
+                )
+                if len(matches) > 1:
+                    raise ValueError(f"Найдено несколько вопросов для обновления: {legacy_text[:120]}")
+                if matches:
+                    question = matches[0]
+                    if question.id in touched:
+                        raise ValueError("Один вопрос нельзя обновить дважды за один импорт")
+
+            if question:
+                before = _question_snapshot(question)
+                _write_question_content(db, question, payload)
+                # Content refresh must pass through review again; snapshots in
+                # already scheduled quizzes remain untouched by design.
+                question.status = QUESTION_STATUS_DRAFT
+                question.approved_at = None
+                question.approved_by_user_id = None
+                db.flush()
+                _audit(
+                    db,
+                    question=question,
+                    actor=actor,
+                    action_type="imported_update",
+                    before=before,
+                    after=_question_snapshot(question),
+                    note="Обновление вопроса из JSON без создания дубликата",
+                )
+                updated.append(question)
+                touched.add(question.id)
+                continue
+
+            question = LeagueQuizQuestion(
+                league_id=league_id,
+                created_by_user_id=actor.id,
+                question_type="choice_4",
+                status=QUESTION_STATUS_DRAFT,
+                question_text="Черновик",
+                default_points=100,
+                question_payload={},
+                topics=[],
+                repeat_after_days=14,
+            )
+            db.add(question)
+            db.flush()
+            _write_question_content(db, question, payload)
+            _audit(db, question=question, actor=actor, action_type="imported", after=_question_snapshot(question))
+            created.append(question)
+            touched.add(question.id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {
+        "created_count": len(created),
+        "updated_count": len(updated),
+        "questions": [*created, *updated],
+    }

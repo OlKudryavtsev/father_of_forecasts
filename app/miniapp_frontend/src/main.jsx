@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.5.4';
+const APP_VERSION = '3.5.5';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -7133,7 +7133,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     try {
       const result = await api('/api/webapp/quiz-bank/import', { method: 'POST', body: JSON.stringify({ league_id: activeLeagueId, questions }) });
       setImportText('');
-      setSeedMessage(`Импортировано черновиков: ${result.created_count || 0}.`);
+      const created = Number(result.created_count || 0);
+      const updated = Number(result.updated_count || 0);
+      setSeedMessage(updated ? `Обновлено без дубликатов: ${updated}. Добавлено новых черновиков: ${created}.` : `Импортировано черновиков: ${created}.`);
       await loadBank();
     } catch (err) { setError(err); } finally { setBusy(false); }
   }

@@ -424,3 +424,7 @@
 - Редактор банка, источники, изображения по URL, предпросмотр, архив, журнал изменений, JSON импорт/экспорт и ручная проверка спорных ответов.
 - Добавлена миграция `026_add_league_quiz_content_quality.sql`.
 - Кнопка тестовой загрузки ЧМ-2026 добавляет 9 вопросов: по одному для каждого формата.
+
+## v3.5.5
+- Fixed duplicate quiz Telegram events and running-quiz deep links.
+- Improved one-round quiz notifications and 100-to-1 answer rendering.

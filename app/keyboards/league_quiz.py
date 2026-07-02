@@ -71,16 +71,29 @@ def build_private_quiz_question_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def build_group_quiz_open_keyboard(bot_username: str | None, session_id: int, text: str = "🎮 Участвовать в квизе") -> InlineKeyboardMarkup | None:
+def build_group_quiz_open_keyboard(
+    bot_username: str | None,
+    session_id: int,
+    text: str = "🎮 Участвовать в квизе",
+    *,
+    action: str = "register",
+) -> InlineKeyboardMarkup | None:
+    """Build a group-safe private-chat deep link.
+
+    Group chats cannot host Telegram Web App buttons.  Before a quiz starts the
+    deep link may register a player; once it is running it must only open the
+    private Mini App entry point and must never try to register again.
+    """
     username = (bot_username or "").lstrip("@").strip()
     if not username:
         return None
+    start_payload = f"quiz_{session_id}" if action == "register" else f"openquiz_{session_id}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text=text,
-                    url=f"https://t.me/{username}?start=quiz_{session_id}",
+                    url=f"https://t.me/{username}?start={start_payload}",
                 )
             ]
         ]
