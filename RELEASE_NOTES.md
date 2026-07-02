@@ -1,3 +1,9 @@
+# v3.6.1 — Host dashboard and history selector hotfix
+
+- Fixed `NameError: build_host_dashboard_v360 is not defined` in `GET /api/webapp/quizzes/{id}/host-dashboard`.
+- Added the related missing imports used by the Bank preflight and Telegram resend endpoints.
+- Corrected native history selector colors for dark and light themes, including the opened option list.
+
 # v3.5.4 — светлая тема и обязательный проход в плей-офф
 
 - Светлая тема получила единый контрастный слой для вкладок, кнопок, нижней навигации, карточек и формы прогноза.

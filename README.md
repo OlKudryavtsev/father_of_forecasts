@@ -1,3 +1,9 @@
+## v3.6.1 — Critical host dashboard import and quiz history selector contrast fix
+
+- fixes the missing v3.6.0 API imports for the host dashboard, bank preflight and resend actions;
+- restores the host dashboard endpoint after deploy;
+- makes the quiz-history dropdown readable in dark and light themes.
+
 # Текущая версия: v3.5.4
 
 ## v3.5.4 — светлая тема и обязательный проход
