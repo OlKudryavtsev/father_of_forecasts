@@ -2882,3 +2882,26 @@ def host_skip_current_question(db: Session, actor: User, session_id: int) -> Lea
     _open_next_question(db, quiz_session, now)
     db.commit(); db.refresh(quiz_session)
     return quiz_session
+
+# =============================================================================
+# v3.6.3 — expose the original bank-card ids for host-only client-side copies.
+# The existing detail endpoint already authorizes access to the quiz. Copying
+# remains a Planner draft; no new session or Telegram event is created here.
+# =============================================================================
+_serialize_round_v363_base = _serialize_round
+
+
+def _serialize_round(db: Session, round_row: LeagueQuizSessionRound, include_board: bool = True) -> dict[str, Any]:  # noqa: F811
+    data = _serialize_round_v363_base(db, round_row, include_board=include_board)
+    rows = (
+        db.query(LeagueQuizSessionQuestion)
+        .filter(LeagueQuizSessionQuestion.round_id == round_row.id)
+        .order_by(LeagueQuizSessionQuestion.question_order.asc())
+        .all()
+    )
+    data["bank_question_ids"] = [
+        int(row.bank_question_id)
+        for row in rows
+        if getattr(row, "bank_question_id", None) is not None
+    ]
+    return data

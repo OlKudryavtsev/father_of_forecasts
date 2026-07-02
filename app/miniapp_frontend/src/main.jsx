@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.6.2';
+const APP_VERSION = '3.6.3';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -6648,6 +6648,44 @@ const PLANNER_SINGLE_ROUNDS = [
   { round: 'choice_2', questionType: 'choice_2', label: 'Выбор из двух', count: 5 },
 ];
 
+// Ready quiz packs stay data-driven: they assemble only from the approved
+// question bank of the active league and never create a session by themselves.
+const QUIZ_PRESETS = [
+  {
+    id: 'quick_10',
+    label: 'Квиз на 10 минут',
+    description: '10 коротких вопросов без длинных форматов.',
+    title: 'Квиз на 10 минут',
+    count: 10,
+    types: ['choice_4', 'choice_2', 'true_false', 'more_less', 'yes_no'],
+    timerProfile: 'quick',
+  },
+  {
+    id: 'hundred_to_one',
+    label: 'Только Сто к одному',
+    description: '5 рейтинговых вопросов 100к1.',
+    title: 'Сто к одному',
+    count: 5,
+    types: ['hundred_to_one'],
+  },
+  {
+    id: 'world_cup_history',
+    label: 'История ЧМ',
+    description: '10 вопросов из истории чемпионатов мира.',
+    title: 'История чемпионатов мира',
+    count: 10,
+    matcher: 'history',
+  },
+  {
+    id: 'world_cup_2026',
+    label: 'Текущий ЧМ-2026',
+    description: '10 вопросов о турнире 2026.',
+    title: 'Чемпионат мира 2026',
+    count: 10,
+    matcher: 'current_2026',
+  },
+];
+
 function plannerRoundMeta(round) {
   return PLANNER_SINGLE_ROUNDS.find((item) => item.round === round) || PLANNER_SINGLE_ROUNDS[0];
 }
@@ -6720,6 +6758,9 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
   const [plannerRound, setPlannerRound] = useState('millionaire');
   const [largeSeedRoundType, setLargeSeedRoundType] = useState('all');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState([]);
+  // A preset or copied finished quiz is a draft only in the Planner. It becomes
+  // a live session only after the host presses «Создать квиз».
+  const [customPlan, setCustomPlan] = useState(null);
   const [questionType, setQuestionType] = useState('choice_4');
   const [questionText, setQuestionText] = useState('');
   const [questionOptions, setQuestionOptions] = useState(['', '', '', '']);
@@ -7061,15 +7102,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     const isHost = Boolean(quiz.can_manage);
 
     return (
-      <section className="jeopardy-board-card" aria-label="Табло раунда Своя игра">
-        <div className="jeopardy-board-heading">
-          <div>
-            <span className="jeopardy-board-kicker">Табло раунда</span>
-            <b>{quiz.current_round_title || round?.title || 'Своя игра'}</b>
-            <p className="muted">{isHost ? 'Нажмите на номинал, чтобы открыть вопрос.' : 'Ведущий выбирает вопрос на табло.'}</p>
-          </div>
-          <span className="jeopardy-board-progress">{chosen}/{total}</span>
-        </div>
+      <section className="jeopardy-board-card" aria-label={`Табло Своя игра: выбрано ${chosen} из ${total} вопросов`}>
         <div className="jeopardy-board-scroll">
           <div className="jeopardy-board-table" style={{ '--jeopardy-columns': points.length || 1 }}>
             <div className="jeopardy-board-corner">Тема</div>
@@ -7295,6 +7328,125 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     }
   }
 
+  function questionPlannerSearchText(question) {
+    return [question.question_text, question.tags, ...(question.topics || [])]
+      .filter(Boolean).join(' ').toLocaleLowerCase('ru-RU');
+  }
+
+  function orderPlannerQuestions(rows) {
+    return [...rows].sort((left, right) => (
+      Number(left.times_used || 0) - Number(right.times_used || 0)
+      || Number(left.id) - Number(right.id)
+    ));
+  }
+
+  function pickRoundRobinQuestions(rows, types, count) {
+    const buckets = new Map();
+    const requestedTypes = types?.length ? types : [...new Set(rows.map((row) => row.question_type))];
+    requestedTypes.forEach((type) => buckets.set(type, orderPlannerQuestions(rows.filter((row) => row.question_type === type))));
+    const selected = [];
+    let cursor = 0;
+    while (selected.length < count) {
+      const available = requestedTypes.filter((type) => (buckets.get(type) || []).length);
+      if (!available.length) break;
+      const type = available[cursor % available.length];
+      const bucket = buckets.get(type) || [];
+      selected.push(bucket.shift());
+      cursor += 1;
+    }
+    if (selected.length < count) {
+      const chosen = new Set(selected.map((row) => Number(row.id)));
+      orderPlannerQuestions(rows).forEach((row) => {
+        if (selected.length < count && !chosen.has(Number(row.id))) {
+          selected.push(row); chosen.add(Number(row.id));
+        }
+      });
+    }
+    return selected.slice(0, count);
+  }
+
+  function buildCustomRounds(rows) {
+    const groups = new Map();
+    rows.forEach((question) => {
+      const meta = QUIZ_TYPE_META[question.question_type] || { round: question.question_type, roundTitle: 'Раунд квиза' };
+      if (!groups.has(meta.round)) groups.set(meta.round, { title: meta.roundTitle, round_type: meta.round, question_ids: [] });
+      groups.get(meta.round).question_ids.push(Number(question.id));
+    });
+    return [...groups.values()].sort((left, right) => (QUIZ_ROUND_SEQUENCE[left.round_type] || 999) - (QUIZ_ROUND_SEQUENCE[right.round_type] || 999));
+  }
+
+  function presetCandidates(preset) {
+    let rows = [...approvedBank];
+    if (preset.types?.length) rows = rows.filter((question) => preset.types.includes(question.question_type));
+    if (preset.matcher === 'history') {
+      rows = rows.filter((question) => {
+        const text = questionPlannerSearchText(question);
+        return ['история чм', 'история чемпионатов мира', 'world cup history', 'чемпионатах мира', 'чемпионата мира'].some((needle) => text.includes(needle));
+      });
+    }
+    if (preset.matcher === 'current_2026') {
+      rows = rows.filter((question) => {
+        const text = questionPlannerSearchText(question);
+        return ['чм-2026', 'чм 2026', 'wc2026', 'world cup 2026', '2026'].some((needle) => text.includes(needle));
+      });
+    }
+    return orderPlannerQuestions(rows);
+  }
+
+  function applyQuizPreset(preset) {
+    const candidates = presetCandidates(preset);
+    const chosen = pickRoundRobinQuestions(candidates, preset.types, preset.count);
+    if (chosen.length < preset.count) {
+      setError(new Error(`Для набора «${preset.label}» нужно ${preset.count} одобренных вопросов, а подходит только ${chosen.length}. Дополните Банк или выберите другой набор.`));
+      return;
+    }
+    setPlannerMode('preset');
+    setCustomPlan({ id: preset.id, label: preset.label, description: preset.description, rounds: buildCustomRounds(chosen) });
+    setSelectedQuestionIds(chosen.map((question) => Number(question.id)));
+    setQuizTitle(preset.title);
+    setScheduledStart('');
+    if (preset.timerProfile === 'quick') {
+      setTimerSettings((current) => ({
+        ...current,
+        choice_4: 20, choice_2: 20, true_false: 20, more_less: 20, yes_no: 20,
+      }));
+      setRevealSeconds('7');
+    }
+    setSeedMessage(`Собран набор «${preset.label}»: ${chosen.length} вопросов. При необходимости измените название и время старта перед созданием.`);
+  }
+
+  async function copyQuizToPlanner() {
+    if (!detail?.quiz || !detail?.rounds?.length) return;
+    setBusy(true);
+    try {
+      const result = await api(`/api/webapp/quiz-bank/questions?league_id=${activeLeagueId}`);
+      const approvedRows = (result.questions || []).filter((question) => question.status === 'approved');
+      setBank(result.questions || []);
+      const allowed = new Set(approvedRows.map((question) => Number(question.id)));
+      const copiedRounds = detail.rounds.map((round) => ({
+        title: round.title || 'Раунд квиза',
+        round_type: round.round_type,
+        question_ids: (round.bank_question_ids || []).map(Number).filter((id) => allowed.has(id)),
+      })).filter((round) => round.question_ids.length);
+      const originalCount = detail.rounds.reduce((sum, round) => sum + (round.bank_question_ids || []).length, 0);
+      const copiedIds = copiedRounds.flatMap((round) => round.question_ids);
+      if (!copiedIds.length || copiedIds.length !== originalCount) {
+        throw new Error('Не все вопросы исходного квиза доступны и одобрены в Банке. Восстановите их из архива или создайте копию вручную.');
+      }
+      setPlannerMode('preset');
+      setCustomPlan({ id: 'copy', label: `Копия: ${detail.quiz.title}`, description: 'Черновик из завершённого квиза. Участники и результаты не копируются.', rounds: copiedRounds });
+      setSelectedQuestionIds(copiedIds);
+      setQuizTitle(`Копия: ${detail.quiz.title}`.slice(0, 160));
+      setScheduledStart(''); setIsTestRun(false); setTestChatId('');
+      setWorkspaceTab('planner'); setBankOpen(true);
+      setSeedMessage(`Черновик собран: ${copiedIds.length} вопросов из «${detail.quiz.title}». Новый квиз ещё не создан и уведомления не отправлялись.`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function questionsForPlannerRound(round) {
     const meta = plannerRoundMeta(round);
     return approvedBank.filter((question) => question.question_type === meta.questionType);
@@ -7404,11 +7556,23 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       const meta = first ? (QUIZ_TYPE_META[first.question_type] || { round: first.question_type, roundTitle: 'Случайный вопрос' }) : null;
       expectedRounds = meta ? [{ round: meta.round, questionType: first.question_type, label: 'Случайный вопрос', count: 1 }] : [];
     }
+    if (plannerMode === 'preset') {
+      if (!customPlan?.rounds?.length) {
+        setError(new Error('Сначала выберите готовый набор или скопируйте завершённый квиз.'));
+        return;
+      }
+      const plannedIds = customPlan.rounds.flatMap((round) => round.question_ids.map(Number));
+      const selectedIds = selectedBank.map((question) => Number(question.id));
+      if (plannedIds.length !== selectedIds.length || plannedIds.some((id) => !selectedIds.includes(id))) {
+        setError(new Error('Состав набора изменился. Соберите набор заново или выберите вопросы вручную.'));
+        return;
+      }
+    }
     if (plannerMode === 'random' && selectedBank.length !== 1) {
       setError(new Error('Для режима «Случайный вопрос» выберите ровно один вопрос.'));
       return;
     }
-    if (plannerMode !== 'random') {
+    if (plannerMode !== 'random' && plannerMode !== 'preset') {
       const missing = expectedRounds.find((meta) => selectedBank.filter((question) => question.question_type === meta.questionType).length !== meta.count);
       if (missing) {
         setError(new Error(`Для «${missing.label}» требуется ровно ${missing.count} вопросов. Сейчас: ${selectedBank.filter((question) => question.question_type === missing.questionType).length}.`));
@@ -7418,14 +7582,12 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
     setBusy(true);
     try {
       const scheduled = scheduledStart ? new Date(scheduledStart) : null;
-      const grouped = [];
-      selectedBank.forEach((question) => {
-        const meta = QUIZ_TYPE_META[question.question_type] || { round: question.question_type, roundTitle: 'Раунд квиза' };
-        let round = grouped.find((item) => item.round_type === meta.round);
-        if (!round) { round = { title: plannerMode === 'random' ? 'Случайный вопрос' : meta.roundTitle, round_type: meta.round, question_ids: [] }; grouped.push(round); }
-        round.question_ids.push(question.id);
-      });
-      grouped.sort((left, right) => (QUIZ_ROUND_SEQUENCE[left.round_type] || 999) - (QUIZ_ROUND_SEQUENCE[right.round_type] || 999));
+      const grouped = plannerMode === 'preset'
+        ? customPlan.rounds.map((round) => ({ ...round, question_ids: [...round.question_ids] }))
+        : buildCustomRounds(selectedBank).map((round) => ({
+          ...round,
+          title: plannerMode === 'random' ? 'Случайный вопрос' : round.title,
+        }));
       const result = await api('/api/webapp/quizzes', {
         method: 'POST',
         body: JSON.stringify({
@@ -7447,6 +7609,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
       setDetail(result);
       setQuizTitle('');
       setSelectedQuestionIds([]);
+      setCustomPlan(null);
       setScheduledStart('');
       setIsTestRun(false);
       setTestChatId('');
@@ -7565,6 +7728,7 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                 <b>{quiz.my_score || 0}<small> очк.</small></b>
               </header>
               <p className="muted quiz-meta">{quiz.questions_total} вопросов · зарегистрировано: {quiz.registered_count}{quiz.scheduled_start_at ? ` · старт: ${formatQuizDate(quiz.scheduled_start_at)}` : ''}</p>
+              {quiz.can_manage && ['finished', 'cancelled'].includes(quiz.status) && <button type="button" className="quiz-copy-draft-button" disabled={busy} onClick={copyQuizToPlanner}>Копировать в План</button>}
 
               {quiz.status === 'registration_open' && !quiz.is_registered && <button className="quiz-primary-button" disabled={busy} onClick={register}>Участвовать в квизе</button>}
               {quiz.status === 'registration_open' && quiz.is_registered && <div className="quiz-registered">✓ Вы зарегистрированы. Ждём старта.</div>}
@@ -7734,27 +7898,35 @@ function QuizScreen({ activeLeagueId, leaguesData, initialQuizId = null }) {
                   <h3>Создать сценарий квиза</h3>
                   <p className="muted">Вопросы берутся из одобренных карточек Банка. Выберите режим, затем заполните раунды вручную или кнопкой автоподбора.</p>
                   <div className="quiz-planner-modes" aria-label="Режим квиза">
-                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Полный</button>
-                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); }}>Формат</button>
-                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); }}>Случайный</button>
+                    <button type="button" className={plannerMode === 'full' ? 'active' : ''} onClick={() => { setPlannerMode('full'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); setCustomPlan(null); }}>Полный</button>
+                    <button type="button" className={plannerMode === 'single' ? 'active' : ''} onClick={() => { setPlannerMode('single'); setPlannerRound('millionaire'); setSelectedQuestionIds([]); setCustomPlan(null); }}>Формат</button>
+                    <button type="button" className={plannerMode === 'random' ? 'active' : ''} onClick={() => { setPlannerMode('random'); setPlannerRound('any'); setSelectedQuestionIds([]); setCustomPlan(null); }}>Случайный</button>
+                    <button type="button" className={plannerMode === 'preset' ? 'active' : ''} onClick={() => { setPlannerMode('preset'); setSelectedQuestionIds([]); setCustomPlan(null); }}>Наборы</button>
                   </div>
-                  <p className="quiz-planner-mode-hint">{plannerMode === 'full' ? '60 вопросов · 9 раундов' : plannerMode === 'single' ? 'Один формат · 5 вопросов, «Своя игра» — 20' : 'Один вопрос из выбранного формата'}</p>
+                  <p className="quiz-planner-mode-hint">{plannerMode === 'full' ? '60 вопросов · 9 раундов' : plannerMode === 'single' ? 'Один формат · 5 вопросов, «Своя игра» — 20' : plannerMode === 'random' ? 'Один вопрос из выбранного формата' : 'Быстрые готовые сценарии и копия завершённого квиза как черновик.'}</p>
                   {plannerMode === 'full' && <section className="planner-rounds"><div className="planner-rounds-head"><b>Раунды полного квиза</b><button type="button" disabled={busy || !approvedBank.length} onClick={autoFillFullQuiz}>Автоподбор</button></div><div className="planner-round-list">{FULL_QUIZ_TEMPLATE.map((meta, index) => <button key={meta.round} type="button" className={plannerRound === meta.round ? 'active' : ''} onClick={() => setPlannerRound(meta.round)}><span><em>{index + 1}</em><b>{meta.label}</b></span><small>{plannerRoundStatus(meta)}</small></button>)}</div></section>}
                   {plannerMode === 'single' && <label>Тип раунда<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label} · {meta.count} вопросов</option>)}</select></label>}
                   {plannerMode === 'random' && <label>Формат случайного вопроса<select value={plannerRound} onChange={(event) => { setPlannerRound(event.target.value); setSelectedQuestionIds([]); }}><option value="any">Любой формат</option>{PLANNER_SINGLE_ROUNDS.map((meta) => <option key={meta.round} value={meta.round}>{meta.label}</option>)}</select></label>}
-                  <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder={plannerMode === 'random' ? 'Случайный вопрос' : 'Например, Футбольный квиз №1'} required /></label>
+                  {plannerMode === 'preset' && <section className="quiz-preset-picker">
+                    <div className="quiz-preset-picker-head"><b>Готовые наборы</b><small>Собираются только из одобренных вопросов текущей лиги.</small></div>
+                    <div className="quiz-preset-grid">{QUIZ_PRESETS.map((preset) => <button key={preset.id} type="button" className={customPlan?.id === preset.id ? 'active' : ''} disabled={busy || !approvedBank.length} onClick={() => applyQuizPreset(preset)}><b>{preset.label}</b><small>{preset.description}</small></button>)}</div>
+                    {customPlan && <div className="quiz-preset-summary"><b>{customPlan.label}</b><span>{customPlan.description}</span><small>{customPlan.rounds.length} раунд(а) · {customPlan.rounds.reduce((sum, row) => sum + row.question_ids.length, 0)} вопросов</small></div>}
+                  </section>}
+                  <label>Название<input value={quizTitle} onChange={(event) => setQuizTitle(event.target.value)} placeholder={plannerMode === 'random' ? 'Случайный вопрос' : plannerMode === 'preset' ? 'Название готового набора' : 'Например, Футбольный квиз №1'} required /></label>
                   <div className="quiz-form-grid"><label>Старт (необязательно)<input type="datetime-local" value={scheduledStart} onChange={(event) => setScheduledStart(event.target.value)} /></label><label>Показ ответа, сек.<input type="number" min="3" max="90" value={revealSeconds} onChange={(event) => setRevealSeconds(event.target.value)} /></label></div>
                   <details className="quiz-import-box"><summary>Таймеры раундов</summary><p className="muted">По умолчанию используются рекомендованные интервалы. Их можно изменить до старта квиза.</p><div className="quiz-form-grid">{QUIZ_TIMER_FIELDS.map(([key, label]) => <label key={key}>{label}<input type="number" min="10" max="300" value={timerSettings[key] ?? DEFAULT_QUIZ_TIMER_SETTINGS[key]} onChange={(event) => setTimerSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div></details>
-                  <div className="quiz-question-picker">
+                  {plannerMode === 'preset' ? <div className="quiz-question-picker quiz-preset-questions">
+                    {customPlan ? <><div className="planner-picker-head"><div><b>Состав черновика</b><p>{selectedQuestionIds.length} вопросов · изменение состава через выбранный набор или повторное копирование.</p></div></div>{customPlan.rounds.map((round) => <div className="quiz-preset-round" key={`${round.round_type}-${round.title}`}><b>{round.title}</b><small>{round.question_ids.length} вопросов</small></div>)}</> : <div className="planner-empty-bank"><p className="muted">Выберите готовый набор выше или откройте завершённый квиз и нажмите «Копировать в План».</p></div>}
+                  </div> : <div className="quiz-question-picker">
                     <div className="planner-picker-head"><div><b>{plannerMode === 'random' ? 'Один случайный вопрос' : `Раунд: ${plannerRound === 'any' ? 'Любой формат' : plannerRoundMeta(plannerRound).label}`}</b><p>{plannerMode === 'random' ? `Выбрано: ${selectedQuestionIds.length}/1` : `Выбрано: ${plannerRoundStatus(plannerRoundMeta(plannerRound))}`}</p></div><button type="button" disabled={busy || !approvedBank.length} onClick={() => plannerMode === 'full' ? autoFillPlannerRound(plannerRound) : plannerMode === 'single' ? autoFillPlannerRound(plannerRound) : autoFillRandomQuestion()}>{plannerMode === 'random' ? 'Выбрать случайный' : 'Автозаполнить раунд'}</button></div>
                     {approvedBank.length ? (plannerMode === 'random' && plannerRound === 'any' ? approvedBank : questionsForPlannerRound(plannerRound)).map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestionIds.includes(question.id)} onChange={() => {
                       if (plannerMode === 'random') { setSelectedQuestionIds((current) => current.includes(question.id) ? [] : [question.id]); } else { toggleQuestion(question.id); }
                     }} /><span><b>{question.type_label}</b> · {question.default_points} · {question.question_text}</span></label>) : <div className="planner-empty-bank"><p className="muted">В Банке пока нет одобренных вопросов для этого раунда.</p><button type="button" onClick={() => { setWorkspaceTab('bank'); setBankOpen(true); }}>Открыть Банк вопросов</button></div>}
-                  </div>
+                  </div>}
                   <label className="quiz-check-row"><input type="checkbox" checked={isTestRun} onChange={(event) => setIsTestRun(event.target.checked)} /><span><b>Тестовый прогон</b><small>Участвует только ведущий; рейтинг и статистика вопросов не меняются.</small></span></label>
                   {isTestRun && <label>Test chat ID (необязательно)<input value={testChatId} onChange={(event) => setTestChatId(event.target.value)} placeholder="например -1001234567890" /></label>}
                   <label className="quiz-check-row"><input type="checkbox" checked={enforceRepeatPolicy} onChange={(event) => setEnforceRepeatPolicy(event.target.checked)} /><span><b>Не повторять недавно использованные вопросы</b><small>Учитывается индивидуальный срок повтора каждого вопроса.</small></span></label>
-                  <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length}>{isTestRun ? `Создать тестовый прогон (${selectedQuestionIds.length})` : plannerMode === 'random' ? 'Запустить случайный вопрос' : `Создать квиз (${selectedQuestionIds.length})`}</button>
+                  <button type="submit" className="quiz-primary-button" disabled={busy || !selectedQuestionIds.length || (plannerMode === 'preset' && !customPlan)}>{isTestRun ? `Создать тестовый прогон (${selectedQuestionIds.length})` : plannerMode === 'random' ? 'Запустить случайный вопрос' : plannerMode === 'preset' ? `Создать из набора (${selectedQuestionIds.length})` : `Создать квиз (${selectedQuestionIds.length})`}</button>
                 </form>}
 
               </div>}

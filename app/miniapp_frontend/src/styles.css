@@ -12962,3 +12962,150 @@ body,
 .app.theme-light .quiz-history-select select{background:#fff;color:#172033;border-color:rgba(24,35,58,.18);color-scheme:light;box-shadow:none}
 .app.theme-light .quiz-history-select select option{background:#fff;color:#172033}
 .quiz-host-desk{margin-top:14px;border:1px solid var(--border,#d2d9e6);border-radius:16px;padding:13px;background:var(--card,#fff)}.quiz-host-desk-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.quiz-host-desk-head b{font-size:16px}.quiz-host-desk-head p{margin:3px 0 0;color:var(--text-secondary,#637083);font-size:12px}.quiz-host-desk button{min-height:36px}.quiz-host-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.quiz-host-summary{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0;font-size:13px;color:var(--text-secondary,#637083)}.quiz-host-answers,.quiz-host-delivery{border-top:1px solid var(--border,#d2d9e6);padding-top:10px;margin-top:10px}.quiz-host-answers summary,.quiz-host-delivery summary{font-weight:800;cursor:pointer}.quiz-host-question-picker{display:flex;gap:6px;overflow:auto;padding:10px 0}.quiz-host-question-picker button{flex:0 0 auto;padding:6px 9px;border-radius:9px;border:1px solid var(--border,#d2d9e6);background:var(--surface-muted,#f3f5f9);color:var(--text,#172033)}.quiz-host-question-picker button.selected{background:var(--accent,#2f64df);border-color:var(--accent,#2f64df);color:#fff}.quiz-host-question-picker button:disabled{opacity:.5}.quiz-host-delivery-list{margin-top:8px;display:grid;gap:5px}.quiz-host-delivery-list p{margin:0;font-size:12px;word-break:break-word}.danger-text{color:#c43c43}
+
+/* v3.6.3 — compact board and ready quiz packs */
+.quiz-planner-modes {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+.quiz-copy-draft-button {
+  width: auto;
+  min-height: 34px;
+  margin: 2px 0 2px;
+  padding: 0 11px;
+  border: 1px solid rgba(96, 165, 250, .35);
+  border-radius: 11px;
+  color: #dceaff;
+  background: rgba(59, 130, 246, .13);
+  font-size: 11px;
+  font-weight: 800;
+}
+.quiz-copy-draft-button:active { transform: scale(.98); }
+.quiz-preset-picker {
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 15px;
+  background: rgba(255,255,255,.025);
+}
+.quiz-preset-picker-head { display: grid; gap: 3px; }
+.quiz-preset-picker-head b { color: var(--text); font-size: 13px; }
+.quiz-preset-picker-head small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.quiz-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.quiz-preset-grid button {
+  display: grid;
+  align-content: start;
+  min-height: 72px;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid rgba(148, 163, 184, .15);
+  border-radius: 12px;
+  color: var(--text);
+  background: rgba(15,23,42,.25);
+  text-align: left;
+}
+.quiz-preset-grid button b { font-size: 11px; line-height: 1.2; }
+.quiz-preset-grid button small { color: var(--muted); font-size: 9px; line-height: 1.3; }
+.quiz-preset-grid button.active {
+  border-color: rgba(22,199,132,.52);
+  background: linear-gradient(135deg, rgba(59,130,246,.14), rgba(22,199,132,.11));
+  box-shadow: inset 0 0 0 1px rgba(143,183,255,.14);
+}
+.quiz-preset-summary {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 3px 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(22,199,132,.22);
+  border-radius: 12px;
+  background: rgba(22,199,132,.06);
+}
+.quiz-preset-summary b { min-width: 0; color: var(--text); font-size: 11px; }
+.quiz-preset-summary span { grid-column: 1 / -1; color: var(--muted); font-size: 10px; line-height: 1.3; }
+.quiz-preset-summary small { align-self: start; color: #83e8c5; font-size: 9px; white-space: nowrap; }
+.quiz-preset-questions { padding: 10px; }
+.quiz-preset-round { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid rgba(148,163,184,.12); border-radius: 11px; background: rgba(255,255,255,.025); }
+.quiz-preset-round b { color: var(--text); font-size: 11px; }
+.quiz-preset-round small { color: var(--muted); font-size: 10px; white-space: nowrap; }
+
+/* Compact «Своя игра» board: intentionally no card title, only the playable grid. */
+.jeopardy-board-card {
+  display: block;
+  margin: 10px 0;
+  padding: 7px;
+  border: 1px solid rgba(72, 157, 184, .28);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(14,39,62,.82), rgba(12,28,48,.9));
+  box-shadow: 0 8px 18px rgba(2,8,23,.16);
+}
+.jeopardy-board-heading, .jeopardy-board-kicker, .jeopardy-board-progress { display: none !important; }
+.jeopardy-board-scroll { padding: 0; }
+.jeopardy-board-table {
+  grid-template-columns: minmax(78px, 1.22fr) repeat(var(--jeopardy-columns), minmax(44px, .64fr));
+  border: 1px solid rgba(91, 154, 183, .42);
+  border-radius: 10px;
+  background: rgba(7,26,45,.92);
+  box-shadow: none;
+}
+.jeopardy-board-corner, .jeopardy-board-value-head, .jeopardy-board-topic, .jeopardy-board-cell, .jeopardy-board-empty {
+  min-height: 38px;
+  border-right: 1px solid rgba(91,154,183,.27);
+  border-bottom: 1px solid rgba(91,154,183,.27);
+}
+.jeopardy-board-corner {
+  padding: 5px;
+  color: #bddeeb;
+  background: rgba(25,76,101,.78);
+  font-size: 9px;
+  letter-spacing: .02em;
+}
+.jeopardy-board-value-head {
+  color: #7ee7cf;
+  background: rgba(18,66,91,.88);
+  font-size: clamp(13px, 3.8vw, 17px);
+  text-shadow: none;
+}
+.jeopardy-board-topic {
+  padding: 5px 6px;
+  color: #dcecff;
+  background: rgba(23,65,91,.78);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+.jeopardy-board-cell {
+  color: #7ee7cf;
+  background: linear-gradient(145deg, rgba(21,76,104,.94), rgba(14,51,78,.98));
+  text-shadow: none;
+}
+.jeopardy-board-cell b { font-size: clamp(15px, 4.8vw, 22px); font-weight: 900; }
+.jeopardy-board-cell.host.pending { box-shadow: inset 0 0 0 1px rgba(116,233,206,.06); }
+@media (hover: hover) { .jeopardy-board-cell.host.pending:hover { filter: none; color: #e7fff7; background: linear-gradient(145deg, rgba(30,119,123,.96), rgba(18,79,107,.98)); } }
+.jeopardy-board-cell.revealed, .jeopardy-board-cell.closed { color: rgba(188,214,232,.45); background: rgba(12,32,51,.96); }
+.jeopardy-board-cell.revealed span, .jeopardy-board-cell.closed span { font-size: 15px; }
+.jeopardy-board-cell.guest.pending { color: #7ee7cf; }
+.jeopardy-board-empty { background: rgba(9,30,49,.72); }
+.jeopardy-board-wait { margin: 7px 2px 0; color: var(--muted); font-size: 10px; }
+.app.theme-light .quiz-copy-draft-button { color: #123e6c; border-color: rgba(37,99,235,.26); background: rgba(37,99,235,.08); }
+.app.theme-light .quiz-preset-picker { border-color: rgba(24,35,58,.12); background: rgba(255,255,255,.76); }
+.app.theme-light .quiz-preset-grid button { background: rgba(248,250,252,.94); border-color: rgba(24,35,58,.12); }
+.app.theme-light .quiz-preset-summary { background: rgba(16,185,129,.07); border-color: rgba(5,150,105,.2); }
+.app.theme-light .quiz-preset-summary small { color: #057a55; }
+.app.theme-light .quiz-preset-round { background: rgba(248,250,252,.9); border-color: rgba(24,35,58,.1); }
+.app.theme-light .jeopardy-board-card { border-color: rgba(20,108,132,.26); background: linear-gradient(145deg, #f0fafc, #e5f3f7); box-shadow: 0 8px 18px rgba(15,65,87,.1); }
+.app.theme-light .jeopardy-board-table { border-color: rgba(31,112,140,.38); background: #edf8fa; }
+.app.theme-light .jeopardy-board-corner, .app.theme-light .jeopardy-board-topic { color: #14394e; background: #d8edf1; }
+.app.theme-light .jeopardy-board-value-head { color: #056c5a; background: #d7f3ed; }
+.app.theme-light .jeopardy-board-cell { color: #057564; background: linear-gradient(145deg, #d9f4ee, #c4ebea); }
+.app.theme-light .jeopardy-board-cell.revealed, .app.theme-light .jeopardy-board-cell.closed { color: #70818d; background: #e3edf0; }
+.app.theme-light .jeopardy-board-empty { background: #e8f1f3; }
+@media (max-width: 420px) {
+  .quiz-planner-modes button { font-size: 10px; }
+  .quiz-preset-grid { grid-template-columns: 1fr; }
+  .quiz-preset-grid button { min-height: 58px; }
+  .jeopardy-board-card { margin-inline: 0; padding: 6px; border-radius: 12px; }
+  .jeopardy-board-table { grid-template-columns: minmax(72px, 1.16fr) repeat(var(--jeopardy-columns), minmax(41px, .60fr)); }
+  .jeopardy-board-corner, .jeopardy-board-value-head, .jeopardy-board-topic, .jeopardy-board-cell, .jeopardy-board-empty { min-height: 35px; }
+  .jeopardy-board-topic { font-size: 8px; }
+  .jeopardy-board-value-head, .jeopardy-board-cell b { font-size: 14px; }
+}
