@@ -1484,3 +1484,5 @@ Father forecasts support optional playoff advancement picks; apply migration `02
 - Миграция не требуется; нужны уже применённые миграции `001–030`. Подробности: `RELEASE_V3_4_3_QUIZ_WORKSPACE_AND_BIG_BANK.md`.
 
 - v3.4.6: `RELEASE_V3_4_6_QUIZ_PLANNER_FIT_AND_BANK_PANELS.md`
+
+- `RELEASE_V3_4_7_QUIZ_BANK_TOGGLE_FIX.md` — fix for Bank fold panels on iPhone.

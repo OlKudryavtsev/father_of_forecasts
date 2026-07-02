@@ -1,3 +1,7 @@
+# v3.4.7 — Quiz Bank Toggle Fix
+
+- Fixed Bank panel toggle crash in iPhone Telegram WebView.
+
 # v3.4.6 — Квиз: вертикальные раунды и свёрнутый Банк
 
 - Режим «Полный» отображает 9 раундов вертикальным списком и корректно помещается на iPhone.
