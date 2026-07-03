@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.6.5';
+const APP_VERSION = '3.6.6';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -3433,6 +3433,10 @@ function TournamentPredictionsModal({
 
   function openTarget(target) {
     if (!target) return;
+    // The profile modal is rendered after this dialog. Close the participant
+    // dialog first; otherwise its backdrop remains above the new profile and
+    // makes a successful click look like it did nothing.
+    onClose?.();
     if (target.type === 'team') onOpenTournamentTeam?.(target.id);
     if (target.type === 'player') onOpenTournamentPlayer?.(target.id);
   }

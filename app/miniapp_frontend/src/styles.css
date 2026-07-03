@@ -13321,7 +13321,7 @@ body,
   .tournament-prediction-target b { font-size: 11px; }
 }
 
-/* v3.6.5 — compact tournament prediction participant cards */
+/* v3.6.6 — compact tournament prediction participant cards */
 .tournament-predictions-backdrop {
   padding: max(10px, calc(env(safe-area-inset-top) + 8px)) 10px 8px;
 }

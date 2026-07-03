@@ -38,6 +38,7 @@ PLAYER_NAME_ALIASES = {
     "холанд": "erling haaland",
     "erling braut haaland": "erling haaland",
     "килиан мбаппе": "kylian mbappe",
+    "мбаппе": "kylian mbappe",
     "kylian mbappe": "kylian mbappe",
     "харри кейн": "harry kane",
     "гарри кейн": "harry kane",
@@ -523,6 +524,36 @@ def _team_reference_by_name(db: Session, team_name: str | None) -> dict[str, Any
     return None
 
 
+def _apply_known_tournament_team_hint(
+    db: Session,
+    player_name: str | None,
+    player: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach the national team for explicit tournament-prediction aliases.
+
+    API-Football rows can occasionally contain a club or no team at all for a
+    player found through a broad scorer cache. For names in the curated
+    prediction dictionary, the national-team mapping is authoritative for this
+    World Cup screen. A local fixture reference supplies the tournament team ID
+    when it is already known.
+    """
+    hint = PLAYER_TEAM_HINTS.get(_canonical_player_name(player_name))
+    if not hint:
+        return player
+
+    team_reference = _team_reference_by_name(db, hint.get("team")) or {}
+    team_name = team_reference.get("team") or hint.get("team") or ""
+    team_api_name = team_reference.get("team_api_name") or hint.get("team_api_name") or team_name
+    return {
+        **player,
+        "team_id": team_reference.get("team_id") or player.get("team_id"),
+        "team": team_name,
+        "team_api_name": team_api_name,
+        "team_flag": get_team_flag(team_name, team_api_name),
+        "team_flag_code": get_team_flag_code(team_name, team_api_name),
+    }
+
+
 def resolve_player_by_name(db: Session, player_name: str | None, *, refresh: bool = False) -> dict[str, Any] | None:
     """Resolve a prediction's display name to cached player/team data.
 
@@ -535,7 +566,7 @@ def resolve_player_by_name(db: Session, player_name: str | None, *, refresh: boo
     needle = _canonical_player_name(player_name)
     for row in get_top_scorers(db, refresh=refresh, limit=50)["items"]:
         if _same_player_name(row.get("name"), player_name):
-            return row
+            return _apply_known_tournament_team_hint(db, player_name, row)
 
     players = (
         db.query(FantasyPlayer)
@@ -545,13 +576,13 @@ def resolve_player_by_name(db: Session, player_name: str | None, *, refresh: boo
     )
     for player in players:
         if _same_player_name(player.player_name, player_name):
-            return _fantasy_item(player)
+            return _apply_known_tournament_team_hint(db, player_name, _fantasy_item(player))
 
     hint = PLAYER_TEAM_HINTS.get(needle)
     if not hint:
         return None
     team_reference = _team_reference_by_name(db, hint.get("team")) or {}
-    return {
+    return _apply_known_tournament_team_hint(db, player_name, {
         "player_id": None,
         "name": str(player_name),
         "photo": "",
@@ -564,7 +595,7 @@ def resolve_player_by_name(db: Session, player_name: str | None, *, refresh: boo
         "assists": 0,
         "appearances": 0,
         "minutes": 0,
-    }
+    })
 
 
 def find_top_scorer(db: Session, player_id: int | str) -> dict[str, Any] | None:
