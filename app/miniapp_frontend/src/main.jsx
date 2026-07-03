@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.6.4';
+const APP_VERSION = '3.6.5';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -1235,10 +1235,13 @@ function tournamentPredictionItemStatus(item, prediction) {
 function tournamentPredictionItemTarget(item, prediction) {
   if (!prediction || !item?.value) return null;
   if (item.key === 'top_scorer') {
-    return prediction.top_scorer_player_id ? { type: 'player', id: prediction.top_scorer_player_id } : null;
+    // A player may not yet be in the scorer cache (for example, before the
+    // first goal), but the prediction must still open a meaningful profile.
+    const id = prediction.top_scorer_player_id;
+    return { type: 'player', id: id || `name:${encodeURIComponent(prediction.top_scorer)}` };
   }
   const id = prediction[`${item.key}_team_id`];
-  return id ? { type: 'team', id } : null;
+  return { type: 'team', id: id || `name:${encodeURIComponent(item.value)}` };
 }
 
 function NextMatchHero({ match, onPredict, onShowPredictions, kicker = 'Следующий матч' }) {
@@ -2417,9 +2420,14 @@ function TeamProfileModal({ teamId, onClose, onOpenMatch, onOpenPlayer }) {
 
   useEffect(() => {
     if (teamId) trackAnalytics('team_open', { screen: 'matches', properties: { team_id: teamId } });
+    const byName = typeof teamId === 'string' && teamId.startsWith('name:');
+    const name = byName ? decodeURIComponent(teamId.slice(5)) : '';
+    const endpoint = byName
+      ? `/api/webapp/tournament/teams/by-name?name=${encodeURIComponent(name)}`
+      : `/api/webapp/tournament/teams/${teamId}`;
     let active = true;
     setData(null); setError(null);
-    api(`/api/webapp/tournament/teams/${teamId}`)
+    api(endpoint)
       .then((result) => { if (active) setData(result); })
       .catch((err) => { if (active) setError(err); });
     return () => { active = false; };
@@ -2480,9 +2488,14 @@ function PlayerProfileModal({ playerId, onClose, onOpenTeam, onOpenMatch }) {
   const [error, setError] = useState(null);
   useEffect(() => {
     if (playerId) trackAnalytics('player_open', { screen: 'matches', properties: { player_id: playerId } });
+    const byName = typeof playerId === 'string' && playerId.startsWith('name:');
+    const name = byName ? decodeURIComponent(playerId.slice(5)) : '';
+    const endpoint = byName
+      ? `/api/webapp/tournament/players/by-name?name=${encodeURIComponent(name)}`
+      : `/api/webapp/tournament/players/${playerId}`;
     let active = true;
     setData(null); setError(null);
-    api(`/api/webapp/tournament/players/${playerId}`)
+    api(endpoint)
       .then((result) => { if (active) setData(result); })
       .catch((err) => { if (active) setError(err); });
     return () => { active = false; };
@@ -3430,23 +3443,21 @@ function TournamentPredictionsModal({
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>Прогнозы участников на турнир</h2>
         {leagueName && <p className="muted small tournament-predictions-league">Лига: {leagueName}</p>}
-        <div className="tournament-prediction-legend" aria-label="Статусы прогнозов">
-          <span className="active">В игре</span>
-          <span className="eliminated">Не может сбыться</span>
-          <span className="contender">Выбыл, но ещё может стать бомбардиром</span>
-        </div>
         {error && <p className="error-text">{error.message}</p>}
         {!error && !data && <LoadingCard text="Загружаю турнирные прогнозы..." />}
         {data && (
           <div className="tournament-predictions-list">
             {(data.rows || []).map((row) => (
               <article key={row.user_name} className={`tournament-prediction-row ${row.has_prediction ? '' : 'empty'}`}>
-                <strong>{row.user_name}</strong>
+                <header className="tournament-prediction-row-head">
+                  <strong>{row.user_name}</strong>
+                  {row.prediction && <b className="tournament-prediction-remaining">ещё до +{row.remaining_points ?? row.prediction.remaining_points ?? 0}</b>}
+                </header>
                 {row.prediction ? (
                   <div className="tournament-prediction-items">
                     {items.map((item) => {
                       const value = row.prediction[item.key];
-                      const status = tournamentPredictionItemStatus(item, row.prediction) || { label: 'Статус уточняется', tone: 'muted' };
+                      const status = tournamentPredictionItemStatus(item, row.prediction) || { tone: 'muted' };
                       const target = tournamentPredictionItemTarget(item, row.prediction);
                       const clickable = Boolean(target);
                       return (
@@ -3458,10 +3469,8 @@ function TournamentPredictionsModal({
                           onClick={() => openTarget(target)}
                           aria-label={clickable ? `Открыть: ${value}` : `${item.label}: ${value}`}
                         >
-                          <i>{item.icon}</i>
-                          <span>{item.label}</span>
+                          <i aria-hidden="true">{item.icon}</i>
                           <b>{value || '—'}</b>
-                          <small>{status.label}</small>
                         </button>
                       );
                     })}

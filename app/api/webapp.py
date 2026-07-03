@@ -2921,11 +2921,13 @@ def get_tournament_predictions(
 
     for user in users:
         prediction = predictions_by_user.get(user.id)
+        serialized_prediction = _serialize_tournament_prediction(prediction, db=db) if revealed and prediction else None
         rows.append(
             {
                 "user_name": user.display_name,
                 "has_prediction": prediction is not None,
-                "prediction": _serialize_tournament_prediction(prediction, db=db) if revealed and prediction else None,
+                "prediction": serialized_prediction,
+                "remaining_points": int((serialized_prediction or {}).get("remaining_points") or 0),
             }
         )
 
@@ -3230,6 +3232,31 @@ def _find_prediction_scorer(db: Session, player_name: str | None) -> dict | None
     return resolve_player_by_name(db, player_name, refresh=False)
 
 
+_TOURNAMENT_PREDICTION_ITEM_POINTS = {
+    "champion": 15,
+    "runner_up": 10,
+    "third_place": 5,
+    "top_scorer": 15,
+}
+
+
+def _prediction_remaining_points(payload: dict) -> int:
+    """Return the maximum still-achievable tournament-prediction points.
+
+    A confirmed winner is no longer future potential; a red eliminated item
+    cannot score. Green items, the blue eliminated-but-leading scorer and an
+    unresolved player reference remain potentially scoreable.
+    """
+    total = 0
+    for key, points in _TOURNAMENT_PREDICTION_ITEM_POINTS.items():
+        if not payload.get(key):
+            continue
+        tone = str((payload.get(f"{key}_status") or {}).get("tone") or "muted")
+        if tone not in {"eliminated", "winner"}:
+            total += points
+    return total
+
+
 def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db: Session | None = None) -> dict | None:
     """Serialize a tournament prediction with stable profile links and live statuses."""
     if not prediction:
@@ -3276,6 +3303,7 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db
     payload["top_scorer_status"] = _prediction_top_scorer_status(db, prediction.top_scorer, scorer, scorer_team_status) if scorer_team_name else scorer_team_status
     if scorer and not payload.get("top_scorer_photo"):
         payload["top_scorer_photo"] = scorer.get("photo") or None
+    payload["remaining_points"] = _prediction_remaining_points(payload)
     return payload
 
 
@@ -7069,22 +7097,52 @@ def _team_profile_matches(db: Session, team_id: int) -> list[Match]:
     )
 
 
-@router.get("/tournament/teams/{team_id}")
-def get_tournament_team_profile(
-    team_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+def _team_profile_matches_by_name(db: Session, team_name: str) -> list[Match]:
+    wanted = get_team_name_ru(team_name)
+    if not wanted:
+        return []
+    matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .order_by(Match.starts_at.asc())
+        .all()
+    )
+    return [
+        match for match in matches
+        if get_team_name_ru(match.home_team) == wanted or get_team_name_ru(match.away_team) == wanted
+    ]
+
+
+def _build_tournament_team_profile(
+    db: Session,
+    current_user: User,
+    matches: list[Match],
+    *,
+    team_id: int | None,
+    requested_name: str | None = None,
 ) -> dict:
-    """Return a national team profile built from current local tournament data."""
-    matches = _team_profile_matches(db, team_id)
+    """Serialize a team profile for numeric IDs and prediction-name fallbacks."""
     if not matches:
         raise HTTPException(status_code=404, detail="Сборная не найдена в матчах турнира")
 
+    normalized_name = get_team_name_ru(requested_name) if requested_name else ""
     first = matches[0]
-    is_home = int(first.home_external_team_id or 0) == int(team_id)
+    if team_id is not None:
+        is_home = str(first.home_external_team_id or "") == str(team_id)
+    else:
+        is_home = get_team_name_ru(first.home_team) == normalized_name
     raw_name = first.home_team if is_home else first.away_team
     api_name = first.home_team_api_name if is_home else first.away_team_api_name
-    team_name = get_team_name_ru(raw_name)
+    team_name = normalized_name or get_team_name_ru(raw_name)
+    resolved_team_id = team_id
+    if resolved_team_id is None:
+        for match in matches:
+            if get_team_name_ru(match.home_team) == team_name and match.home_external_team_id is not None:
+                resolved_team_id = int(match.home_external_team_id)
+                break
+            if get_team_name_ru(match.away_team) == team_name and match.away_external_team_id is not None:
+                resolved_team_id = int(match.away_external_team_id)
+                break
     group_code = next((item.group_code for item in matches if item.group_code), None)
 
     standings = _build_group_standings(db)
@@ -7097,7 +7155,10 @@ def get_tournament_team_profile(
     finished = [match for match in matches if match.is_finished and match.score_home is not None and match.score_away is not None]
     wins = draws = losses = goals_for = goals_against = 0
     for match in finished:
-        home_side = int(match.home_external_team_id or 0) == int(team_id)
+        if resolved_team_id is not None:
+            home_side = str(match.home_external_team_id or "") == str(resolved_team_id)
+        else:
+            home_side = get_team_name_ru(match.home_team) == team_name
         own, other = (int(match.score_home), int(match.score_away)) if home_side else (int(match.score_away), int(match.score_home))
         goals_for += own
         goals_against += other
@@ -7109,11 +7170,10 @@ def get_tournament_team_profile(
             losses += 1
 
     predictions = _prediction_by_match_id(db, current_user, matches)
-    scorers = get_team_scorers(db, team_id, refresh=True, limit=50)
-
+    scorers = get_team_scorers(db, resolved_team_id, refresh=True, limit=50) if resolved_team_id is not None else []
     return {
         "team": {
-            "id": team_id,
+            "id": resolved_team_id,
             "name": team_name,
             "api_name": api_name or raw_name,
             "flag": get_team_flag(team_name, api_name),
@@ -7127,6 +7187,45 @@ def get_tournament_team_profile(
         },
         "matches": [_serialize_match(match, predictions.get(match.id)) for match in matches],
         "scorers": scorers[:10],
+    }
+
+
+@router.get("/tournament/teams/by-name")
+def get_tournament_team_profile_by_name(
+    name: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    matches = _team_profile_matches_by_name(db, name)
+    return _build_tournament_team_profile(db, current_user, matches, team_id=None, requested_name=name)
+
+
+@router.get("/tournament/teams/{team_id}")
+def get_tournament_team_profile(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a national team profile built from current local tournament data."""
+    matches = _team_profile_matches(db, team_id)
+    return _build_tournament_team_profile(db, current_user, matches, team_id=team_id)
+
+
+@router.get("/tournament/players/by-name")
+def get_tournament_player_profile_by_name(
+    name: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Open a scorer profile even when a prediction uses a pre-goal name hint."""
+    del current_user
+    player = _find_prediction_scorer(db, name)
+    if not player:
+        raise HTTPException(status_code=404, detail="Игрок пока не найден в кэше турнира")
+    player_id = player.get("player_id")
+    return {
+        "player": player,
+        "matches": player_match_rows(db, player_id) if player_id is not None else [],
     }
 
 
