@@ -3085,6 +3085,146 @@ def _prediction_team_status(
     return {"label": "Участвует", "tone": "active"}
 
 
+
+def _prediction_stage_key(match: Match) -> str:
+    """Normalize a match stage for the tournament-prediction possibility rules."""
+    if str(match.stage or "").lower() == "group":
+        return "group"
+    raw = f"{match.match_round or ''} {match.api_league_round or ''} {match.stage or ''}".lower()
+    if "third" in raw or "3rd" in raw or "3 место" in raw:
+        return "third"
+    # Check composite names before ``final``: both semifinal and quarterfinal
+    # contain that substring in provider round names.
+    if "semi" in raw or "1/2" in raw:
+        return "semi"
+    if "quarter" in raw or "1/4" in raw:
+        return "quarter"
+    if "round of 16" in raw or "1/8" in raw:
+        return "r16"
+    if "round of 32" in raw or "1/16" in raw:
+        return "r32"
+    if "final" in raw:
+        return "final"
+    return "knockout"
+
+
+def _prediction_team_knockout_entries(team_name: str, context: dict[str, dict]) -> list[tuple[Match, str]]:
+    record = context.get(get_team_name_ru(team_name)) or {}
+    return sorted(
+        [
+            (match, side)
+            for match, side in (record.get("matches") or [])
+            if str(match.stage or "").lower() != "group"
+        ],
+        key=lambda item: _ensure_utc(item[0].starts_at),
+        reverse=True,
+    )
+
+
+def _prediction_placement_status(
+    placement: str,
+    team_name: str,
+    context: dict[str, dict],
+    standings_by_group: dict[str, dict],
+) -> dict:
+    """Tell whether a team can still occupy its selected final position.
+
+    This is deliberately based on completed official matches. It never guesses a
+    future winner: green means the selected finish is still possible, red means
+    official results have already ruled it out, and gold means that finish is
+    already achieved.
+    """
+    base = _prediction_team_status(team_name, context, standings_by_group)
+    entries = _prediction_team_knockout_entries(team_name, context)
+    finished = [(match, side) for match, side in entries if bool(match.is_finished)]
+    pending = [(match, side) for match, side in entries if not bool(match.is_finished)]
+    latest = finished[0] if finished else None
+
+    # A known final result settles champion / runner-up immediately.
+    if latest and _prediction_stage_key(latest[0]) == "final":
+        lost_final = _team_lost_match(*latest)
+        if placement == "champion":
+            return {"label": "Чемпион турнира", "tone": "winner"} if not lost_final else {"label": "Не может стать чемпионом", "tone": "eliminated"}
+        if placement == "runner_up":
+            return {"label": "2-е место турнира", "tone": "winner"} if lost_final else {"label": "Не может занять 2-е место", "tone": "eliminated"}
+        return {"label": "Не может занять 3-е место", "tone": "eliminated"}
+
+    # Match for third place settles only the third-place forecast.
+    if latest and _prediction_stage_key(latest[0]) == "third":
+        won_third = not _team_lost_match(*latest)
+        if placement == "third_place":
+            return {"label": "3-е место турнира", "tone": "winner"} if won_third else {"label": "Не может занять 3-е место", "tone": "eliminated"}
+        return {"label": "Не может занять это место", "tone": "eliminated"}
+
+    # Find the latest official knockout defeat. A semifinal defeat still leaves
+    # the third-place match available, so it must not invalidate that forecast.
+    latest_loss = next(((match, side) for match, side in finished if _team_lost_match(match, side)), None)
+    if latest_loss:
+        loss_stage = _prediction_stage_key(latest_loss[0])
+        if placement == "third_place" and loss_stage == "semi":
+            third_match = next(((match, side) for match, side in entries if _prediction_stage_key(match) == "third"), None)
+            if third_match and bool(third_match[0].is_finished):
+                won_third = not _team_lost_match(*third_match)
+                return {"label": "3-е место турнира", "tone": "winner"} if won_third else {"label": "Не может занять 3-е место", "tone": "eliminated"}
+            return {"label": "В игре за 3-е место", "tone": "active"}
+        placement_name = {"champion": "чемпионом", "runner_up": "второй", "third_place": "третьей"}.get(placement, "в призах")
+        return {"label": f"Не может стать {placement_name}", "tone": "eliminated"}
+
+    # Group-stage elimination is conclusive. Otherwise, an unfinished current
+    # match or a still-open knockout path keeps the forecast green.
+    if base.get("tone") == "eliminated":
+        return {"label": f"Не может занять { {'champion': '1-е', 'runner_up': '2-е', 'third_place': '3-е'}.get(placement, 'это') } место", "tone": "eliminated"}
+    if pending:
+        return {"label": "В игре", "tone": "active"}
+    return {"label": "Шанс сохраняется", "tone": "active"}
+
+
+def _prediction_top_scorer_status(
+    db: Session,
+    player_name: str,
+    scorer: dict | None,
+    team_status: dict,
+) -> dict:
+    """Return a scorer status with the special blue eliminated-but-leading state."""
+    leaderboard = get_top_scorers(db, refresh=False, limit=50).get("items") or []
+    scorer_row = scorer or {}
+    for row in leaderboard:
+        if (
+            scorer_row.get("player_id") and str(row.get("player_id")) == str(scorer_row.get("player_id"))
+        ) or _same_prediction_player_name(row.get("name"), player_name):
+            scorer_row = {**scorer_row, **row}
+            break
+    goals = int(scorer_row.get("goals") or 0)
+    leader_goals = max((int(row.get("goals") or 0) for row in leaderboard), default=0)
+    pending_tournament_matches = db.query(Match).filter(
+        Match.tournament_code == TOURNAMENT_CODE,
+        Match.is_finished.is_(False),
+    ).count() > 0
+
+    if team_status.get("tone") == "eliminated":
+        if goals > 0 and goals >= leader_goals:
+            label = f"Выбыл, но ещё может стать лучшим · {goals} гол."
+            return {"label": label, "tone": "contender"}
+        return {"label": f"Выбыл · {goals} гол.", "tone": "eliminated"}
+
+    if not pending_tournament_matches and goals > 0 and goals >= leader_goals:
+        return {"label": f"Лучший бомбардир · {goals} гол.", "tone": "winner"}
+    suffix = f" · {goals} гол." if goals else ""
+    return {"label": f"{team_status.get('label') or 'В игре'}{suffix}", "tone": team_status.get("tone") or "active"}
+
+
+def _same_prediction_player_name(left: str | None, right: str | None) -> bool:
+    """Local, conservative player-name comparison for a prediction card."""
+    def norm(value: str | None) -> str:
+        return re.sub(r"[^a-zа-я0-9]+", " ", str(value or "").casefold()).strip()
+    l, r = norm(left), norm(right)
+    if not l or not r:
+        return False
+    if l == r:
+        return True
+    lparts, rparts = l.split(), r.split()
+    return bool(lparts and rparts and lparts[-1] == rparts[-1] and (len(lparts) == 1 or len(rparts) == 1 or lparts[0][:1] == rparts[0][:1]))
+
 def _find_prediction_scorer(db: Session, player_name: str | None) -> dict | None:
     """Resolve a tournament-prediction scorer via cache, Fantasy roster and aliases."""
     return resolve_player_by_name(db, player_name, refresh=False)
@@ -3126,13 +3266,14 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db
         name = payload.get(key) or ""
         reference = context.get(get_team_name_ru(name)) or {}
         payload[f"{key}_team_id"] = reference.get("team_id")
-        payload[f"{key}_status"] = _prediction_team_status(name, context, standings_by_group)
+        payload[f"{key}_status"] = _prediction_placement_status(key, name, context, standings_by_group)
 
     scorer = _find_prediction_scorer(db, prediction.top_scorer)
     payload["top_scorer_player_id"] = scorer.get("player_id") if scorer else None
     payload["top_scorer_team_id"] = scorer.get("team_id") if scorer else None
     scorer_team_name = (scorer or {}).get("team") or ""
-    payload["top_scorer_status"] = _prediction_team_status(scorer_team_name, context, standings_by_group) if scorer_team_name else {"label": "Статус уточняется", "tone": "muted"}
+    scorer_team_status = _prediction_team_status(scorer_team_name, context, standings_by_group) if scorer_team_name else {"label": "Статус уточняется", "tone": "muted"}
+    payload["top_scorer_status"] = _prediction_top_scorer_status(db, prediction.top_scorer, scorer, scorer_team_status) if scorer_team_name else scorer_team_status
     if scorer and not payload.get("top_scorer_photo"):
         payload["top_scorer_photo"] = scorer.get("photo") or None
     return payload

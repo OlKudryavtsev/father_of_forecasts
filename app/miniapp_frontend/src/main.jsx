@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.6.3';
+const APP_VERSION = '3.6.4';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -3394,9 +3394,21 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
 }
 
 
-function TournamentPredictionsModal({ onClose, leagueId = null, leagueName = '' }) {
+function TournamentPredictionsModal({
+  onClose,
+  leagueId = null,
+  leagueName = '',
+  onOpenTournamentTeam,
+  onOpenTournamentPlayer,
+}) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const items = [
+    { key: 'champion', label: 'Победитель', icon: '🏆' },
+    { key: 'runner_up', label: '2-е место', icon: '🥈' },
+    { key: 'third_place', label: '3-е место', icon: '🥉' },
+    { key: 'top_scorer', label: 'Бомбардир', icon: '⚽' },
+  ];
 
   useEffect(() => {
     let active = true;
@@ -3406,13 +3418,23 @@ function TournamentPredictionsModal({ onClose, leagueId = null, leagueName = '' 
     return () => { active = false; };
   }, [leagueId]);
 
+  function openTarget(target) {
+    if (!target) return;
+    if (target.type === 'team') onOpenTournamentTeam?.(target.id);
+    if (target.type === 'player') onOpenTournamentPlayer?.(target.id);
+  }
+
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop tournament-predictions-backdrop">
       <section className="modal-card tournament-predictions-modal">
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>Прогнозы участников на турнир</h2>
-        {leagueName && <p className="muted small">Лига: {leagueName}</p>}
-        <p className="muted">Турнир уже начался — прогнозы открыты для просмотра и закрыты для редактирования.</p>
+        {leagueName && <p className="muted small tournament-predictions-league">Лига: {leagueName}</p>}
+        <div className="tournament-prediction-legend" aria-label="Статусы прогнозов">
+          <span className="active">В игре</span>
+          <span className="eliminated">Не может сбыться</span>
+          <span className="contender">Выбыл, но ещё может стать бомбардиром</span>
+        </div>
         {error && <p className="error-text">{error.message}</p>}
         {!error && !data && <LoadingCard text="Загружаю турнирные прогнозы..." />}
         {data && (
@@ -3421,11 +3443,28 @@ function TournamentPredictionsModal({ onClose, leagueId = null, leagueName = '' 
               <article key={row.user_name} className={`tournament-prediction-row ${row.has_prediction ? '' : 'empty'}`}>
                 <strong>{row.user_name}</strong>
                 {row.prediction ? (
-                  <div>
-                    <span>🏆 {row.prediction.champion}</span>
-                    <span>🥈 {row.prediction.runner_up}</span>
-                    <span>🥉 {row.prediction.third_place}</span>
-                    <span>⚽ {row.prediction.top_scorer}</span>
+                  <div className="tournament-prediction-items">
+                    {items.map((item) => {
+                      const value = row.prediction[item.key];
+                      const status = tournamentPredictionItemStatus(item, row.prediction) || { label: 'Статус уточняется', tone: 'muted' };
+                      const target = tournamentPredictionItemTarget(item, row.prediction);
+                      const clickable = Boolean(target);
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          className={`tournament-prediction-target status-${status.tone || 'muted'} ${clickable ? 'inspectable' : ''}`}
+                          disabled={!clickable}
+                          onClick={() => openTarget(target)}
+                          aria-label={clickable ? `Открыть: ${value}` : `${item.label}: ${value}`}
+                        >
+                          <i>{item.icon}</i>
+                          <span>{item.label}</span>
+                          <b>{value || '—'}</b>
+                          <small>{status.label}</small>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <em>{data.revealed ? 'нет прогноза' : 'скрыто до старта'}</em>
@@ -8409,7 +8448,13 @@ function App() {
 
       {predictionMatch && <ScorePicker match={predictionMatch} onClose={() => setPredictionMatch(null)} onSaved={handleSaved} />}
       {forecastMatch && <ForecastModal match={forecastMatch} onClose={() => setForecastMatch(null)} />}
-      {tournamentPredictionsOpen && <TournamentPredictionsModal onClose={() => setTournamentPredictionsOpen(false)} leagueId={activeLeagueId} leagueName={activeLeagueName} />}
+      {tournamentPredictionsOpen && <TournamentPredictionsModal
+        onClose={() => setTournamentPredictionsOpen(false)}
+        leagueId={activeLeagueId}
+        leagueName={activeLeagueName}
+        onOpenTournamentTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }}
+        onOpenTournamentPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }}
+      />}
       {homeTournamentMatch && <MatchDetailsModal match={homeTournamentMatch} onClose={() => setHomeTournamentMatch(null)} onPredict={setPredictionMatch} onOpenTeam={(id) => { setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }} onOpenPlayer={(id) => { setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }} />}
       {homeTournamentTeamId && <TeamProfileModal teamId={homeTournamentTeamId} onClose={() => setHomeTournamentTeamId(null)} onOpenMatch={(match) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(match); }} onOpenPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentPlayerId(id); }} />}
       {homeTournamentPlayerId && <PlayerProfileModal playerId={homeTournamentPlayerId} onClose={() => setHomeTournamentPlayerId(null)} onOpenTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentTeamId(id); }} onOpenMatch={(match) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(match); }} />}
