@@ -1039,6 +1039,11 @@ def _serialize_match_points_analytics_item(
         "score_away": match.score_away,
         "final_score_home": match.final_score_home,
         "final_score_away": match.final_score_away,
+        # The Mini App's shared score formatter deliberately suppresses scores
+        # for unfinished matches. Analytics contains only completed fixtures,
+        # therefore this explicit field is required for the formatter to show
+        # the score instead of an empty placeholder.
+        "is_finished": bool(match.is_finished),
         "count": count,
         "total_predictions": total_predictions,
         "result_kind": result_kind,

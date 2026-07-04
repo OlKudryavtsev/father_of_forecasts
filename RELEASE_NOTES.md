@@ -1,3 +1,7 @@
+## v3.7.2 — Срочное исправление запуска и расчётов
+
+См. `RELEASE_V3_7_2_STARTUP_BRONZE_AND_ANALYTICS_FIX.md`.
+
 ## v3.7.1 — Корректировка расчётов «Раскладов»
 
 См. `RELEASE_V3_7_1_STANDINGS_POTENTIAL_FIX.md`.

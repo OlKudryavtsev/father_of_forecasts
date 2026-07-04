@@ -1,10 +1,11 @@
 """Transparent championship-scenario calculations for a league leaderboard.
 
 The service works with the fixed final part of the WC-2026 bracket: eight
-round-of-16 fixtures, four quarter-finals, two semi-finals and one final.  It
-never treats an uncreated future fixture as absent merely because its teams are
-not known yet.  Long-term tournament picks are included only while they are
-still mathematically alive according to completed official matches.
+round-of-16 fixtures, four quarter-finals, two semi-finals, a third-place match
+and the final. It never treats an uncreated future fixture as absent merely
+because its teams are not known yet. Long-term tournament picks are included
+only while they are still mathematically alive according to completed official
+matches.
 """
 
 from __future__ import annotations
@@ -25,12 +26,13 @@ from app.services.tournament_hub import get_top_scorers, resolve_player_by_name
 from app.team_names import get_team_name_ru
 
 
-# The user-facing competition intentionally excludes a third-place fixture from
-# match-prediction potential: the remaining schedule is 8 + 4 + 2 + 1 = 15.
+# The user-facing competition includes the bronze-medal fixture: the full
+# remaining knockout schedule is 8 + 4 + 2 + 1 + 1 = 16 matches.
 PLAYOFF_PLAN: tuple[tuple[str, int, str], ...] = (
     ("round_of_16", 8, "1/8 финала"),
     ("quarterfinal", 4, "1/4 финала"),
     ("semifinal", 2, "1/2 финала"),
+    ("third_place", 1, "матч за 3-е место"),
     ("final", 1, "финал"),
 )
 PLAYOFF_STAGE_COUNTS = {stage: count for stage, count, _label in PLAYOFF_PLAN}
@@ -318,7 +320,7 @@ def _bracket_opportunities(
     user_id: int,
     now: datetime,
 ) -> tuple[list[MatchOpportunity], list[dict[str, Any]]]:
-    """Construct all remaining 15-bracket opportunities, including virtual slots."""
+    """Construct all remaining 16-match opportunities, including virtual slots."""
     opportunities: list[MatchOpportunity] = []
     breakdown: list[dict[str, Any]] = []
 
@@ -602,8 +604,9 @@ def build_standings_scenarios(
             "advancement_opportunities": int(target_potential["advancement_slots"] or 0),
         },
         "note": (
-            "Потолок считается по сетке: 8 матчей 1/8, 4 матча 1/4, 2 полуфинала и финал. "
-            "За каждый матч максимум 3 очка за счёт/исход и 1 за проход; долгосрок включён только для ещё живых ставок."
+            "Потолок считается по сетке: 8 матчей 1/8, 4 матча 1/4, 2 полуфинала, "
+            "матч за 3-е место и финал. За каждый матч максимум 3 очка за счёт/исход "
+            "и 1 за проход; долгосрок включён только для ещё живых ставок."
         ),
         "scenarios": [],
         "is_mathematically_possible": target_max_final > leader_current,
@@ -691,11 +694,13 @@ def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: i
     remaining = payload.get("remaining") or {}
     name = participant.get("name") or "Участник"
     schedule_text = _format_bracket_breakdown(remaining)
+    matches_count = int(remaining.get("matches") or 0)
+    fallback_schedule_text = f"{matches_count} {_plural(matches_count, 'матч', 'матча', 'матчей')}"
     lines = [
         f"🏆 Расклады · {name}",
         "",
         f"Сейчас: #{participant.get('rank') or '—'} · {int(participant.get('current_points') or 0)} очк.",
-        f"Сетка: {schedule_text or f'{int(remaining.get("matches") or 0)} матч.'}",
+        f"Сетка: {schedule_text or fallback_schedule_text}",
         f"Потолок: +{int(remaining.get('match_max') or 0)} за матчи"
         + (f" и +{int(remaining.get('tournament_max') or 0)} за живой долгосрок" if int(remaining.get("tournament_max") or 0) else ""),
     ]
