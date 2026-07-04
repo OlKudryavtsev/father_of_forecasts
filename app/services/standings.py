@@ -11,6 +11,8 @@ matches.
 from __future__ import annotations
 
 from collections import defaultdict
+from hashlib import sha256
+from random import Random
 import json
 import math
 import re
@@ -898,29 +900,22 @@ def _scenario_plan_text(plan: dict[str, int], missing_open: int) -> list[str]:
     return parts
 
 
-def build_standings_scenarios(
-    db: Session,
-    league: League,
-    participant_user_id: int,
-    limit: int = 10,
-) -> dict[str, Any]:
-    """Return transparent strict-first-place scenarios for one league member."""
+
+SIMULATION_RUNS = 12000
+
+
+def _build_league_probability_context(db: Session, league: League) -> dict[str, Any]:
+    """Build one consistent input set for all chance and scenario calculations."""
     member_rows = _member_rows(db, league)
     users = {user.id: user for _member, user in member_rows}
-    if participant_user_id not in users:
-        raise ValueError("Участник не состоит в выбранной лиге")
-
     table_rows = build_table_rows(db, league_id=league.id)
     rows_by_user = {int(row.get("user_id") or 0): row for row in table_rows}
-    target_row = rows_by_user.get(int(participant_user_id))
-    if not target_row:
-        raise ValueError("Не удалось собрать строку рейтинга участника")
-
     now = datetime.now(timezone.utc)
     all_matches = _league_matches(db, league)
     bracket_matches = [match for match in all_matches if _normalized_stage(match) in PLAYOFF_STAGE_COUNTS]
-    user_ids = list(users)
+    user_ids = sorted(users)
     match_ids = [match.id for match in bracket_matches]
+
     predictions: list[Prediction] = []
     if user_ids and match_ids:
         predictions = (
@@ -929,6 +924,7 @@ def build_standings_scenarios(
             .all()
         )
     predictions_by_user_match = {(prediction.user_id, prediction.match_id): prediction for prediction in predictions}
+
     father_predictions_by_match: dict[int, FatherMatchPrediction] = {}
     if match_ids:
         father_predictions_by_match = {
@@ -979,20 +975,381 @@ def build_standings_scenarios(
             "sources": sources,
         }
 
-    target_current = int(target_row.get("points") or 0)
-    target_potential = potential_by_user[participant_user_id]
-    target_probability_context = probability_context_by_user[participant_user_id]
-    target_score_slots = list(target_probability_context["score_slots"])
-    target_advancement_slots = list(target_probability_context["advancement_slots"])
-    probability_sources = list(target_probability_context["sources"])
-    target_max_final = target_current + int(target_potential["total_max"] or 0)
-    competitors = []
-    for row in table_rows:
+    current_points_by_user = {
+        user_id: int((rows_by_user.get(user_id) or {}).get("points") or 0)
+        for user_id in user_ids
+    }
+    rank_by_user = {
+        int(row.get("user_id") or 0): index
+        for index, row in enumerate(table_rows, start=1)
+        if int(row.get("user_id") or 0)
+    }
+    return {
+        "league": league,
+        "users": users,
+        "table_rows": table_rows,
+        "rows_by_user": rows_by_user,
+        "current_points_by_user": current_points_by_user,
+        "rank_by_user": rank_by_user,
+        "all_matches": all_matches,
+        "bracket_matches": bracket_matches,
+        "potential_by_user": potential_by_user,
+        "probability_context_by_user": probability_context_by_user,
+        "match_index": match_index,
+    }
+
+
+def _simulation_seed(context: dict[str, Any]) -> int:
+    """Keep displayed chances stable until meaningful prediction data changes."""
+    parts: list[str] = [f"league:{context['league'].id}"]
+    for user_id in sorted(context["users"]):
+        probability_context = context["probability_context_by_user"].get(user_id) or {}
+        slot_values = [
+            f"{slot.exact:.4f}:{slot.outcome:.4f}:{slot.advancement:.4f}"
+            for slot in list(probability_context.get("score_slots") or [])
+        ]
+        advancement_values = [f"{slot.advancement:.4f}" for slot in list(probability_context.get("advancement_slots") or [])]
+        tournament_values = [
+            f"{item.get('key')}:{_canonical_text(str(item.get('choice') or ''))}:{int(item.get('points') or 0)}"
+            for item in list(probability_context.get("tournament_items") or [])
+        ]
+        parts.append(
+            "|".join(
+                [
+                    str(user_id),
+                    str(context["current_points_by_user"].get(user_id) or 0),
+                    ",".join(slot_values),
+                    ",".join(advancement_values),
+                    ",".join(tournament_values),
+                ]
+            )
+        )
+    digest = sha256("\n".join(parts).encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
+def _draw_weighted_choice(rng: Random, weighted: list[tuple[str, float]]) -> str | None:
+    if not weighted:
+        return None
+    total = sum(max(0.0, float(weight)) for _choice, weight in weighted)
+    if total <= 0:
+        return None
+    point = rng.random() * total
+    passed = 0.0
+    for choice, weight in weighted:
+        passed += max(0.0, float(weight))
+        if point <= passed:
+            return choice
+    return weighted[-1][0]
+
+
+def _draw_longterm_outcomes(
+    probability_context_by_user: dict[int, dict[str, Any]],
+    match_index: dict[str, list[tuple[Match, str]]],
+    rng: Random,
+) -> dict[str, str | None]:
+    """Sample one shared result for every tournament-prediction category.
+
+    Every participant with the same live pick receives the same result inside a
+    simulation.  This avoids the old independent-per-user long-term scoring,
+    which could accidentally award the same trophy to incompatible forecasts.
+    """
+    candidates_by_key: dict[str, dict[str, tuple[str, float]]] = defaultdict(dict)
+    for probability_context in probability_context_by_user.values():
+        for item in list(probability_context.get("tournament_items") or []):
+            key = str(item.get("key") or "")
+            choice = str(item.get("choice") or "").strip()
+            normalized = _canonical_text(choice)
+            if not key or not normalized:
+                continue
+            probability = _tournament_item_probability(item, match_index)
+            previous = candidates_by_key[key].get(normalized)
+            if previous is None or probability > previous[1]:
+                candidates_by_key[key][normalized] = (choice, probability)
+
+    outcomes: dict[str, str | None] = {}
+    used_placement_teams: set[str] = set()
+    for key in ("champion", "runner_up", "third_place", "top_scorer"):
+        entries = candidates_by_key.get(key) or {}
+        weighted: list[tuple[str, float]] = []
+        for normalized, (_choice, probability) in entries.items():
+            if key in {"champion", "runner_up", "third_place"} and normalized in used_placement_teams:
+                continue
+            weighted.append((normalized, max(0.0, float(probability))))
+        total = sum(weight for _choice, weight in weighted)
+        # Leave probability mass for a player/team nobody selected.
+        if total > 0.90:
+            scale = 0.90 / total
+            weighted = [(choice, weight * scale) for choice, weight in weighted]
+            total = 0.90
+        weighted.append(("__other__", max(0.10, 1.0 - total)))
+        outcome = _draw_weighted_choice(rng, weighted)
+        outcomes[key] = None if outcome == "__other__" else outcome
+        if outcome and key in {"champion", "runner_up", "third_place"}:
+            used_placement_teams.add(outcome)
+    return outcomes
+
+
+def _sample_participant_extra(
+    probability_context: dict[str, Any],
+    longterm_outcomes: dict[str, str | None],
+    rng: Random,
+) -> dict[str, Any]:
+    exact_hits = 0
+    outcome_hits = 0
+    advancement_hits = 0
+    extra_points = 0
+    for slot in list(probability_context.get("score_slots") or []):
+        exact = _clamp_probability(slot.exact, 0.0, 1.0)
+        outcome = _clamp_probability(slot.outcome, exact, 1.0)
+        roll = rng.random()
+        if roll < exact:
+            exact_hits += 1
+            extra_points += 3
+        elif roll < outcome:
+            outcome_hits += 1
+            extra_points += 1
+    for slot in list(probability_context.get("advancement_slots") or []):
+        if rng.random() < _clamp_probability(slot.advancement, 0.0, 1.0):
+            advancement_hits += 1
+            extra_points += 1
+
+    longterm_keys: list[str] = []
+    longterm_points = 0
+    for item in list(probability_context.get("tournament_items") or []):
+        key = str(item.get("key") or "")
+        choice = _canonical_text(str(item.get("choice") or ""))
+        if key and choice and longterm_outcomes.get(key) == choice:
+            longterm_keys.append(key)
+            points = int(item.get("points") or 0)
+            longterm_points += points
+            extra_points += points
+    return {
+        "extra_points": extra_points,
+        "exact_hits": exact_hits,
+        "outcome_hits": outcome_hits,
+        "advancement_hits": advancement_hits,
+        "longterm_keys": tuple(sorted(longterm_keys)),
+        "longterm_points": longterm_points,
+    }
+
+
+def _simulate_league_win_model(context: dict[str, Any], runs: int = SIMULATION_RUNS) -> dict[str, Any]:
+    """Monte-Carlo estimate of strict first-place chances for all league members.
+
+    The simulation intentionally models future scoring rather than a single
+    ideal path.  It samples the odds derived from the Father forecast/current
+    football data and evaluates all participants together in every run.
+    """
+    user_ids = sorted(context["users"])
+    probability_context_by_user = context["probability_context_by_user"]
+    current_points_by_user = context["current_points_by_user"]
+    rng = Random(_simulation_seed(context))
+    winner_counts: dict[int, int] = {user_id: 0 for user_id in user_ids}
+    winner_samples: dict[int, list[dict[str, Any]]] = {user_id: [] for user_id in user_ids}
+
+    for _ in range(max(1, int(runs))):
+        longterm_outcomes = _draw_longterm_outcomes(
+            probability_context_by_user=probability_context_by_user,
+            match_index=context["match_index"],
+            rng=rng,
+        )
+        sampled_by_user = {
+            user_id: _sample_participant_extra(probability_context_by_user[user_id], longterm_outcomes, rng)
+            for user_id in user_ids
+        }
+        final_points_by_user = {
+            user_id: int(current_points_by_user.get(user_id) or 0) + int(sampled_by_user[user_id]["extra_points"] or 0)
+            for user_id in user_ids
+        }
+        highest = max(final_points_by_user.values(), default=0)
+        leaders = [user_id for user_id, points in final_points_by_user.items() if points == highest]
+        if len(leaders) != 1:
+            continue
+        winner_id = leaders[0]
+        winner_counts[winner_id] += 1
+        winner_samples[winner_id].append({
+            **sampled_by_user[winner_id],
+            "final_points": highest,
+            "competitor_extras": {
+                user_id: int(sampled_by_user[user_id]["extra_points"] or 0)
+                for user_id in user_ids
+                if user_id != winner_id
+            },
+        })
+
+    probabilities = {
+        user_id: winner_counts[user_id] / max(1, int(runs))
+        for user_id in user_ids
+    }
+    return {
+        "runs": max(1, int(runs)),
+        "winner_counts": winner_counts,
+        "winner_samples": winner_samples,
+        "probabilities": probabilities,
+        "unresolved_share": max(0.0, 1.0 - sum(probabilities.values())),
+    }
+
+
+def _bucket_range(value: int, width: int) -> tuple[int, int]:
+    value = max(0, int(value or 0))
+    low = (value // width) * width
+    return low, low + width - 1
+
+
+def _count_bucket(value: int, thresholds: tuple[int, ...]) -> str:
+    value = max(0, int(value or 0))
+    for threshold in thresholds:
+        if value <= threshold:
+            return f"≤{threshold}"
+    return f">{thresholds[-1]}"
+
+
+def _range_text(values: list[int], *, prefix: str = "", suffix: str = "") -> str:
+    if not values:
+        return f"{prefix}0{suffix}"
+    low = min(int(value) for value in values)
+    high = max(int(value) for value in values)
+    return f"{prefix}{low}{suffix}" if low == high else f"{prefix}{low}–{high}{suffix}"
+
+
+def _percentile_int(values: list[int], ratio: float = 0.80) -> int:
+    if not values:
+        return 0
+    ordered = sorted(int(value) for value in values)
+    index = max(0, min(len(ordered) - 1, math.ceil(float(ratio) * len(ordered)) - 1))
+    return ordered[index]
+
+
+def _build_likely_winning_scenarios(
+    *,
+    samples: list[dict[str, Any]],
+    total_runs: int,
+    strict_wins: int,
+    target_current_points: int,
+    target_potential: dict[str, Any],
+    competitors: list[dict[str, Any]],
+    target_tournament_items: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Compress winning simulations into readable, high-frequency path classes."""
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+    for sample in samples:
+        extra_low, _extra_high = _bucket_range(int(sample.get("extra_points") or 0), 4)
+        key = (
+            extra_low,
+            int(sample.get("longterm_points") or 0),
+            _count_bucket(int(sample.get("exact_hits") or 0), (0, 1, 2)),
+            _count_bucket(int(sample.get("outcome_hits") or 0), (1, 3, 5)),
+            _count_bucket(int(sample.get("advancement_hits") or 0), (0, 1, 3)),
+        )
+        groups[key].append(sample)
+
+    ordered_groups = sorted(
+        groups.values(),
+        key=lambda group: (-len(group), -sum(int(item.get("final_points") or 0) for item in group) / max(1, len(group))),
+    )[:max(1, int(limit or 10))]
+
+    scenarios: list[dict[str, Any]] = []
+    for number, group in enumerate(ordered_groups, start=1):
+        exact_values = [int(item.get("exact_hits") or 0) for item in group]
+        outcome_values = [int(item.get("outcome_hits") or 0) for item in group]
+        advancement_values = [int(item.get("advancement_hits") or 0) for item in group]
+        extra_values = [int(item.get("extra_points") or 0) for item in group]
+        final_values = [int(item.get("final_points") or 0) for item in group]
+        plan_text = [f"примерно {_range_text(extra_values, prefix='+')} очк."]
+        if max(exact_values) > 0:
+            plan_text.append(f"🎯 {_range_text(exact_values)} точных")
+        if max(outcome_values) > 0:
+            plan_text.append(f"✅ {_range_text(outcome_values)} исходов")
+        if max(advancement_values) > 0:
+            plan_text.append(f"🟢 {_range_text(advancement_values)} проходов")
+
+        longterm_conditions: list[str] = []
+        for item in target_tournament_items:
+            key = str(item.get("key") or "")
+            hit_count = sum(1 for sample in group if key in set(sample.get("longterm_keys") or ()))
+            hit_probability = hit_count / max(1, len(group))
+            if hit_probability >= 0.60:
+                longterm_conditions.append(f"{item.get('text')} ({_probability_label(hit_probability)})")
+
+        competitor_limits: list[dict[str, Any]] = []
+        for competitor in competitors[:3]:
+            values = [
+                int((sample.get("competitor_extras") or {}).get(int(competitor["user_id"]), 0) or 0)
+                for sample in group
+            ]
+            typical_limit = _percentile_int(values, 0.80)
+            competitor_limits.append({
+                "user_id": competitor["user_id"],
+                "name": competitor["name"],
+                "max_extra_allowed": typical_limit,
+                "max_extra": competitor["max_extra"],
+                "limit_note": "в 80% таких побед",
+            })
+
+        overall_probability = len(group) / max(1, int(total_runs))
+        conditional_probability = len(group) / max(1, int(strict_wins))
+        scenarios.append({
+            "number": number,
+            "final_points": round(sum(final_values) / max(1, len(final_values))),
+            "final_points_range": _range_text(final_values),
+            "extra_points": round(sum(extra_values) / max(1, len(extra_values))),
+            "extra_points_range": _range_text(extra_values, prefix='+'),
+            "plan_text": plan_text,
+            "tournament_conditions": longterm_conditions,
+            "competitor_limits": competitor_limits,
+            "hidden_competitors_count": max(0, len(competitors) - len(competitor_limits)),
+            "model_probability": round(overall_probability, 6),
+            "model_probability_label": _probability_label(overall_probability),
+            "conditional_probability": round(conditional_probability, 6),
+            "conditional_probability_label": _probability_label(conditional_probability),
+            "samples_count": len(group),
+        })
+    return scenarios
+
+
+def build_league_win_probabilities(db: Session, league: League) -> dict[int, dict[str, Any]]:
+    """Return strict-first-place chances for every active human participant."""
+    context = _build_league_probability_context(db, league)
+    simulation = _simulate_league_win_model(context)
+    return {
+        user_id: {
+            "probability": round(float(simulation["probabilities"].get(user_id) or 0.0), 6),
+            "label": _probability_label(float(simulation["probabilities"].get(user_id) or 0.0)),
+            "simulation_runs": int(simulation["runs"]),
+        }
+        for user_id in context["users"]
+    }
+
+
+def build_standings_scenarios(
+    db: Session,
+    league: League,
+    participant_user_id: int,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Return the most likely simulated paths to a strict first-place finish."""
+    context = _build_league_probability_context(db, league)
+    users: dict[int, User] = context["users"]
+    if participant_user_id not in users:
+        raise ValueError("Участник не состоит в выбранной лиге")
+
+    rows_by_user = context["rows_by_user"]
+    target_row = rows_by_user.get(int(participant_user_id))
+    if not target_row:
+        raise ValueError("Не удалось собрать строку рейтинга участника")
+
+    target_current = int(context["current_points_by_user"].get(participant_user_id) or 0)
+    target_potential = context["potential_by_user"][participant_user_id]
+    target_max_final = target_current + int(target_potential.get("total_max") or 0)
+    competitors: list[dict[str, Any]] = []
+    for row in context["table_rows"]:
         user_id = int(row.get("user_id") or 0)
-        if not user_id or user_id == participant_user_id:
+        if not user_id or user_id == participant_user_id or user_id not in users:
             continue
         current = int(row.get("points") or 0)
-        potential = potential_by_user.get(user_id) or {}
+        potential = context["potential_by_user"].get(user_id) or {}
         competitors.append({
             "user_id": user_id,
             "name": row.get("name") or users[user_id].display_name,
@@ -1001,18 +1358,23 @@ def build_standings_scenarios(
             "max_final": current + int(potential.get("total_max") or 0),
         })
     competitors.sort(key=lambda item: (-item["current_points"], item["name"].casefold()))
-
-    rank = next((index for index, row in enumerate(table_rows, start=1) if int(row.get("user_id") or 0) == participant_user_id), None)
     leader_current = max((item["current_points"] for item in competitors), default=-1)
-    minimum_final = max(target_current, leader_current + 1)
+
+    probability_context = context["probability_context_by_user"][participant_user_id]
+    simulation = _simulate_league_win_model(context)
+    strict_wins = int(simulation["winner_counts"].get(participant_user_id) or 0)
+    win_probability = float(simulation["probabilities"].get(participant_user_id) or 0.0)
+    probability_sources = sorted(set(probability_context.get("sources") or []))
 
     base_payload = {
         "league": {"id": league.id, "name": league.name},
         "participant": {
             "user_id": participant_user_id,
             "name": users[participant_user_id].display_name,
-            "rank": rank,
+            "rank": context["rank_by_user"].get(participant_user_id),
             "current_points": target_current,
+            "win_probability": round(win_probability, 6),
+            "win_probability_label": _probability_label(win_probability),
         },
         "remaining": {
             "matches": sum(int(item["remaining"] or 0) for item in target_potential["bracket_breakdown"]),
@@ -1020,21 +1382,22 @@ def build_standings_scenarios(
             "tournament_max": int(target_potential["tournament_max"] or 0),
             "missing_open_predictions": int(target_potential["missing_open"] or 0),
             "max_final_points": target_max_final,
-            "tournament_resolved": tournament_resolved,
             "bracket_breakdown": target_potential["bracket_breakdown"],
             "live_tournament_items": target_potential["tournament_items"],
             "unavailable_tournament_items": target_potential["unavailable_tournament_items"],
             "score_opportunities": int(target_potential["score_slots"] or 0),
             "advancement_opportunities": int(target_potential["advancement_slots"] or 0),
+            "simulation_runs": int(simulation["runs"]),
             "probability_model": {
-                "label": "Модельная вероятность условий",
+                "label": "Вероятность — по симуляции оставшегося турнира",
                 "description": (
-                    "Оценка построена по текущим ИИ-прогнозам Отца и доступным футбольным данным. "
-                    "Если прогноз на будущую пару ещё нельзя сделать, предполагается выбор по ИИ-прогнозу, "
-                    "а для неизвестной пары используется осторожная базовая оценка. Ограничения конкурентов оцениваются отдельно, "
-                    "поэтому варианты могут пересекаться и их проценты нельзя складывать. Это не букмекерский коэффициент и не гарантия."
+                    "Модель многократно разыгрывает оставшиеся матчи, проходы и живые долгосрочные ставки "
+                    "по текущему ИИ-прогнозу Отца и футбольным данным. Варианты ниже — самые частые "
+                    "среди симуляций, где выбранный участник финиширует единоличным первым. "
+                    "Процент в карточке варианта показывает его долю среди победных путей; рядом указан "
+                    "общий шанс такого пути во всех симуляциях. Это оценка, а не букмекерский коэффициент и не гарантия."
                 ),
-                "sources": sorted(set(probability_sources)),
+                "sources": probability_sources,
             },
         },
         "note": (
@@ -1053,83 +1416,18 @@ def build_standings_scenarios(
         )
         return base_payload
 
-    combinations_list = _tournament_combinations(target_potential["tournament_items"])
-    scenario_totals = _sample_totals(minimum_final, target_max_final, max(1, int(limit or 10)))
-    scenarios: list[dict[str, Any]] = []
-
-    for ordinal, final_points in enumerate(scenario_totals, start=1):
-        desired_extra = final_points - target_current
-        found = None
-        ordered_combos = combinations_list[ordinal % len(combinations_list):] + combinations_list[:ordinal % len(combinations_list)] if combinations_list else [[]]
-        for combo in ordered_combos:
-            tournament_points = sum(int(item["points"] or 0) for item in combo)
-            required_match_points = max(0, desired_extra - tournament_points)
-            plan = _solve_match_plan(
-                required_match_points,
-                int(target_potential["score_slots"] or 0),
-                int(target_potential["advancement_slots"] or 0),
-                preference=ordinal,
-            )
-            if plan is None:
-                continue
-            actual_extra = tournament_points + int(plan["points"] or 0)
-            actual_final = target_current + actual_extra
-            if actual_final <= leader_current:
-                continue
-            found = (combo, plan, actual_extra, actual_final)
-            break
-        if not found:
-            continue
-
-        combo, plan, actual_extra, actual_final = found
-        competitor_limits = []
-        for competitor in competitors:
-            allowed_extra = actual_final - 1 - competitor["current_points"]
-            if competitor["max_extra"] > allowed_extra:
-                competitor_limits.append({
-                    "user_id": competitor["user_id"],
-                    "name": competitor["name"],
-                    "current_points": competitor["current_points"],
-                    "max_extra_allowed": max(0, allowed_extra),
-                    "max_extra": competitor["max_extra"],
-                })
-        competitor_limits.sort(key=lambda item: (-item["current_points"], item["name"].casefold()))
-
-        all_competitor_limits = list(competitor_limits)
-        rival_contexts = [
-            {
-                **dict(probability_context_by_user.get(int(item["user_id"])) or {}),
-                "max_extra_allowed": int(item["max_extra_allowed"] or 0),
-            }
-            for item in all_competitor_limits
-            if int(item.get("user_id") or 0) in probability_context_by_user
-        ]
-        probability = _scenario_probability(
-            score_slots=target_score_slots,
-            advancement_slots=target_advancement_slots,
-            plan=plan,
-            tournament_items=combo,
-            match_index=match_index,
-            rival_contexts=rival_contexts,
-        )
-        scenarios.append({
-            "number": len(scenarios) + 1,
-            "final_points": actual_final,
-            "extra_points": actual_extra,
-            "match_points": int(plan["points"] or 0),
-            "tournament_points": tournament_points,
-            "plan": plan,
-            "plan_text": _scenario_plan_text(plan, int(target_potential["missing_open"] or 0)),
-            "tournament_conditions": [item["text"] for item in combo],
-            "competitor_limits": all_competitor_limits[:3],
-            "hidden_competitors_count": max(0, len(all_competitor_limits) - 3),
-            "model_probability": round(probability, 6),
-            "model_probability_label": _probability_label(probability),
-        })
-
-    base_payload["scenarios"] = scenarios
+    samples = list(simulation["winner_samples"].get(participant_user_id) or [])
+    base_payload["scenarios"] = _build_likely_winning_scenarios(
+        samples=samples,
+        total_runs=int(simulation["runs"]),
+        strict_wins=strict_wins,
+        target_current_points=target_current,
+        target_potential=target_potential,
+        competitors=competitors,
+        target_tournament_items=list(probability_context.get("tournament_items") or []),
+        limit=limit,
+    )
     return base_payload
-
 
 def _format_bracket_breakdown(remaining: dict[str, Any]) -> str:
     rows = list(remaining.get("bracket_breakdown") or [])
@@ -1143,7 +1441,7 @@ def _format_bracket_breakdown(remaining: dict[str, Any]) -> str:
 
 
 def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: int = 10) -> str:
-    """Render a compact, auditable group-chat report."""
+    """Render the likeliest strict-first-place paths for a group chat."""
     participant = payload.get("participant") or {}
     remaining = payload.get("remaining") or {}
     name = participant.get("name") or "Участник"
@@ -1154,6 +1452,7 @@ def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: i
         f"🏆 Расклады · {name}",
         "",
         f"Сейчас: #{participant.get('rank') or '—'} · {int(participant.get('current_points') or 0)} очк.",
+        f"Шанс на единоличное 1-е место: {participant.get('win_probability_label') or '—'}",
         f"Сетка: {schedule_text or fallback_schedule_text}",
         f"Потолок: +{int(remaining.get('match_max') or 0)} за матчи"
         + (f" и +{int(remaining.get('tournament_max') or 0)} за живой долгосрок" if int(remaining.get("tournament_max") or 0) else ""),
@@ -1168,31 +1467,34 @@ def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: i
 
     scenarios = list(payload.get("scenarios") or [])[:max_variants]
     if not scenarios:
-        lines.extend(["", "Пока не удалось собрать достаточный набор вариантов из доступных прогнозов."])
+        lines.extend(["", "В симуляции пока не нашлось победных путей: шанс ниже точности текущей модели."])
         return "\n".join(lines)
 
-    lines.extend(["", "Варианты для единоличного 1-го места:"])
+    lines.extend(["", "Самые вероятные победные пути:"])
     for scenario in scenarios:
         lines.append("")
-        lines.append(f"{scenario['number']}. Финиш: {scenario['final_points']} очк. (+{scenario['extra_points']})")
-        lines.append(f"   Модельная вероятность условий: ~{scenario.get('model_probability_label') or '—'}")
-        lines.append("   Нужно: " + " · ".join(scenario.get("plan_text") or []))
+        lines.append(
+            f"{scenario['number']}. Финиш: {scenario.get('final_points_range') or scenario.get('final_points') or '—'} очк."
+        )
+        lines.append(
+            f"   Доля победных путей: {scenario.get('conditional_probability_label') or '—'} "
+            f"· общий шанс: {scenario.get('model_probability_label') or '—'}"
+        )
+        lines.append("   Обычно: " + " · ".join(scenario.get("plan_text") or []))
         conditions = scenario.get("tournament_conditions") or []
         if conditions:
             lines.append("   Долгосрок: " + "; ".join(conditions))
         limits = scenario.get("competitor_limits") or []
         if limits:
             limits_text = "; ".join(
-                f"{item['name']} ≤ +{item['max_extra_allowed']} из +{item['max_extra']}"
+                f"{item['name']} ≤ +{item['max_extra_allowed']} ({item.get('limit_note') or 'типично'})"
                 for item in limits
             )
             lines.append("   Конкуренты: " + limits_text)
-        hidden_count = int(scenario.get("hidden_competitors_count") or 0)
-        if hidden_count:
-            lines.append(f"   И ещё {hidden_count} {_plural(hidden_count, 'конкурент', 'конкурента', 'конкурентов')} с лимитом по очкам.")
 
     lines.extend([
         "",
-        "ℹ️ Вероятность — модельная оценка условий по текущему ИИ-прогнозу и футбольным данным; это не букмекерский коэффициент и не гарантия. Футбол всё ещё способен выбрать самый неудобный сценарий.",
+        "ℹ️ Проценты — модельная симуляция по ИИ-прогнозу Отца и текущим футбольным данным; это не гарантия. Футбол по-прежнему способен выбрать самый неудобный сценарий.",
     ])
     return "\n".join(lines)[:3900]
+

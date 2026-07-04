@@ -13577,3 +13577,19 @@ body,
   .standings-expanded-content { padding: 0 12px 12px; }
   .standings-title { font-size: 16px; }
 }
+
+
+/* v3.7.4 — simulated win chances and likely path ranking */
+.standings-win-chance { color: #c4e6ff; }
+.standings-overall-probability { margin-top: 5px !important; color: var(--muted) !important; font-size: 9px !important; }
+.standings-overall-probability b { color: #b5dfff; }
+.rating-win-chance { color: #b8e4ff; font-weight: 800; }
+.rating-win-chance b { color: #8edcff; }
+.app.theme-light .standings-win-chance,
+.app.theme-light .rating-win-chance { color: #0a5d89; }
+.app.theme-light .standings-overall-probability b,
+.app.theme-light .rating-win-chance b { color: #00709f; }
+@media (max-width: 520px) {
+  .rating-foot-line { flex-wrap: wrap; }
+  .rating-foot-line .rating-win-chance { flex-basis: 100%; padding-top: 1px; }
+}

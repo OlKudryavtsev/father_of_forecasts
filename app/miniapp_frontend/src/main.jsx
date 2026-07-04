@@ -5357,8 +5357,8 @@ function StandingsScenarios({ rows, activeLeagueId }) {
         <span className="standings-head">
           <span>
             <span className="section-label">Расклады</span>
-            <span className="standings-title">Путь к единоличному первому месту</span>
-            <span className="standings-subtitle">Условия и модельная вероятность каждого варианта.</span>
+            <span className="standings-title">Самые вероятные пути к 1-му месту</span>
+            <span className="standings-subtitle">Пути отсортированы по частоте среди победных симуляций.</span>
           </span>
           <span className="standings-toggle-side">
             <span className="standings-icon"><Icon name="cup" /></span>
@@ -5389,6 +5389,7 @@ function StandingsScenarios({ rows, activeLeagueId }) {
             <div className="standings-content">
               <div className="standings-summary">
                 <span>Сейчас <b>#{data.participant?.rank || '—'}</b> · {data.participant?.current_points || 0} очк.</span>
+                <span className="standings-win-chance">Шанс на 1-е: <b>{data.participant?.win_probability_label || '—'}</b></span>
                 <span>Максимум: <b>{data.remaining?.max_final_points || data.participant?.current_points || 0}</b></span>
                 <span>Осталось: <b>{data.remaining?.matches || 0}</b> матч.</span>
               </div>
@@ -5413,23 +5414,24 @@ function StandingsScenarios({ rows, activeLeagueId }) {
                   {(data.scenarios || []).map((scenario) => (
                     <article className="standings-scenario" key={scenario.number}>
                       <div className="standings-scenario-head">
-                        <span>Вариант {scenario.number}</span>
-                        <b>{scenario.final_points} очк.</b>
+                        <span>Путь {scenario.number}</span>
+                        <b>{scenario.final_points_range || scenario.final_points || '—'} очк.</b>
                       </div>
                       <div className="standings-probability">
-                        <span>Вероятность условий</span>
-                        <b>≈ {scenario.model_probability_label || '—'}</b>
+                        <span>Доля среди победных путей</span>
+                        <b>{scenario.conditional_probability_label || '—'}</b>
                       </div>
-                      <p><strong>Нужно +{scenario.extra_points}:</strong> {(scenario.plan_text || []).join(' · ')}</p>
+                      <p className="standings-overall-probability">Общий шанс этого пути: <b>{scenario.model_probability_label || '—'}</b></p>
+                      <p><strong>Типичный результат:</strong> {(scenario.plan_text || []).join(' · ')}</p>
                       {!!scenario.tournament_conditions?.length && (
-                        <p className="standings-longterm"><strong>Долгосрок:</strong> {scenario.tournament_conditions.join('; ')}</p>
+                        <p className="standings-longterm"><strong>Часто срабатывает:</strong> {scenario.tournament_conditions.join('; ')}</p>
                       )}
                       {!!scenario.competitor_limits?.length && (
-                        <p className="standings-rivals"><strong>Конкуренты:</strong> {scenario.competitor_limits.map((item) => `${item.name} ≤ +${item.max_extra_allowed} из +${item.max_extra}`).join('; ')}{Number(scenario.hidden_competitors_count || 0) > 0 ? `; ещё ${scenario.hidden_competitors_count}` : ''}</p>
+                        <p className="standings-rivals"><strong>У конкурентов:</strong> {scenario.competitor_limits.map((item) => `${item.name} ≤ +${item.max_extra_allowed} (${item.limit_note || 'типично'})`).join('; ')}{Number(scenario.hidden_competitors_count || 0) > 0 ? `; ещё ${scenario.hidden_competitors_count}` : ''}</p>
                       )}
                     </article>
                   ))}
-                  {!data.scenarios?.length && <p className="standings-empty">Для текущих прогнозов пока нет набора достижимых вариантов.</p>}
+                  {!data.scenarios?.length && <p className="standings-empty">Победных путей пока не нашлось в точности текущей модели: шанс ниже 0,1% либо нужен редкий набор событий.</p>}
                 </div>
               )}
 
@@ -5532,6 +5534,7 @@ function Rating({ activeLeagueId }) {
               <span>Матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
               <span>Завершено: {row.match_predictions_finished_count || 0}</span>
               <span>{row.is_father ? 'ИИ-вне конкурса' : `Проход: +${row.advancement_plus || 0} / ${row.advancement_minus || 0}`}</span>
+              {!row.is_father && <span className="rating-win-chance">Шанс на 1-е: <b>{row.win_probability_label || '—'}</b></span>}
             </div>
           </div>
           );

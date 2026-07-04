@@ -54,7 +54,7 @@ from app.scoring import score_match_prediction
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.rating_history import build_rating_history
-from app.services.standings import build_standings_scenarios
+from app.services.standings import build_league_win_probabilities, build_standings_scenarios
 from app.services.gamification import (
     HUMOR_MODES,
     build_achievement_cards,
@@ -2548,6 +2548,16 @@ def get_table(
         row["successful_predictions"] = successful_predictions
         row["accuracy_base"] = finished_predictions_count
         row["accuracy_percent"] = round(successful_predictions * 100 / finished_predictions_count) if finished_predictions_count else 0
+
+    # One common simulation for the whole league keeps every card on the
+    # Rating tab consistent with the detailed "Расклады" calculation.
+    win_probabilities = build_league_win_probabilities(db, active_league)
+    for row in rows:
+        user_id = int(row.get("user_id") or 0)
+        probability = win_probabilities.get(user_id) or {}
+        row["win_probability"] = float(probability.get("probability") or 0.0)
+        row["win_probability_label"] = str(probability.get("label") or "0,0%")
+        row["win_probability_runs"] = int(probability.get("simulation_runs") or 0)
 
     return {
         "league": _serialize_league(active_league, current_user),
