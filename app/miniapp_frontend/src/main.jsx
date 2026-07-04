@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.7.2';
+const APP_VERSION = '3.7.3';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5320,6 +5320,7 @@ function StandingsScenarios({ rows, activeLeagueId }) {
   const participants = (rows || []).filter((row) => !row.is_father && row.user_id);
   const preferredId = participants.find((row) => row.is_current_user)?.user_id || participants[0]?.user_id || null;
   const [selectedId, setSelectedId] = useState(preferredId);
+  const [isOpen, setIsOpen] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -5329,10 +5330,7 @@ function StandingsScenarios({ rows, activeLeagueId }) {
   }, [activeLeagueId, preferredId, selectedId, participants.length]);
 
   useEffect(() => {
-    if (!selectedId) {
-      setData(null);
-      return undefined;
-    }
+    if (!isOpen || !selectedId) return undefined;
     let active = true;
     setData(null);
     setError(null);
@@ -5343,80 +5341,102 @@ function StandingsScenarios({ rows, activeLeagueId }) {
       .then((result) => { if (active) setData(result); })
       .catch((err) => { if (active) setError(err); });
     return () => { active = false; };
-  }, [activeLeagueId, selectedId]);
+  }, [activeLeagueId, selectedId, isOpen]);
 
   if (!participants.length) return null;
 
   return (
-    <section className="standings-card">
-      <div className="standings-head">
-        <div>
-          <div className="section-label">Расклады</div>
-          <h2>Путь к единоличному первому месту</h2>
-          <p>Выберите участника: расчёт покажет необходимые очки и лимиты для конкурентов.</p>
-        </div>
-        <span className="standings-icon"><Icon name="cup" /></span>
-      </div>
+    <section className={`standings-card ${isOpen ? 'is-open' : 'is-collapsed'}`}>
+      <button
+        type="button"
+        className="standings-toggle"
+        onClick={() => setIsOpen((value) => !value)}
+        aria-expanded={isOpen}
+        aria-controls="standings-scenarios-content"
+      >
+        <span className="standings-head">
+          <span>
+            <span className="section-label">Расклады</span>
+            <span className="standings-title">Путь к единоличному первому месту</span>
+            <span className="standings-subtitle">Условия и модельная вероятность каждого варианта.</span>
+          </span>
+          <span className="standings-toggle-side">
+            <span className="standings-icon"><Icon name="cup" /></span>
+            <span className="standings-chevron" aria-hidden="true">{isOpen ? '⌃' : '⌄'}</span>
+          </span>
+        </span>
+      </button>
 
-      <div className="standings-picker" role="tablist" aria-label="Участник для расчёта раскладов">
-        {participants.map((row) => (
-          <button
-            type="button"
-            key={row.user_id}
-            className={Number(row.user_id) === Number(selectedId) ? 'active' : ''}
-            onClick={() => setSelectedId(row.user_id)}
-          >{row.name}</button>
-        ))}
-      </div>
-
-      {error && <p className="standings-error">Не удалось рассчитать расклады: {error.message}</p>}
-      {!error && !data && <div className="standings-loading">Собираю варианты для таблицы…</div>}
-
-      {data && (
-        <div className="standings-content">
-          <div className="standings-summary">
-            <span>Сейчас <b>#{data.participant?.rank || '—'}</b> · {data.participant?.current_points || 0} очк.</span>
-            <span>Максимум: <b>{data.remaining?.max_final_points || data.participant?.current_points || 0}</b></span>
-            <span>Осталось: <b>{data.remaining?.matches || 0}</b> матч.</span>
-          </div>
-          <div className="standings-potential-breakdown">
-            <p><strong>Сетка:</strong> {(data.remaining?.bracket_breakdown || []).filter((item) => Number(item.remaining || 0) > 0).map((item) => `${item.label} — ${item.remaining}`).join(' · ') || 'матчей не осталось'}</p>
-            <p><strong>Потолок:</strong> +{data.remaining?.match_max || 0} за матчи ({data.remaining?.score_opportunities || 0} прогнозов × до 3; {data.remaining?.advancement_opportunities || 0} проходов × до 1){Number(data.remaining?.tournament_max || 0) > 0 ? ` +${data.remaining.tournament_max} за живой долгосрок` : ''}</p>
-            {!!data.remaining?.live_tournament_items?.length && (
-              <p><strong>В игре:</strong> {data.remaining.live_tournament_items.map((item) => item.text).join('; ')}</p>
-            )}
-            {!!data.remaining?.unavailable_tournament_items?.length && (
-              <p className="standings-unavailable"><strong>Не считаются:</strong> {data.remaining.unavailable_tournament_items.map((item) => item.text).join('; ')}</p>
-            )}
-          </div>
-
-          {!data.is_mathematically_possible ? (
-            <div className="standings-impossible">
-              <b>Единоличное первое место уже недостижимо</b>
-              <p>{data.elimination_reason}</p>
-            </div>
-          ) : (
-            <div className="standings-list">
-              {(data.scenarios || []).map((scenario) => (
-                <article className="standings-scenario" key={scenario.number}>
-                  <div className="standings-scenario-head">
-                    <span>Вариант {scenario.number}</span>
-                    <b>{scenario.final_points} очк.</b>
-                  </div>
-                  <p><strong>Нужно +{scenario.extra_points}:</strong> {(scenario.plan_text || []).join(' · ')}</p>
-                  {!!scenario.tournament_conditions?.length && (
-                    <p className="standings-longterm"><strong>Долгосрок:</strong> {scenario.tournament_conditions.join('; ')}</p>
-                  )}
-                  {!!scenario.competitor_limits?.length && (
-                    <p className="standings-rivals"><strong>Конкуренты:</strong> {scenario.competitor_limits.map((item) => `${item.name} ≤ +${item.max_extra_allowed} из +${item.max_extra}`).join('; ')}</p>
-                  )}
-                </article>
+      {isOpen && (
+        <div id="standings-scenarios-content" className="standings-expanded-content">
+          <div className="standings-picker">
+            <label htmlFor="standings-participant">Участник</label>
+            <select
+              id="standings-participant"
+              value={selectedId || ''}
+              onChange={(event) => setSelectedId(Number(event.target.value))}
+            >
+              {participants.map((row) => (
+                <option key={row.user_id} value={row.user_id}>{row.name}</option>
               ))}
-              {!data.scenarios?.length && <p className="standings-empty">Для текущих прогнозов пока нет набора достижимых вариантов.</p>}
+            </select>
+          </div>
+
+          {error && <p className="standings-error">Не удалось рассчитать расклады: {error.message}</p>}
+          {!error && !data && <div className="standings-loading">Собираю варианты для таблицы…</div>}
+
+          {data && (
+            <div className="standings-content">
+              <div className="standings-summary">
+                <span>Сейчас <b>#{data.participant?.rank || '—'}</b> · {data.participant?.current_points || 0} очк.</span>
+                <span>Максимум: <b>{data.remaining?.max_final_points || data.participant?.current_points || 0}</b></span>
+                <span>Осталось: <b>{data.remaining?.matches || 0}</b> матч.</span>
+              </div>
+              <div className="standings-potential-breakdown">
+                <p><strong>Сетка:</strong> {(data.remaining?.bracket_breakdown || []).filter((item) => Number(item.remaining || 0) > 0).map((item) => `${item.label} — ${item.remaining}`).join(' · ') || 'матчей не осталось'}</p>
+                <p><strong>Потолок:</strong> +{data.remaining?.match_max || 0} за матчи ({data.remaining?.score_opportunities || 0} прогнозов × до 3; {data.remaining?.advancement_opportunities || 0} проходов × до 1){Number(data.remaining?.tournament_max || 0) > 0 ? ` +${data.remaining.tournament_max} за живой долгосрок` : ''}</p>
+                {!!data.remaining?.live_tournament_items?.length && (
+                  <p><strong>В игре:</strong> {data.remaining.live_tournament_items.map((item) => item.text).join('; ')}</p>
+                )}
+                {!!data.remaining?.unavailable_tournament_items?.length && (
+                  <p className="standings-unavailable"><strong>Не считаются:</strong> {data.remaining.unavailable_tournament_items.map((item) => item.text).join('; ')}</p>
+                )}
+              </div>
+
+              {!data.is_mathematically_possible ? (
+                <div className="standings-impossible">
+                  <b>Единоличное первое место уже недостижимо</b>
+                  <p>{data.elimination_reason}</p>
+                </div>
+              ) : (
+                <div className="standings-list">
+                  {(data.scenarios || []).map((scenario) => (
+                    <article className="standings-scenario" key={scenario.number}>
+                      <div className="standings-scenario-head">
+                        <span>Вариант {scenario.number}</span>
+                        <b>{scenario.final_points} очк.</b>
+                      </div>
+                      <div className="standings-probability">
+                        <span>Вероятность условий</span>
+                        <b>≈ {scenario.model_probability_label || '—'}</b>
+                      </div>
+                      <p><strong>Нужно +{scenario.extra_points}:</strong> {(scenario.plan_text || []).join(' · ')}</p>
+                      {!!scenario.tournament_conditions?.length && (
+                        <p className="standings-longterm"><strong>Долгосрок:</strong> {scenario.tournament_conditions.join('; ')}</p>
+                      )}
+                      {!!scenario.competitor_limits?.length && (
+                        <p className="standings-rivals"><strong>Конкуренты:</strong> {scenario.competitor_limits.map((item) => `${item.name} ≤ +${item.max_extra_allowed} из +${item.max_extra}`).join('; ')}{Number(scenario.hidden_competitors_count || 0) > 0 ? `; ещё ${scenario.hidden_competitors_count}` : ''}</p>
+                      )}
+                    </article>
+                  ))}
+                  {!data.scenarios?.length && <p className="standings-empty">Для текущих прогнозов пока нет набора достижимых вариантов.</p>}
+                </div>
+              )}
+
+              <p className="standings-probability-note"><strong>{data.remaining?.probability_model?.label || 'Как считается вероятность'}.</strong> {data.remaining?.probability_model?.description}</p>
+              <p className="standings-note">{data.note}</p>
             </div>
           )}
-
-          <p className="standings-note">{data.note}</p>
         </div>
       )}
     </section>

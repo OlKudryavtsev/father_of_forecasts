@@ -11,19 +11,29 @@ matches.
 from __future__ import annotations
 
 from collections import defaultdict
+import json
+import math
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import combinations
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import League, LeagueMember, Match, Prediction, TournamentPrediction, TournamentResult, User
+from app.models import FatherMatchPrediction, League, LeagueMember, Match, Prediction, TournamentPrediction, TournamentResult, User
 from app.runtime import TOURNAMENT_CODE
 from app.services.leagues import league_scoring_start_at
 from app.services.misc import build_table_rows
 from app.services.tournament_hub import get_top_scorers, resolve_player_by_name
 from app.team_names import get_team_name_ru
+from app.fifa_rankings import FifaRankingsStore
+
+try:
+    from app.services.tournament_forecast import load_father_tournament_forecast
+except ImportError:  # pragma: no cover - defensive fallback for partial deployments
+    load_father_tournament_forecast = None
 
 
 # The user-facing competition includes the bronze-medal fixture: the full
@@ -314,6 +324,337 @@ class MatchOpportunity:
     missing_open: bool = False
 
 
+@dataclass(frozen=True)
+class ProbabilitySlot:
+    """Model probabilities for one remaining prediction opportunity.
+
+    ``outcome`` includes an exact-score hit; therefore ``exact`` must always
+    be less than or equal to it.  The numbers are deliberately estimates, not
+    bookmaker odds: they are derived from the Father AI forecast confidence,
+    then softened for forecasts that differ from the Father pick.
+    """
+
+    exact: float
+    outcome: float
+    advancement: float
+    source: str
+
+
+def _clamp_probability(value: float, low: float, high: float) -> float:
+    return max(low, min(high, float(value)))
+
+
+def _prediction_outcome(pred_home: int | None, pred_away: int | None) -> str | None:
+    if pred_home is None or pred_away is None:
+        return None
+    if int(pred_home) > int(pred_away):
+        return "home"
+    if int(pred_away) > int(pred_home):
+        return "away"
+    return "draw"
+
+
+def _parse_percent(value: Any) -> float | None:
+    """Read percentages stored as 42, 42%, 0.42 or prose text."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if numeric <= 1:
+            return _clamp_probability(numeric, 0.0, 1.0)
+        return _clamp_probability(numeric / 100.0, 0.0, 1.0)
+    found = re.search(r"(\d+(?:[.,]\d+)?)\s*%?", str(value))
+    if not found:
+        return None
+    numeric = float(found.group(1).replace(",", "."))
+    return _clamp_probability(numeric / 100.0 if numeric > 1 else numeric, 0.0, 1.0)
+
+
+def _father_confidence(prediction: FatherMatchPrediction | None) -> float | None:
+    if prediction is None:
+        return None
+    parsed = _parse_percent(getattr(prediction, "confidence", None))
+    if parsed is not None:
+        return parsed
+    text = str(getattr(prediction, "forecast_text", "") or "")
+    found = re.search(r"Уверенность\s*:\s*(\d+(?:[.,]\d+)?)%", text, flags=re.IGNORECASE)
+    return _parse_percent(found.group(1)) if found else None
+
+
+@lru_cache(maxsize=1)
+def _rankings_store() -> FifaRankingsStore:
+    return FifaRankingsStore()
+
+
+def _rank_strength(home_team: str | None, away_team: str | None) -> float:
+    """Return a conservative forecast-confidence fallback from FIFA ranks."""
+    try:
+        home_row = _rankings_store().get_context(str(home_team or "")) or {}
+        away_row = _rankings_store().get_context(str(away_team or "")) or {}
+        home_rank = int(home_row.get("rank") or 0)
+        away_rank = int(away_row.get("rank") or 0)
+    except Exception:
+        home_rank = away_rank = 0
+    if home_rank <= 0 or away_rank <= 0:
+        return 0.50
+    spread = abs(home_rank - away_rank) / max(8.0, home_rank + away_rank)
+    return _clamp_probability(0.50 + min(0.13, spread * 0.24), 0.48, 0.63)
+
+
+def _base_probability_slot(match: Match | None, father: FatherMatchPrediction | None) -> ProbabilitySlot:
+    """Build probabilities for using the current Father forecast.
+
+    The AI returns a single confidence rather than a full probability
+    distribution.  It is converted into conservative probabilities for the
+    prediction-game events: exact score, 90-minute outcome and advancement.
+    """
+    if match is None:
+        return ProbabilitySlot(exact=0.11, outcome=0.50, advancement=0.50, source="базовая оценка будущей пары")
+    confidence = _father_confidence(father)
+    if confidence is None:
+        confidence = _rank_strength(match.home_team, match.away_team)
+        source = "сила сборных по текущим данным"
+    else:
+        source = "уверенность текущего ИИ-прогноза Отца"
+    # Confidence is not treated as an exact probability.  The conversion is
+    # intentionally restrained: even an optimistic football forecast leaves a
+    # substantial chance for an upset.
+    outcome = _clamp_probability(0.39 + confidence * 0.31, 0.45, 0.70)
+    exact = _clamp_probability(0.045 + confidence * 0.14, 0.075, 0.17)
+    advancement = _clamp_probability(0.44 + confidence * 0.30, 0.48, 0.74)
+    return ProbabilitySlot(exact=min(exact, outcome), outcome=outcome, advancement=advancement, source=source)
+
+
+def _participant_probability_slot(
+    match: Match | None,
+    father: FatherMatchPrediction | None,
+    prediction: Prediction | None,
+) -> ProbabilitySlot:
+    """Adjust the Father model for an existing participant prediction.
+
+    If a participant has not made an open forecast yet, the estimate assumes
+    they use the Father AI pick.  This makes the assumption explicit in the
+    API metadata and prevents treating a missing forecast as guaranteed points.
+    """
+    base = _base_probability_slot(match, father)
+    if match is None or prediction is None:
+        return base
+
+    father_outcome = _prediction_outcome(getattr(father, "pred_home", None), getattr(father, "pred_away", None))
+    user_outcome = _prediction_outcome(getattr(prediction, "pred_home", None), getattr(prediction, "pred_away", None))
+    if father_outcome and user_outcome and user_outcome != father_outcome:
+        # The residual probability is split conservatively between the two
+        # alternatives.  A counter-pick against a home/away forecast is a bit
+        # less likely than its draw alternative.
+        residual = max(0.0, 1.0 - base.outcome)
+        share = 0.50 if father_outcome == "draw" else (0.43 if user_outcome == "draw" else 0.57)
+        outcome = _clamp_probability(residual * share, 0.12, 0.42)
+        exact = _clamp_probability(base.exact * 0.22, 0.015, min(0.07, outcome))
+    elif father and (prediction.pred_home != father.pred_home or prediction.pred_away != father.pred_away):
+        outcome = base.outcome
+        exact = _clamp_probability(base.exact * 0.48, 0.035, min(0.11, outcome))
+    else:
+        outcome = base.outcome
+        exact = base.exact
+
+    if bool(getattr(prediction, "advancement_bet_enabled", False)):
+        user_side = str(getattr(prediction, "predicted_advancing_side", "") or "")
+        father_side = str(getattr(father, "predicted_advancing_side", "") or "") if father else ""
+        advancement = base.advancement if user_side and user_side == father_side else _clamp_probability(1.0 - base.advancement, 0.26, 0.52)
+    else:
+        advancement = 0.0
+    return ProbabilitySlot(exact=exact, outcome=max(exact, outcome), advancement=advancement, source=base.source)
+
+
+def _probability_at_least_score_plan(slots: list[ProbabilitySlot], required_exact: int, required_outcomes: int) -> float:
+    """Probability of at least X exact and Y outcome-only hits."""
+    required_exact = max(0, int(required_exact or 0))
+    required_outcomes = max(0, int(required_outcomes or 0))
+    states: dict[tuple[int, int], float] = {(0, 0): 1.0}
+    for slot in slots:
+        next_states: dict[tuple[int, int], float] = defaultdict(float)
+        exact = _clamp_probability(slot.exact, 0.0, 1.0)
+        outcome_only = _clamp_probability(slot.outcome - exact, 0.0, 1.0 - exact)
+        miss = max(0.0, 1.0 - exact - outcome_only)
+        for (exact_count, outcome_count), probability in states.items():
+            next_states[(min(required_exact, exact_count + 1), outcome_count)] += probability * exact
+            next_states[(exact_count, min(required_outcomes, outcome_count + 1))] += probability * outcome_only
+            next_states[(exact_count, outcome_count)] += probability * miss
+        states = next_states
+    return _clamp_probability(states.get((required_exact, required_outcomes), 0.0), 0.0, 1.0)
+
+
+def _probability_at_least(values: list[float], required: int) -> float:
+    required = max(0, int(required or 0))
+    if required == 0:
+        return 1.0
+    states = [0.0] * (required + 1)
+    states[0] = 1.0
+    for value in values:
+        hit = _clamp_probability(value, 0.0, 1.0)
+        next_states = [0.0] * (required + 1)
+        for count, probability in enumerate(states):
+            next_states[min(required, count + 1)] += probability * hit
+            next_states[count] += probability * (1.0 - hit)
+        states = next_states
+    return _clamp_probability(states[required], 0.0, 1.0)
+
+
+@lru_cache(maxsize=1)
+def _safe_father_tournament_data() -> dict[str, Any]:
+    if load_father_tournament_forecast is None:
+        return {}
+    try:
+        return dict(load_father_tournament_forecast() or {})
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _team_strength_probability(team_name: str, match_index: dict[str, list[tuple[Match, str]]]) -> float:
+    """Conservative current chance of a live team winning a tournament award."""
+    alive = [name for name in match_index if _team_is_still_alive(name, match_index, True)]
+    if not alive:
+        return 0.06
+    try:
+        store = _rankings_store()
+        weights = []
+        selected_weight = None
+        for name in alive:
+            row = store.get_context(name) or {}
+            rank = max(1, int(row.get("rank") or 70))
+            weight = 1.0 / math.sqrt(float(rank) + 6.0)
+            weights.append(weight)
+            if get_team_name_ru(name) == get_team_name_ru(team_name):
+                selected_weight = weight
+        if selected_weight is None:
+            return 0.03
+        return _clamp_probability(selected_weight / max(sum(weights), 0.001), 0.02, 0.28)
+    except Exception:
+        return 0.06
+
+
+def _tournament_item_probability(
+    item: dict[str, Any],
+    match_index: dict[str, list[tuple[Match, str]]],
+) -> float:
+    """Estimate a live tournament-pick chance from Father data or team strength."""
+    father_data = _safe_father_tournament_data()
+    forecast = father_data.get("forecast") or {}
+    confidence = father_data.get("confidence") or {}
+    alternatives = father_data.get("alternatives") or {}
+    key = str(item.get("key") or "")
+    choice = str(item.get("choice") or "")
+    if choice and get_team_name_ru(str(forecast.get(key) or "")) == get_team_name_ru(choice):
+        parsed = _parse_percent(confidence.get(key))
+        if parsed is not None:
+            return _clamp_probability(parsed, 0.03, 0.65)
+    alternative_choices = [get_team_name_ru(str(value)) for value in (alternatives.get(key) or [])]
+    if get_team_name_ru(choice) in alternative_choices:
+        baseline = _team_strength_probability(choice, match_index) if key != "top_scorer" else 0.08
+        return _clamp_probability(baseline * 1.15, 0.03, 0.22)
+    if key == "top_scorer":
+        # When player-specific AI data is not present, keep the estimate small
+        # and deliberately conservative.  The live/dead check is still done
+        # separately by _top_scorer_is_alive.
+        return 0.06
+    strength = _team_strength_probability(choice, match_index)
+    multiplier = {"champion": 1.0, "runner_up": 0.86, "third_place": 0.72}.get(key, 0.70)
+    return _clamp_probability(strength * multiplier, 0.02, 0.28)
+
+
+def _future_extra_points_distribution(
+    score_slots: list[ProbabilitySlot],
+    advancement_slots: list[ProbabilitySlot],
+    tournament_items: list[dict[str, Any]],
+    match_index: dict[str, list[tuple[Match, str]]],
+) -> dict[int, float]:
+    """Return an estimated distribution of future points for one participant.
+
+    It is used only for a rival-limit condition.  The estimates intentionally
+    remain separate from actual scoring and are recalculated after every match.
+    """
+    states: dict[int, float] = {0: 1.0}
+
+    def add_event(values: list[tuple[int, float]]) -> None:
+        nonlocal states
+        next_states: dict[int, float] = defaultdict(float)
+        for current, current_probability in states.items():
+            for points, probability in values:
+                next_states[current + int(points)] += current_probability * probability
+        states = next_states
+
+    for slot in score_slots:
+        exact = _clamp_probability(slot.exact, 0.0, 1.0)
+        outcome_only = _clamp_probability(slot.outcome - exact, 0.0, 1.0 - exact)
+        add_event([(3, exact), (1, outcome_only), (0, max(0.0, 1.0 - exact - outcome_only))])
+    for slot in advancement_slots:
+        hit = _clamp_probability(slot.advancement, 0.0, 1.0)
+        add_event([(1, hit), (0, 1.0 - hit)])
+    for item in tournament_items:
+        hit = _tournament_item_probability(item, match_index)
+        add_event([(int(item.get("points") or 0), hit), (0, 1.0 - hit)])
+
+    return dict(states)
+
+
+def _probability_at_most_extra(
+    score_slots: list[ProbabilitySlot],
+    advancement_slots: list[ProbabilitySlot],
+    tournament_items: list[dict[str, Any]],
+    maximum_points: int,
+    match_index: dict[str, list[tuple[Match, str]]],
+) -> float:
+    distribution = _future_extra_points_distribution(score_slots, advancement_slots, tournament_items, match_index)
+    return _clamp_probability(sum(probability for points, probability in distribution.items() if points <= int(maximum_points)), 0.0, 1.0)
+
+
+def _scenario_probability(
+    score_slots: list[ProbabilitySlot],
+    advancement_slots: list[ProbabilitySlot],
+    plan: dict[str, int],
+    tournament_items: list[dict[str, Any]],
+    match_index: dict[str, list[tuple[Match, str]]],
+    rival_contexts: list[dict[str, Any]] | None = None,
+) -> float:
+    score_probability = _probability_at_least_score_plan(
+        score_slots,
+        int(plan.get("exact") or 0),
+        int(plan.get("outcomes") or 0),
+    )
+    advancement_probability = _probability_at_least(
+        [slot.advancement for slot in advancement_slots],
+        int(plan.get("advancement") or 0),
+    )
+    longterm_probability = 1.0
+    placement_choices = [
+        get_team_name_ru(str(item.get("choice") or ""))
+        for item in tournament_items
+        if item.get("key") in {"champion", "runner_up", "third_place"}
+    ]
+    if len(placement_choices) != len(set(placement_choices)):
+        return 0.0
+    for item in tournament_items:
+        longterm_probability *= _tournament_item_probability(item, match_index)
+
+    rival_probability = 1.0
+    for rival in rival_contexts or []:
+        rival_probability *= _probability_at_most_extra(
+            score_slots=list(rival.get("score_slots") or []),
+            advancement_slots=list(rival.get("advancement_slots") or []),
+            tournament_items=list(rival.get("tournament_items") or []),
+            maximum_points=int(rival.get("max_extra_allowed") or 0),
+            match_index=match_index,
+        )
+    return _clamp_probability(score_probability * advancement_probability * longterm_probability * rival_probability, 0.0, 1.0)
+
+
+def _probability_label(probability: float) -> str:
+    percent = max(0.0, min(100.0, float(probability) * 100.0))
+    if percent < 0.1:
+        return "<0,1%"
+    return f"{percent:.1f}".replace(".", ",") + "%"
+
+
 def _bracket_opportunities(
     matches: list[Match],
     predictions_by_user_match: dict[tuple[int, int], Prediction],
@@ -393,6 +734,61 @@ def _bracket_opportunities(
         })
 
     return opportunities, breakdown
+
+
+def _probability_slots_for_participant(
+    matches: list[Match],
+    predictions_by_user_match: dict[tuple[int, int], Prediction],
+    father_predictions_by_match: dict[int, FatherMatchPrediction],
+    user_id: int,
+    now: datetime,
+) -> tuple[list[ProbabilitySlot], list[ProbabilitySlot], list[str]]:
+    """Return model slots matching exactly the participant's live potential.
+
+    The schedule shape mirrors ``_bracket_opportunities`` so the displayed
+    maximum and the probability model never disagree about which matches are
+    still available.  For future placeholders the participant is assumed to
+    use the Father AI pick when that pair becomes known.
+    """
+    score_slots: list[ProbabilitySlot] = []
+    advancement_slots: list[ProbabilitySlot] = []
+    sources: list[str] = []
+
+    for stage, expected_count, _label in PLAYOFF_PLAN:
+        stage_rows = [match for match in matches if _normalized_stage(match) == stage]
+        completed = sum(1 for match in stage_rows if bool(match.is_finished))
+        remaining_by_schedule = max(0, expected_count - min(expected_count, completed))
+        open_rows = [match for match in stage_rows if not bool(match.is_finished)]
+        open_rows.sort(key=lambda match: (_utc(match.starts_at) or now, match.id))
+        represented = open_rows[:remaining_by_schedule]
+        virtual_count = max(0, remaining_by_schedule - len(represented))
+
+        for match in represented:
+            prediction = predictions_by_user_match.get((user_id, match.id))
+            starts_at = _utc(match.starts_at) or now
+            can_submit = starts_at > now
+            has_prediction = prediction is not None
+            can_score = has_prediction or can_submit
+            can_advancement = can_submit or bool(
+                has_prediction and (
+                    bool(getattr(prediction, "advancement_bet_enabled", False))
+                    or getattr(prediction, "predicted_advancing_side", None) in {"home", "away"}
+                )
+            )
+            slot = _participant_probability_slot(match, father_predictions_by_match.get(match.id), prediction)
+            if can_score:
+                score_slots.append(slot)
+                sources.append(slot.source)
+            if can_advancement:
+                advancement_slots.append(slot)
+
+        for _ in range(virtual_count):
+            slot = _participant_probability_slot(None, None, None)
+            score_slots.append(slot)
+            advancement_slots.append(slot)
+            sources.append(slot.source)
+
+    return score_slots, advancement_slots, sources
 
 
 def _participant_potential(
@@ -533,6 +929,14 @@ def build_standings_scenarios(
             .all()
         )
     predictions_by_user_match = {(prediction.user_id, prediction.match_id): prediction for prediction in predictions}
+    father_predictions_by_match: dict[int, FatherMatchPrediction] = {}
+    if match_ids:
+        father_predictions_by_match = {
+            prediction.match_id: prediction
+            for prediction in db.query(FatherMatchPrediction)
+            .filter(FatherMatchPrediction.match_id.in_(match_ids))
+            .all()
+        }
 
     tournament_predictions = {
         prediction.user_id: prediction
@@ -559,8 +963,28 @@ def build_standings_scenarios(
         for user_id in user_ids
     }
 
+    probability_context_by_user: dict[int, dict[str, Any]] = {}
+    for user_id in user_ids:
+        score_slots, advancement_slots, sources = _probability_slots_for_participant(
+            matches=bracket_matches,
+            predictions_by_user_match=predictions_by_user_match,
+            father_predictions_by_match=father_predictions_by_match,
+            user_id=user_id,
+            now=now,
+        )
+        probability_context_by_user[user_id] = {
+            "score_slots": score_slots,
+            "advancement_slots": advancement_slots,
+            "tournament_items": list((potential_by_user.get(user_id) or {}).get("tournament_items") or []),
+            "sources": sources,
+        }
+
     target_current = int(target_row.get("points") or 0)
     target_potential = potential_by_user[participant_user_id]
+    target_probability_context = probability_context_by_user[participant_user_id]
+    target_score_slots = list(target_probability_context["score_slots"])
+    target_advancement_slots = list(target_probability_context["advancement_slots"])
+    probability_sources = list(target_probability_context["sources"])
     target_max_final = target_current + int(target_potential["total_max"] or 0)
     competitors = []
     for row in table_rows:
@@ -602,6 +1026,16 @@ def build_standings_scenarios(
             "unavailable_tournament_items": target_potential["unavailable_tournament_items"],
             "score_opportunities": int(target_potential["score_slots"] or 0),
             "advancement_opportunities": int(target_potential["advancement_slots"] or 0),
+            "probability_model": {
+                "label": "Модельная вероятность условий",
+                "description": (
+                    "Оценка построена по текущим ИИ-прогнозам Отца и доступным футбольным данным. "
+                    "Если прогноз на будущую пару ещё нельзя сделать, предполагается выбор по ИИ-прогнозу, "
+                    "а для неизвестной пары используется осторожная базовая оценка. Ограничения конкурентов оцениваются отдельно, "
+                    "поэтому варианты могут пересекаться и их проценты нельзя складывать. Это не букмекерский коэффициент и не гарантия."
+                ),
+                "sources": sorted(set(probability_sources)),
+            },
         },
         "note": (
             "Потолок считается по сетке: 8 матчей 1/8, 4 матча 1/4, 2 полуфинала, "
@@ -661,6 +1095,23 @@ def build_standings_scenarios(
                 })
         competitor_limits.sort(key=lambda item: (-item["current_points"], item["name"].casefold()))
 
+        all_competitor_limits = list(competitor_limits)
+        rival_contexts = [
+            {
+                **dict(probability_context_by_user.get(int(item["user_id"])) or {}),
+                "max_extra_allowed": int(item["max_extra_allowed"] or 0),
+            }
+            for item in all_competitor_limits
+            if int(item.get("user_id") or 0) in probability_context_by_user
+        ]
+        probability = _scenario_probability(
+            score_slots=target_score_slots,
+            advancement_slots=target_advancement_slots,
+            plan=plan,
+            tournament_items=combo,
+            match_index=match_index,
+            rival_contexts=rival_contexts,
+        )
         scenarios.append({
             "number": len(scenarios) + 1,
             "final_points": actual_final,
@@ -670,7 +1121,10 @@ def build_standings_scenarios(
             "plan": plan,
             "plan_text": _scenario_plan_text(plan, int(target_potential["missing_open"] or 0)),
             "tournament_conditions": [item["text"] for item in combo],
-            "competitor_limits": competitor_limits[:3],
+            "competitor_limits": all_competitor_limits[:3],
+            "hidden_competitors_count": max(0, len(all_competitor_limits) - 3),
+            "model_probability": round(probability, 6),
+            "model_probability_label": _probability_label(probability),
         })
 
     base_payload["scenarios"] = scenarios
@@ -721,6 +1175,7 @@ def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: i
     for scenario in scenarios:
         lines.append("")
         lines.append(f"{scenario['number']}. Финиш: {scenario['final_points']} очк. (+{scenario['extra_points']})")
+        lines.append(f"   Модельная вероятность условий: ~{scenario.get('model_probability_label') or '—'}")
         lines.append("   Нужно: " + " · ".join(scenario.get("plan_text") or []))
         conditions = scenario.get("tournament_conditions") or []
         if conditions:
@@ -732,9 +1187,12 @@ def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: i
                 for item in limits
             )
             lines.append("   Конкуренты: " + limits_text)
+        hidden_count = int(scenario.get("hidden_competitors_count") or 0)
+        if hidden_count:
+            lines.append(f"   И ещё {hidden_count} {_plural(hidden_count, 'конкурент', 'конкурента', 'конкурентов')} с лимитом по очкам.")
 
     lines.extend([
         "",
-        "ℹ️ Это необходимые условия по очкам, а не обещание конкретных счётов. Футбол всё ещё способен выбрать самый неудобный сценарий.",
+        "ℹ️ Вероятность — модельная оценка условий по текущему ИИ-прогнозу и футбольным данным; это не букмекерский коэффициент и не гарантия. Футбол всё ещё способен выбрать самый неудобный сценарий.",
     ])
     return "\n".join(lines)[:3900]

@@ -13507,3 +13507,73 @@ body,
 .standings-potential-breakdown strong { color: var(--text); }
 .standings-potential-breakdown .standings-unavailable { color: var(--muted); }
 .app.theme-light .standings-potential-breakdown { background: rgba(255, 255, 255, .66); }
+
+/* v3.7.3 — collapsible standings scenarios and model probabilities */
+.standings-card.is-collapsed { gap: 0; padding: 0; overflow: hidden; }
+.standings-toggle {
+  width: 100%;
+  margin: 0;
+  padding: 14px;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+.standings-toggle:focus-visible { outline: 2px solid rgba(244, 191, 54, .72); outline-offset: -3px; }
+.standings-head { width: 100%; }
+.standings-head > span:first-child { min-width: 0; }
+.standings-title,
+.standings-subtitle { display: block; }
+.standings-title { margin-top: 2px; color: var(--text); font-size: 17px; font-weight: 900; line-height: 1.2; }
+.standings-subtitle { margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.35; }
+.standings-toggle-side { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+.standings-chevron { color: var(--muted); font-size: 20px; line-height: 1; transform: translateY(-1px); }
+.standings-expanded-content { display: grid; gap: 11px; padding: 0 14px 14px; }
+.standings-picker { display: grid; gap: 4px; overflow: visible; padding: 0; }
+.standings-picker label { color: var(--muted); font-size: 10px; font-weight: 850; }
+.standings-picker select {
+  width: 100%;
+  min-height: 37px;
+  padding: 0 34px 0 11px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 11px;
+  color: var(--text);
+  background: rgba(148, 163, 184, .08);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+.standings-probability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 5px 7px;
+  border-radius: 9px;
+  color: #bad7ff;
+  background: rgba(90, 141, 255, .11);
+  font-size: 10px;
+  font-weight: 750;
+}
+.standings-probability b { color: #a8e0ff; font-size: 11px; white-space: nowrap; }
+.standings-probability-note {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px dashed rgba(148, 163, 184, .22);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.app.theme-light .standings-picker select { border-color: rgba(15, 32, 60, .17); background: rgba(15, 32, 60, .04); }
+.app.theme-light .standings-probability { color: #1a537a; background: rgba(21, 130, 191, .09); }
+.app.theme-light .standings-probability b { color: #0a638d; }
+@media (max-width: 520px) {
+  .standings-card.is-collapsed { padding: 0; }
+  .standings-toggle { padding: 12px; }
+  .standings-expanded-content { padding: 0 12px 12px; }
+  .standings-title { font-size: 16px; }
+}
