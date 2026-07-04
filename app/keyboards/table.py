@@ -28,3 +28,21 @@ def build_league_selector_keyboard(leagues) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=f"🏆 {league.name}", callback_data=f"table_league:{league.id}")]
         for league in leagues
     ])
+
+
+def build_standings_selector_keyboard(rows: list[dict], league_id: int) -> InlineKeyboardMarkup:
+    """Choose a league member whose championship scenarios should be posted."""
+    keyboard = []
+    for row in rows:
+        user_id = int(row.get("user_id") or 0)
+        if not user_id:
+            continue
+        title = shorten_table_name(str(row.get("name") or "Участник"), max_len=28)
+        points = int(row.get("points") or 0)
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{title} · {points} очк.",
+                callback_data=f"standings_pick:{league_id}:{user_id}",
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)

@@ -54,6 +54,7 @@ from app.scoring import score_match_prediction
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.rating_history import build_rating_history
+from app.services.standings import build_standings_scenarios
 from app.services.gamification import (
     HUMOR_MODES,
     build_achievement_cards,
@@ -2549,6 +2550,37 @@ def get_table(
         "father_row": father_row,
         "match_analytics": _build_league_match_points_analytics(db, active_league),
     }
+
+
+@router.get("/standings")
+def get_standings_scenarios(
+    participant_user_id: int | None = Query(default=None),
+    league_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return strict-first-place score scenarios for a participant of a league.
+
+    The endpoint is scoped to league membership, so a Mini App user can inspect
+    only participants who are active in the selected league.
+    """
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    target_user_id = int(participant_user_id or current_user.id)
+    try:
+        payload = build_standings_scenarios(
+            db=db,
+            league=active_league,
+            participant_user_id=target_user_id,
+            limit=10,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    payload["league"] = _serialize_league(active_league, current_user)
+    return payload
 
 
 @router.get("/rating-history")

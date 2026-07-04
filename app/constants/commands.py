@@ -23,6 +23,7 @@ GROUP_ALLOWED_COMMANDS = {
     "/match",
     "/table",
     "/table_buttons",
+    "/standings",
     "/predictions",
     "/tournament_predictions",
     "/tournament_forecast",
@@ -40,4 +41,5 @@ GROUP_ALLOWED_CALLBACK_PREFIXES = {
     "forecast_match:",
     "panini_team:",
     "table_noop",
+    "standings_pick:",
 }

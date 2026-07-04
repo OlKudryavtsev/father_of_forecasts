@@ -39,6 +39,7 @@ USER_HELP_TEXT = (
     "/predictions — прогнозы участников по матчу\n"
     "/missing — где еще нет твоего прогноза\n"
     "/table — таблица участников\n"
+    "/standings — расклады для участника в групповом чате\n"
     "/table_buttons — компактная таблица кнопками\n"
     "/summary — твоя статистика\n"
     
@@ -65,7 +66,7 @@ USER_HELP_TEXT = (
     "/panini — сделать карточку игрока сборной по фото\n\n"
 
     "В общем чате доступны:\n"
-    "/app, /fact, /quiz, /quiz_battle, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /predictions, /tournament_forecast, /tournament_predictions, /rules, /help\n\n"
+    "/app, /fact, /quiz, /quiz_battle, /quiz_table, /quiz_finish, /archive, /panini, /matches_all, /forecast, /table, /table_buttons, /standings, /predictions, /tournament_forecast, /tournament_predictions, /rules, /help\n\n"
 )
 
 FIRST_START_MESSAGES_BY_TELEGRAM_ID = {

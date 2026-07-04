@@ -3,7 +3,7 @@
 
 from app.formatters.matches import format_match_label
 from app.formatters.misc import format_percent
-from app.keyboards.table import build_league_selector_keyboard, build_table_buttons_keyboard
+from app.keyboards.table import build_league_selector_keyboard, build_standings_selector_keyboard, build_table_buttons_keyboard
 from app.runtime import (
     CallbackQuery,
     Message,
@@ -19,6 +19,7 @@ from app.runtime import (
 )
 from app.services.leagues import get_default_or_first_user_league, get_league_by_chat_id, get_user_active_leagues, league_scoring_start_at, require_user_league
 from app.services.misc import build_table_rows, build_user_summary_context
+from app.services.standings import build_standings_scenarios, format_standings_scenarios_telegram
 from app.services.predictions import get_prediction_points_breakdown
 from app.services.users import get_or_create_user
 
@@ -64,6 +65,69 @@ async def table_handler(message: Message):
             await message.answer(_format_league_table(db, leagues[0]))
         else:
             await message.answer("🏆 Выбери лигу, таблицу которой хочешь посмотреть:", reply_markup=build_league_selector_keyboard(leagues))
+    finally:
+        db.close()
+
+
+async def standings_handler(message: Message):
+    """Let any league member post a selected participant's title scenarios in a group."""
+    db = SessionLocal()
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+        if not _message_chat_is_group(message):
+            await message.answer("Команда /standings работает в групповом чате лиги.")
+            return
+        league = get_league_by_chat_id(db, message.chat.id)
+        if not league:
+            await message.answer("Для этого чата не настроена лига. Владелец может указать Chat ID в приложении.")
+            return
+        try:
+            require_user_league(db, user, league.id)
+        except ValueError:
+            await message.answer("Команда доступна участникам лиги, привязанной к этому чату.")
+            return
+        rows = build_table_rows(db, league_id=league.id)
+        if not rows:
+            await message.answer("В лиге пока нет участников для расчёта раскладов.")
+            return
+        await message.answer(
+            "🏆 Выбери участника. Бот опубликует до 10 вариантов, при которых он может финишировать единоличным лидером.",
+            reply_markup=build_standings_selector_keyboard(rows, league.id),
+        )
+    finally:
+        db.close()
+
+
+async def standings_pick_callback(callback: CallbackQuery):
+    db = SessionLocal()
+    try:
+        raw = (callback.data or "").split(":")
+        if len(raw) != 3:
+            await callback.answer("Не удалось прочитать выбор.", show_alert=True)
+            return
+        try:
+            league_id = int(raw[1])
+            participant_user_id = int(raw[2])
+        except ValueError:
+            await callback.answer("Не удалось прочитать выбор.", show_alert=True)
+            return
+        user, _ = get_or_create_user(db, callback.from_user)
+        message = callback.message
+        if not message or not _message_chat_is_group(message):
+            await callback.answer("Эта команда работает в групповом чате.", show_alert=True)
+            return
+        league = get_league_by_chat_id(db, message.chat.id)
+        if not league or league.id != league_id:
+            await callback.answer("Расклад относится к другой лиге.", show_alert=True)
+            return
+        try:
+            require_user_league(db, user, league.id)
+            payload = build_standings_scenarios(db, league, participant_user_id, limit=10)
+        except ValueError as error:
+            await callback.answer(str(error), show_alert=True)
+            return
+        await message.answer(format_standings_scenarios_telegram(payload, max_variants=10))
+        await callback.answer("Расклад опубликован")
     finally:
         db.close()
 

@@ -40,7 +40,7 @@ from app.runtime import (
 from app.services.api_coverage import build_api_coverage_report
 from app.services.admin import build_command_stats_for_period, ensure_admin_or_reply, get_admin_telegram_ids, get_today_moscow_range_utc, is_user_admin
 from app.services.archive import import_historical_archive_from_seed
-from app.services.facts import get_random_archive_card_for_daily_rubric, get_random_fact_not_sent_today, import_world_cup_facts_from_seed, send_daily_fact_to_group, send_daily_match_summary_to_group
+from app.services.facts import get_random_archive_card_for_daily_rubric, get_random_fact_not_sent_today, import_world_cup_facts_from_seed, send_daily_fact_to_group, send_daily_match_summary_to_group, send_daily_match_summary_to_league_chats
 from app.services.matches import (
     apply_match_result_from_admin,
     get_default_match_round,
@@ -2021,10 +2021,10 @@ async def admin_send_daily_fact_group_handler(message: Message):
             await message.answer("У тебя нет админских прав.")
             return
 
-        await send_daily_match_summary_to_group(db)
+        await send_daily_match_summary_to_league_chats(db)
 
         await message.answer(
-            "Утренний свод по матчам отправлен в групповой чат ✅"
+            "Утренние итоги отправлены в групповые чаты лиг: общий свод и персональные итоги участников ✅"
         )
 
     finally:

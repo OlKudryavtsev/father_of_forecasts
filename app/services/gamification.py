@@ -495,6 +495,11 @@ def build_daily_league_context(db: Session, league: League, now: datetime | None
     daily_rows = sorted(daily.values(), key=lambda row: (-row["points"], -row["exact"], row["name"].casefold()))
     table = build_table_rows(db, league_id=league.id)
     ranks = {int(row.get("user_id") or 0): index for index, row in enumerate(table, start=1)}
+    league_points_by_user = {
+        int(row.get("user_id") or 0): int(row.get("points") or 0)
+        for row in table
+        if int(row.get("user_id") or 0)
+    }
     leader = table[0] if table else None
     player_of_day = daily_rows[0] if daily_rows and daily_rows[0]["predictions"] else None
     return {
@@ -509,6 +514,7 @@ def build_daily_league_context(db: Session, league: League, now: datetime | None
         } if leader else None,
         "player_of_day": player_of_day,
         "ranks": ranks,
+        "league_points_by_user": league_points_by_user,
     }
 
 

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.6.6';
+const APP_VERSION = '3.7.0';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5316,6 +5316,103 @@ function RatingRace({ activeLeagueId }) {
   );
 }
 
+function StandingsScenarios({ rows, activeLeagueId }) {
+  const participants = (rows || []).filter((row) => !row.is_father && row.user_id);
+  const preferredId = participants.find((row) => row.is_current_user)?.user_id || participants[0]?.user_id || null;
+  const [selectedId, setSelectedId] = useState(preferredId);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const stillAvailable = participants.some((row) => Number(row.user_id) === Number(selectedId));
+    if (!stillAvailable) setSelectedId(preferredId);
+  }, [activeLeagueId, preferredId, selectedId, participants.length]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setData(null);
+      return undefined;
+    }
+    let active = true;
+    setData(null);
+    setError(null);
+    const params = new URLSearchParams();
+    params.set('participant_user_id', String(selectedId));
+    if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+    api(`/api/webapp/standings?${params.toString()}`)
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, [activeLeagueId, selectedId]);
+
+  if (!participants.length) return null;
+
+  return (
+    <section className="standings-card">
+      <div className="standings-head">
+        <div>
+          <div className="section-label">Расклады</div>
+          <h2>Путь к единоличному первому месту</h2>
+          <p>Выберите участника: расчёт покажет необходимые очки и лимиты для конкурентов.</p>
+        </div>
+        <span className="standings-icon"><Icon name="cup" /></span>
+      </div>
+
+      <div className="standings-picker" role="tablist" aria-label="Участник для расчёта раскладов">
+        {participants.map((row) => (
+          <button
+            type="button"
+            key={row.user_id}
+            className={Number(row.user_id) === Number(selectedId) ? 'active' : ''}
+            onClick={() => setSelectedId(row.user_id)}
+          >{row.name}</button>
+        ))}
+      </div>
+
+      {error && <p className="standings-error">Не удалось рассчитать расклады: {error.message}</p>}
+      {!error && !data && <div className="standings-loading">Собираю варианты для таблицы…</div>}
+
+      {data && (
+        <div className="standings-content">
+          <div className="standings-summary">
+            <span>Сейчас <b>#{data.participant?.rank || '—'}</b> · {data.participant?.current_points || 0} очк.</span>
+            <span>Максимум: <b>{data.remaining?.max_final_points || data.participant?.current_points || 0}</b></span>
+            <span>Осталось: <b>{data.remaining?.matches || 0}</b> матч.</span>
+          </div>
+
+          {!data.is_mathematically_possible ? (
+            <div className="standings-impossible">
+              <b>Единоличное первое место уже недостижимо</b>
+              <p>{data.elimination_reason}</p>
+            </div>
+          ) : (
+            <div className="standings-list">
+              {(data.scenarios || []).map((scenario) => (
+                <article className="standings-scenario" key={scenario.number}>
+                  <div className="standings-scenario-head">
+                    <span>Вариант {scenario.number}</span>
+                    <b>{scenario.final_points} очк.</b>
+                  </div>
+                  <p><strong>Нужно +{scenario.extra_points}:</strong> {(scenario.plan_text || []).join(' · ')}</p>
+                  {!!scenario.tournament_conditions?.length && (
+                    <p className="standings-longterm"><strong>Долгосрок:</strong> {scenario.tournament_conditions.join('; ')}</p>
+                  )}
+                  {!!scenario.competitor_limits?.length && (
+                    <p className="standings-rivals"><strong>Конкуренты:</strong> {scenario.competitor_limits.map((item) => `${item.name} ≤ +${item.max_extra_allowed} из +${item.max_extra}`).join('; ')}</p>
+                  )}
+                </article>
+              ))}
+              {!data.scenarios?.length && <p className="standings-empty">Для текущих прогнозов пока нет набора достижимых вариантов.</p>}
+            </div>
+          )}
+
+          <p className="standings-note">{data.note}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Rating({ activeLeagueId }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -5410,6 +5507,8 @@ function Rating({ activeLeagueId }) {
           );
         })}
       </div>
+
+      <StandingsScenarios rows={rows} activeLeagueId={activeLeagueId} />
 
       <RatingRace activeLeagueId={activeLeagueId} />
 

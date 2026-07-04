@@ -88,6 +88,56 @@ def _daily_personal_text(context: dict, commentary: str) -> str:
     return "\n".join(lines)
 
 
+def _daily_member_group_text(league_context: dict, row: dict, humor_mode: str | None) -> str:
+    """Render an individual daily recap for the public league chat.
+
+    The private recap deliberately says «ты» and may use each participant's
+    personal tone. The group version is fact-only, speaks about the person in
+    the third person, and uses a safe deterministic football roast so the chat
+    does not need another OpenAI request per member every morning.
+    """
+    from app.services.gamification import normalize_humor_mode
+
+    mode = normalize_humor_mode(humor_mode)
+    points = int(row.get("points") or 0)
+    exact = int(row.get("exact") or 0)
+    outcomes = int(row.get("outcomes") or 0)
+    misses = int(row.get("misses") or 0)
+    predictions = int(row.get("predictions") or 0)
+    user_id = int(row.get("user_id") or 0)
+    rank = (league_context.get("ranks") or {}).get(user_id)
+    league_points = int((league_context.get("league_points_by_user") or {}).get(user_id) or 0)
+    name = str(row.get("name") or "Участник")
+
+    lines = [f"👤 Итог дня · {name}", ""]
+    if league_context.get("matches_count"):
+        lines.append(
+            f"За сутки: {points} очк. · 🎯 {exact} · 🔵 {outcomes} · промахов: {misses}"
+        )
+    else:
+        lines.append("За сутки завершённых матчей не было. Участник и таблица пережили это достойно.")
+    if rank:
+        lines.append(f"🏆 Сейчас #{rank} · {league_points} очк.")
+
+    if mode == "numbers":
+        return "\n".join(lines)
+
+    if not predictions:
+        joke = "Сегодня статистика не нашла ни одного прогноза. Идеальная маскировка, но очки её не оценили."
+    elif points >= 6 or exact >= 2:
+        joke = "Сегодня таблица была вынуждена признать: человек пришёл не просто посмотреть футбол."
+    elif points > 0:
+        joke = "Очки добыты. Не без приключений, но футбол пока не написал жалобу."
+    elif mode == "calm":
+        joke = "Очков сегодня нет, но следующий игровой день уже готов дать второй шанс."
+    elif mode == "ironic":
+        joke = "Прогнозы были смелыми. Реальность, как обычно, выбрала собственный сценарий."
+    else:
+        joke = "Прогнозы ушли в офсайд. Таблица всё записала и теперь смотрит с лёгким профессиональным интересом."
+    lines.extend(["", joke])
+    return "\n".join(lines)
+
+
 async def _daily_league_message(db, league):
     from app.services.gamification import build_daily_league_context, normalize_humor_mode
     from app.services.openai_gamification import generate_daily_league_commentary
@@ -132,13 +182,29 @@ async def send_daily_match_summary_to_group(db):
 
 
 async def send_daily_match_summary_to_league_chats(db):
-    """Send one daily story per unique chat, including the legacy default chat."""
+    """Send the league summary and every member's personal daily result to its chat.
+
+    A unique destination is used deliberately: a reused Telegram chat must not
+    receive duplicate posts if legacy and league settings reference the same id.
+    """
+    from app.services.gamification import build_daily_league_context
     from app.services.leagues import get_unique_league_chat_destinations
     from app.services.notifications import notify_league_chat
 
-    for league, _chat_id in get_unique_league_chat_destinations(db):
+    for league, chat_id in get_unique_league_chat_destinations(db):
         text = await _daily_league_message(db, league)
-        await notify_league_chat(league, text)
+        delivered = await notify_league_chat(league, text, chat_id_override=chat_id)
+        if not delivered:
+            continue
+
+        context = build_daily_league_context(db, league)
+        for row in context.get("daily_rows") or []:
+            member_text = _daily_member_group_text(
+                league_context=context,
+                row=row,
+                humor_mode=getattr(league, "humor_mode", None),
+            )
+            await notify_league_chat(league, member_text, chat_id_override=chat_id)
 
 
 async def send_daily_match_summary_to_private_users(db):

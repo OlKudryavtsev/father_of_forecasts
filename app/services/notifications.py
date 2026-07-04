@@ -131,8 +131,19 @@ async def notify_private_user(
     return ok
 
 
-async def notify_league_chat(league: League, text: str) -> bool:
-    raw_chat_id = getattr(league, "chat_id", None)
+async def notify_league_chat(
+    league: League,
+    text: str,
+    chat_id_override: int | str | None = None,
+) -> bool:
+    """Send a message to a league chat, optionally to a legacy resolved destination.
+
+    ``get_unique_league_chat_destinations`` can return the legacy
+    ``GROUP_CHAT_ID`` for the default league even when ``league.chat_id`` is not
+    stored.  The explicit override preserves that destination and prevents the
+    daily league report from silently disappearing.
+    """
+    raw_chat_id = chat_id_override if chat_id_override is not None else getattr(league, "chat_id", None)
     chat_id = str(raw_chat_id or "").strip()
     if not chat_id:
         return False

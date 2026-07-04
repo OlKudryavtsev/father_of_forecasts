@@ -107,7 +107,7 @@ from app.handlers.start import (
     league_join_reject_callback,
     start_handler,
 )
-from app.handlers.table import ai_summary_handler, summary_handler, table_buttons_handler, table_handler, table_league_callback, table_noop_callback
+from app.handlers.table import ai_summary_handler, standings_handler, standings_pick_callback, summary_handler, table_buttons_handler, table_handler, table_league_callback, table_noop_callback
 from app.handlers.tournament import (
     tournament_champion_handler,
     tournament_forecast_handler,
@@ -167,6 +167,7 @@ def register_handlers():
     dp.message.register(mybets_handler, Command("mybets"))
     dp.message.register(predictions_handler, Command("predictions"))
     dp.message.register(table_handler, Command("table"))
+    dp.message.register(standings_handler, Command("standings"))
     dp.message.register(rules_handler, Command("rules"))
     dp.message.register(tournament_set_handler, Command("tournament_set"))
     dp.message.register(tournament_handler, Command("tournament"))
@@ -260,6 +261,7 @@ def register_handlers():
     dp.callback_query.register(league_join_approve_callback, _cb_startswith("league_join_approve:"))
     dp.callback_query.register(league_join_reject_callback, _cb_startswith("league_join_reject:"))
     dp.callback_query.register(table_league_callback, _cb_startswith("table_league:"))
+    dp.callback_query.register(standings_pick_callback, _cb_startswith("standings_pick:"))
     dp.callback_query.register(table_noop_callback, _cb_equals("table_noop"))
 
 
