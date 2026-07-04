@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.7.1';
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5378,6 +5378,16 @@ function StandingsScenarios({ rows, activeLeagueId }) {
             <span>Сейчас <b>#{data.participant?.rank || '—'}</b> · {data.participant?.current_points || 0} очк.</span>
             <span>Максимум: <b>{data.remaining?.max_final_points || data.participant?.current_points || 0}</b></span>
             <span>Осталось: <b>{data.remaining?.matches || 0}</b> матч.</span>
+          </div>
+          <div className="standings-potential-breakdown">
+            <p><strong>Сетка:</strong> {(data.remaining?.bracket_breakdown || []).filter((item) => Number(item.remaining || 0) > 0).map((item) => `${item.label} — ${item.remaining}`).join(' · ') || 'матчей не осталось'}</p>
+            <p><strong>Потолок:</strong> +{data.remaining?.match_max || 0} за матчи ({data.remaining?.score_opportunities || 0} прогнозов × до 3; {data.remaining?.advancement_opportunities || 0} проходов × до 1){Number(data.remaining?.tournament_max || 0) > 0 ? ` +${data.remaining.tournament_max} за живой долгосрок` : ''}</p>
+            {!!data.remaining?.live_tournament_items?.length && (
+              <p><strong>В игре:</strong> {data.remaining.live_tournament_items.map((item) => item.text).join('; ')}</p>
+            )}
+            {!!data.remaining?.unavailable_tournament_items?.length && (
+              <p className="standings-unavailable"><strong>Не считаются:</strong> {data.remaining.unavailable_tournament_items.map((item) => item.text).join('; ')}</p>
+            )}
           </div>
 
           {!data.is_mathematically_possible ? (

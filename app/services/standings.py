@@ -1,14 +1,15 @@
-"""Deterministic championship-scenario calculations for a league leaderboard.
+"""Transparent championship-scenario calculations for a league leaderboard.
 
-The service describes necessary score conditions for a participant to finish
-*strictly* first. It deliberately does not invent a single simulated scoreline
-for every remaining fixture: conflicting user predictions make that misleading.
-Instead, every scenario contains the participant's required point mix and the
-maximum extra points that direct competitors may still take.
+The service works with the fixed final part of the WC-2026 bracket: eight
+round-of-16 fixtures, four quarter-finals, two semi-finals and one final.  It
+never treats an uncreated future fixture as absent merely because its teams are
+not known yet.  Long-term tournament picks are included only while they are
+still mathematically alive according to completed official matches.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import combinations
@@ -19,9 +20,21 @@ from sqlalchemy.orm import Session
 from app.models import League, LeagueMember, Match, Prediction, TournamentPrediction, TournamentResult, User
 from app.runtime import TOURNAMENT_CODE
 from app.services.leagues import league_scoring_start_at
-from app.services.matches import is_playoff_match
 from app.services.misc import build_table_rows
+from app.services.tournament_hub import get_top_scorers, resolve_player_by_name
+from app.team_names import get_team_name_ru
 
+
+# The user-facing competition intentionally excludes a third-place fixture from
+# match-prediction potential: the remaining schedule is 8 + 4 + 2 + 1 = 15.
+PLAYOFF_PLAN: tuple[tuple[str, int, str], ...] = (
+    ("round_of_16", 8, "1/8 финала"),
+    ("quarterfinal", 4, "1/4 финала"),
+    ("semifinal", 2, "1/2 финала"),
+    ("final", 1, "финал"),
+)
+PLAYOFF_STAGE_COUNTS = {stage: count for stage, count, _label in PLAYOFF_PLAN}
+PLAYOFF_STAGE_LABELS = {stage: label for stage, _count, label in PLAYOFF_PLAN}
 
 TOURNAMENT_ITEM_META = (
     ("champion", "champion_points", 15, "🏆 Чемпион"),
@@ -34,9 +47,7 @@ TOURNAMENT_ITEM_META = (
 def _utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _plural(value: int, one: str, few: str, many: str) -> str:
@@ -48,6 +59,25 @@ def _plural(value: int, one: str, few: str, many: str) -> str:
     if value % 10 in {2, 3, 4}:
         return few
     return many
+
+
+def _normalized_stage(match: Match) -> str:
+    """Normalize both local and provider stage names to bracket stages."""
+    raw = f"{match.stage or ''} {match.match_round or ''} {match.api_league_round or ''}".casefold()
+    if "third" in raw or "3rd" in raw or "3 место" in raw:
+        return "third_place"
+    # Composite names must be checked before the generic ``final`` suffix.
+    if "semi" in raw or "1/2" in raw:
+        return "semifinal"
+    if "quarter" in raw or "1/4" in raw:
+        return "quarterfinal"
+    if "round_of_16" in raw or "round of 16" in raw or "1/8" in raw or "r16" in raw:
+        return "round_of_16"
+    if "round_of_32" in raw or "round of 32" in raw or "1/16" in raw or "r32" in raw:
+        return "round_of_32"
+    if "final" in raw:
+        return "final"
+    return str(match.stage or "").casefold()
 
 
 def _member_rows(db: Session, league: League) -> list[tuple[LeagueMember, User]]:
@@ -64,86 +94,327 @@ def _member_rows(db: Session, league: League) -> list[tuple[LeagueMember, User]]
     )
 
 
-def _remaining_matches(db: Session, league: League) -> list[Match]:
-    query = (
-        db.query(Match)
-        .filter(
-            Match.tournament_code == TOURNAMENT_CODE,
-            Match.is_finished.is_(False),
-        )
-        .order_by(Match.starts_at.asc(), Match.id.asc())
-    )
+def _league_matches(db: Session, league: League) -> list[Match]:
+    """Load tournament fixtures that can affect this league's scoring window."""
+    query = db.query(Match).filter(Match.tournament_code == TOURNAMENT_CODE)
     start_at = _utc(league_scoring_start_at(league))
     if start_at is not None:
         query = query.filter(Match.starts_at >= start_at)
-    return query.all()
+    return query.order_by(Match.starts_at.asc(), Match.id.asc()).all()
 
 
-def _tournament_items(prediction: TournamentPrediction | None, tournament_resolved: bool) -> list[dict[str, Any]]:
+def _match_side(match: Match, team_name: str) -> str | None:
+    normalized = get_team_name_ru(team_name)
+    if normalized == get_team_name_ru(match.home_team):
+        return "home"
+    if normalized == get_team_name_ru(match.away_team):
+        return "away"
+    return None
+
+
+def _team_lost_match(match: Match, side: str) -> bool | None:
+    """Return a conclusive loss only when official data identifies a winner."""
+    winner = str(match.winner_side or "").casefold().strip()
+    if winner in {"home", "away"}:
+        return winner != side
+
+    # A decisive final score (after extra time when stored) is also conclusive.
+    home = match.final_score_home if match.final_score_home is not None else match.score_home
+    away = match.final_score_away if match.final_score_away is not None else match.score_away
+    if home is None or away is None or int(home) == int(away):
+        return None
+    return int(home) < int(away) if side == "home" else int(away) < int(home)
+
+
+def _match_index(matches: list[Match]) -> dict[str, list[tuple[Match, str]]]:
+    index: dict[str, list[tuple[Match, str]]] = defaultdict(list)
+    for match in matches:
+        for side, raw_name in (("home", match.home_team), ("away", match.away_team)):
+            name = get_team_name_ru(raw_name)
+            if name:
+                index[name].append((match, side))
+    for entries in index.values():
+        entries.sort(key=lambda item: (_utc(item[0].starts_at) or datetime.min.replace(tzinfo=timezone.utc), item[0].id))
+    return index
+
+
+def _team_is_still_alive(team_name: str, match_index: dict[str, list[tuple[Match, str]]], knockout_started: bool) -> bool:
+    """Whether a team has not been conclusively eliminated from the tournament."""
+    entries = match_index.get(get_team_name_ru(team_name), [])
+    knockout_entries = [(match, side) for match, side in entries if _normalized_stage(match) not in {"group", ""}]
+    for match, side in knockout_entries:
+        if not match.is_finished:
+            return True
+    for match, side in knockout_entries:
+        lost = _team_lost_match(match, side)
+        if lost is True:
+            return False
+
+    # Once knockout fixtures have begun, a team with a fully completed group
+    # stage and no knockout appearance is out. This avoids keeping group-stage
+    # eliminations falsely alive in long-term picks.
+    group_entries = [(match, side) for match, side in entries if _normalized_stage(match) == "group"]
+    if knockout_started and group_entries and all(bool(match.is_finished) for match, _side in group_entries) and not knockout_entries:
+        return False
+    return True
+
+
+def _placement_is_alive(
+    placement: str,
+    team_name: str,
+    match_index: dict[str, list[tuple[Match, str]]],
+    knockout_started: bool,
+) -> bool:
+    """Check whether a specific champion/finalist/third-place pick is still possible."""
+    entries = match_index.get(get_team_name_ru(team_name), [])
+    knockout_entries = [
+        (match, side)
+        for match, side in entries
+        if _normalized_stage(match) not in {"group", ""}
+    ]
+
+    if not _team_is_still_alive(team_name, match_index, knockout_started):
+        # A semi-final loser remains alive only for the third-place prediction.
+        semi_loss = any(
+            match.is_finished and _normalized_stage(match) == "semifinal" and _team_lost_match(match, side) is True
+            for match, side in knockout_entries
+        )
+        if placement == "third_place" and semi_loss:
+            third_entries = [(match, side) for match, side in knockout_entries if _normalized_stage(match) == "third_place"]
+            if not third_entries:
+                return True
+            return any(not match.is_finished for match, _side in third_entries) or any(
+                _team_lost_match(match, side) is False for match, side in third_entries if match.is_finished
+            )
+        return False
+
+    for match, side in knockout_entries:
+        if not match.is_finished:
+            continue
+        stage = _normalized_stage(match)
+        lost = _team_lost_match(match, side)
+        if lost is None:
+            continue
+        if stage == "final":
+            if placement == "champion":
+                return lost is False
+            if placement == "runner_up":
+                return lost is True
+            return False
+        if stage == "third_place":
+            return placement == "third_place" and lost is False
+        if stage == "semifinal":
+            if placement == "third_place":
+                if lost is False:
+                    return False
+                # A loser proceeds to the third-place fixture; evaluate that
+                # fixture if it exists, otherwise the forecast is still alive.
+                third_entries = [(item, item_side) for item, item_side in knockout_entries if _normalized_stage(item) == "third_place"]
+                if not third_entries:
+                    return True
+                for third_match, third_side in third_entries:
+                    if not third_match.is_finished:
+                        return True
+                    return _team_lost_match(third_match, third_side) is False
+                return True
+            if lost is True:
+                return False
+        elif stage in {"round_of_32", "round_of_16", "quarterfinal"} and lost is True:
+            return False
+
+    return True
+
+
+def _canonical_text(value: str | None) -> str:
+    return " ".join("".join(ch if ch.isalnum() else " " for ch in str(value or "").casefold()).split())
+
+
+def _top_scorer_is_alive(
+    db: Session,
+    player_name: str,
+    match_index: dict[str, list[tuple[Match, str]]],
+    knockout_started: bool,
+) -> bool:
+    """Return true only for a scorer whose route to the award remains live."""
+    scorer = resolve_player_by_name(db, player_name, refresh=False)
+    if not scorer:
+        # Do not claim unsupported future points when a selected player cannot
+        # be resolved to a tournament player/team.
+        return False
+
+    leaderboard = get_top_scorers(db, refresh=False, limit=50).get("items") or []
+    scorer_row = dict(scorer)
+    target_key = _canonical_text(player_name)
+    for row in leaderboard:
+        if scorer.get("player_id") and str(row.get("player_id")) == str(scorer.get("player_id")):
+            scorer_row.update(row)
+            break
+        if _canonical_text(row.get("name")) == target_key:
+            scorer_row.update(row)
+            break
+
+    team_name = str(scorer_row.get("team") or scorer.get("team") or "").strip()
+    if not team_name:
+        return False
+    if _team_is_still_alive(team_name, match_index, knockout_started):
+        return True
+
+    goals = int(scorer_row.get("goals") or 0)
+    leader_goals = max((int(row.get("goals") or 0) for row in leaderboard), default=0)
+    # A eliminated player remains viable only when they currently share/hold the
+    # lead; anything lower can no longer improve and is not a live long-term bet.
+    return goals > 0 and goals >= leader_goals
+
+
+def _tournament_items(
+    db: Session,
+    prediction: TournamentPrediction | None,
+    tournament_resolved: bool,
+    match_index: dict[str, list[tuple[Match, str]]],
+    knockout_started: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split tournament predictions into still-live and already-dead entries."""
     if not prediction or tournament_resolved:
-        return []
-    items: list[dict[str, Any]] = []
+        return [], []
+
+    live: list[dict[str, Any]] = []
+    unavailable: list[dict[str, Any]] = []
     for key, points_field, points, label in TOURNAMENT_ITEM_META:
-        # A stored non-zero value is already part of the current table and must
-        # not be counted once more as future potential.
         if int(getattr(prediction, points_field, 0) or 0) > 0:
             continue
         choice = str(getattr(prediction, key, "") or "").strip()
         if not choice:
             continue
-        items.append({
+        if key == "top_scorer":
+            alive = _top_scorer_is_alive(db, choice, match_index, knockout_started)
+        else:
+            alive = _placement_is_alive(key, choice, match_index, knockout_started)
+        item = {
             "key": key,
             "points": points,
             "label": label,
             "choice": choice,
             "text": f"{label}: {choice} (+{points})",
+        }
+        if alive:
+            live.append(item)
+        else:
+            unavailable.append({**item, "text": f"{label}: {choice} — уже не в игре"})
+    return live, unavailable
+
+
+@dataclass(frozen=True)
+class MatchOpportunity:
+    stage: str
+    is_virtual: bool
+    can_score: bool
+    can_advancement: bool
+    missing_open: bool = False
+
+
+def _bracket_opportunities(
+    matches: list[Match],
+    predictions_by_user_match: dict[tuple[int, int], Prediction],
+    user_id: int,
+    now: datetime,
+) -> tuple[list[MatchOpportunity], list[dict[str, Any]]]:
+    """Construct all remaining 15-bracket opportunities, including virtual slots."""
+    opportunities: list[MatchOpportunity] = []
+    breakdown: list[dict[str, Any]] = []
+
+    for stage, expected_count, label in PLAYOFF_PLAN:
+        stage_rows = [match for match in matches if _normalized_stage(match) == stage]
+        completed = sum(1 for match in stage_rows if bool(match.is_finished))
+        remaining_by_schedule = max(0, expected_count - min(expected_count, completed))
+        open_rows = [match for match in stage_rows if not bool(match.is_finished)]
+        open_rows.sort(key=lambda match: (_utc(match.starts_at) or now, match.id))
+        represented = open_rows[:remaining_by_schedule]
+        virtual_count = max(0, remaining_by_schedule - len(represented))
+
+        available_score = 0
+        available_advancement = 0
+        missing_open = 0
+        locked_without_prediction = 0
+        for match in represented:
+            prediction = predictions_by_user_match.get((user_id, match.id))
+            starts_at = _utc(match.starts_at) or now
+            can_submit = starts_at > now
+            has_prediction = prediction is not None
+            can_score = has_prediction or can_submit
+            can_advancement = can_submit or bool(
+                has_prediction and (
+                    bool(getattr(prediction, "advancement_bet_enabled", False))
+                    or getattr(prediction, "predicted_advancing_side", None) in {"home", "away"}
+                )
+            )
+            if can_score:
+                available_score += 1
+            elif not has_prediction:
+                locked_without_prediction += 1
+            if can_advancement:
+                available_advancement += 1
+            if can_submit and not has_prediction:
+                missing_open += 1
+            opportunities.append(MatchOpportunity(
+                stage=stage,
+                is_virtual=False,
+                can_score=can_score,
+                can_advancement=can_advancement,
+                missing_open=can_submit and not has_prediction,
+            ))
+
+        # Future bracket slots may not yet be present in the fixtures table,
+        # but their teams will be known before prediction lock. They are valid
+        # opportunities for every active participant.
+        for _ in range(virtual_count):
+            opportunities.append(MatchOpportunity(
+                stage=stage,
+                is_virtual=True,
+                can_score=True,
+                can_advancement=True,
+            ))
+        available_score += virtual_count
+        available_advancement += virtual_count
+
+        breakdown.append({
+            "stage": stage,
+            "label": label,
+            "scheduled_total": expected_count,
+            "completed": completed,
+            "remaining": remaining_by_schedule,
+            "fixture_rows": len(represented),
+            "virtual_future": virtual_count,
+            "score_opportunities": available_score,
+            "advancement_opportunities": available_advancement,
+            "missing_open_predictions": missing_open,
+            "locked_without_prediction": locked_without_prediction,
         })
-    return items
+
+    return opportunities, breakdown
 
 
 def _participant_potential(
+    db: Session,
     user_id: int,
     matches: list[Match],
     predictions_by_user_match: dict[tuple[int, int], Prediction],
     tournament_prediction: TournamentPrediction | None,
     tournament_resolved: bool,
+    match_index: dict[str, list[tuple[Match, str]]],
+    knockout_started: bool,
     now: datetime,
 ) -> dict[str, Any]:
-    score_slots = 0
-    advancement_slots = 0
-    missing_open = 0
-    match_items: list[dict[str, Any]] = []
-
-    for match in matches:
-        prediction = predictions_by_user_match.get((user_id, match.id))
-        starts_at = _utc(match.starts_at) or now
-        can_submit = starts_at > now
-        has_prediction = prediction is not None
-
-        # A fixed prediction may still earn points after kick-off. When no
-        # prediction exists, only a future fixture is an available opportunity.
-        if has_prediction or can_submit:
-            score_slots += 1
-            if not has_prediction:
-                missing_open += 1
-            advancement_available = bool(is_playoff_match(match) and (
-                not has_prediction
-                or bool(getattr(prediction, "advancement_bet_enabled", False))
-                or getattr(prediction, "predicted_advancing_side", None) in {"home", "away"}
-            ))
-            if advancement_available:
-                advancement_slots += 1
-            match_items.append({
-                "match_id": match.id,
-                "label": f"{match.home_team} — {match.away_team}",
-                "starts_at": starts_at.isoformat(),
-                "is_playoff": bool(is_playoff_match(match)),
-                "has_prediction": has_prediction,
-                "score_max": 3,
-                "advancement_max": 1 if advancement_available else 0,
-            })
-
-    tournament_items = _tournament_items(tournament_prediction, tournament_resolved)
+    opportunities, breakdown = _bracket_opportunities(matches, predictions_by_user_match, user_id, now)
+    score_slots = sum(1 for item in opportunities if item.can_score)
+    advancement_slots = sum(1 for item in opportunities if item.can_advancement)
+    missing_open = sum(1 for item in opportunities if item.missing_open)
+    tournament_items, unavailable_items = _tournament_items(
+        db=db,
+        prediction=tournament_prediction,
+        tournament_resolved=tournament_resolved,
+        match_index=match_index,
+        knockout_started=knockout_started,
+    )
     match_max = 3 * score_slots + advancement_slots
     tournament_max = sum(int(item["points"] or 0) for item in tournament_items)
     return {
@@ -152,9 +423,10 @@ def _participant_potential(
         "missing_open": missing_open,
         "match_max": match_max,
         "tournament_items": tournament_items,
+        "unavailable_tournament_items": unavailable_items,
         "tournament_max": tournament_max,
         "total_max": match_max + tournament_max,
-        "match_items": match_items,
+        "bracket_breakdown": breakdown,
     }
 
 
@@ -169,16 +441,13 @@ def _solve_match_plan(required_points: int, score_slots: int, advancement_slots:
                 if points < required_points:
                     continue
                 overshoot = points - required_points
-                # Rotate the tie-breaker so neighbouring variants do not all
-                # read as the same "exact scores only" plan.
                 if preference % 3 == 0:
                     complexity = (exact, outcomes, advancement)
                 elif preference % 3 == 1:
                     complexity = (-outcomes, exact, advancement)
                 else:
                     complexity = (-advancement, exact, outcomes)
-                key = (overshoot, *complexity, exact + outcomes + advancement)
-                candidates.append((key, {
+                candidates.append(((overshoot, *complexity, exact + outcomes + advancement), {
                     "points": points,
                     "exact": exact,
                     "outcomes": outcomes,
@@ -194,8 +463,6 @@ def _tournament_combinations(items: list[dict[str, Any]]) -> list[list[dict[str,
     variants: list[list[dict[str, Any]]] = [[]]
     for length in range(1, len(items) + 1):
         variants.extend([list(combo) for combo in combinations(items, length)])
-    # Prefer combinations that explain a scenario with less long-term reliance;
-    # the caller rotates the order for a varied top-10 result.
     variants.sort(key=lambda combo: (sum(int(item["points"]) for item in combo), len(combo)))
     return variants
 
@@ -210,7 +477,6 @@ def _sample_totals(minimum: int, maximum: int, limit: int) -> list[int]:
     for index in range(limit):
         ratio = index / max(1, limit - 1)
         chosen.add(round(maximum - (maximum - minimum) * ratio))
-    # Keep the hard and the forgiving boundary even with rounding collisions.
     chosen.add(minimum)
     chosen.add(maximum)
     return sorted(chosen, reverse=True)[:limit]
@@ -240,7 +506,7 @@ def build_standings_scenarios(
     participant_user_id: int,
     limit: int = 10,
 ) -> dict[str, Any]:
-    """Return up to ``limit`` strict-first-place score scenarios for a member."""
+    """Return transparent strict-first-place scenarios for one league member."""
     member_rows = _member_rows(db, league)
     users = {user.id: user for _member, user in member_rows}
     if participant_user_id not in users:
@@ -253,10 +519,11 @@ def build_standings_scenarios(
         raise ValueError("Не удалось собрать строку рейтинга участника")
 
     now = datetime.now(timezone.utc)
-    remaining_matches = _remaining_matches(db, league)
+    all_matches = _league_matches(db, league)
+    bracket_matches = [match for match in all_matches if _normalized_stage(match) in PLAYOFF_STAGE_COUNTS]
     user_ids = list(users)
-    match_ids = [match.id for match in remaining_matches]
-    predictions = []
+    match_ids = [match.id for match in bracket_matches]
+    predictions: list[Prediction] = []
     if user_ids and match_ids:
         predictions = (
             db.query(Prediction)
@@ -271,20 +538,20 @@ def build_standings_scenarios(
         .filter(TournamentPrediction.user_id.in_(user_ids), TournamentPrediction.tournament_code == TOURNAMENT_CODE)
         .all()
     }
-    tournament_resolved = (
-        db.query(TournamentResult)
-        .filter(TournamentResult.tournament_code == TOURNAMENT_CODE)
-        .first()
-        is not None
-    )
+    tournament_resolved = db.query(TournamentResult).filter(TournamentResult.tournament_code == TOURNAMENT_CODE).first() is not None
+    match_index = _match_index(all_matches)
+    knockout_started = any(_normalized_stage(match) not in {"group", ""} for match in all_matches)
 
     potential_by_user = {
         user_id: _participant_potential(
+            db=db,
             user_id=user_id,
-            matches=remaining_matches,
+            matches=bracket_matches,
             predictions_by_user_match=predictions_by_user_match,
             tournament_prediction=tournament_predictions.get(user_id),
             tournament_resolved=tournament_resolved,
+            match_index=match_index,
+            knockout_started=knockout_started,
             now=now,
         )
         for user_id in user_ids
@@ -322,16 +589,21 @@ def build_standings_scenarios(
             "current_points": target_current,
         },
         "remaining": {
-            "matches": len(remaining_matches),
+            "matches": sum(int(item["remaining"] or 0) for item in target_potential["bracket_breakdown"]),
             "match_max": int(target_potential["match_max"] or 0),
             "tournament_max": int(target_potential["tournament_max"] or 0),
             "missing_open_predictions": int(target_potential["missing_open"] or 0),
             "max_final_points": target_max_final,
             "tournament_resolved": tournament_resolved,
+            "bracket_breakdown": target_potential["bracket_breakdown"],
+            "live_tournament_items": target_potential["tournament_items"],
+            "unavailable_tournament_items": target_potential["unavailable_tournament_items"],
+            "score_opportunities": int(target_potential["score_slots"] or 0),
+            "advancement_opportunities": int(target_potential["advancement_slots"] or 0),
         },
         "note": (
-            "Каждый вариант — набор необходимых условий: выбранный участник должен набрать указанные очки, "
-            "а конкуренты не превысить свои лимиты. Это не единая симуляция конкретных счетов матчей."
+            "Потолок считается по сетке: 8 матчей 1/8, 4 матча 1/4, 2 полуфинала и финал. "
+            "За каждый матч максимум 3 очка за счёт/исход и 1 за проход; долгосрок включён только для ещё живых ставок."
         ),
         "scenarios": [],
         "is_mathematically_possible": target_max_final > leader_current,
@@ -402,18 +674,35 @@ def build_standings_scenarios(
     return base_payload
 
 
+def _format_bracket_breakdown(remaining: dict[str, Any]) -> str:
+    rows = list(remaining.get("bracket_breakdown") or [])
+    if not rows:
+        return ""
+    return "; ".join(
+        f"{item.get('label')}: {int(item.get('remaining') or 0)}"
+        for item in rows
+        if int(item.get("remaining") or 0) > 0
+    )
+
+
 def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: int = 10) -> str:
-    """Render a compact group-chat report that comfortably fits Telegram."""
+    """Render a compact, auditable group-chat report."""
     participant = payload.get("participant") or {}
     remaining = payload.get("remaining") or {}
     name = participant.get("name") or "Участник"
+    schedule_text = _format_bracket_breakdown(remaining)
     lines = [
         f"🏆 Расклады · {name}",
         "",
         f"Сейчас: #{participant.get('rank') or '—'} · {int(participant.get('current_points') or 0)} очк.",
-        f"Осталось: {int(remaining.get('matches') or 0)} матч. · максимум ещё +{int(remaining.get('match_max') or 0)} за матчи"
-        + (f" и +{int(remaining.get('tournament_max') or 0)} за долгосрок" if int(remaining.get('tournament_max') or 0) else ""),
+        f"Сетка: {schedule_text or f'{int(remaining.get("matches") or 0)} матч.'}",
+        f"Потолок: +{int(remaining.get('match_max') or 0)} за матчи"
+        + (f" и +{int(remaining.get('tournament_max') or 0)} за живой долгосрок" if int(remaining.get("tournament_max") or 0) else ""),
     ]
+    unavailable = list(remaining.get("unavailable_tournament_items") or [])
+    if unavailable:
+        lines.append("Не считаются: " + "; ".join(item.get("text") or "" for item in unavailable))
+
     if not payload.get("is_mathematically_possible"):
         lines.extend(["", "❌ Единоличное 1-е место уже недостижимо.", str(payload.get("elimination_reason") or "")])
         return "\n".join(lines)
@@ -441,7 +730,6 @@ def format_standings_scenarios_telegram(payload: dict[str, Any], max_variants: i
 
     lines.extend([
         "",
-        "ℹ️ Это необходимые условия по очкам, а не обещание конкретных счётов матчей. Футбол всё ещё способен выбрать самый неудобный сценарий.",
+        "ℹ️ Это необходимые условия по очкам, а не обещание конкретных счётов. Футбол всё ещё способен выбрать самый неудобный сценарий.",
     ])
-    text = "\n".join(lines)
-    return text[:3900]
+    return "\n".join(lines)[:3900]

@@ -13492,3 +13492,18 @@ body,
   .standings-head h2 { font-size: 16px; }
   .standings-scenario { padding: 9px; }
 }
+
+/* v3.7.1 — auditable standings potential breakdown */
+.standings-potential-breakdown {
+  margin: 10px 0 12px;
+  padding: 10px 11px;
+  border: 1px solid rgba(148, 163, 184, .20);
+  border-radius: 13px;
+  background: rgba(15, 23, 42, .26);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.standings-potential-breakdown p { margin: 3px 0; }
+.standings-potential-breakdown strong { color: var(--text); }
+.standings-potential-breakdown .standings-unavailable { color: var(--muted); }
+.app.theme-light .standings-potential-breakdown { background: rgba(255, 255, 255, .66); }
