@@ -29,7 +29,12 @@ from app.models import FatherMatchPrediction, League, LeagueMember, LeagueWinMod
 from app.runtime import TOURNAMENT_CODE
 from app.services.leagues import league_scoring_start_at
 from app.services.misc import build_table_rows
-from app.services.tournament_hub import get_top_scorers, resolve_player_by_name
+from app.services.tournament_hub import (
+    get_prediction_player_team_hint,
+    get_top_scorers,
+    resolve_player_by_name,
+    same_player_name,
+)
 from app.team_names import get_team_name_ru
 from app.fifa_rankings import FifaRankingsStore
 
@@ -252,27 +257,28 @@ def _top_scorer_is_alive(
 ) -> bool:
     """Return true only for a scorer whose route to the award remains live."""
     scorer = resolve_player_by_name(db, player_name, refresh=False)
-    if not scorer:
-        # Do not claim unsupported future points when a selected player cannot
-        # be resolved to a tournament player/team.
-        return False
+    # A curated national-team hint is authoritative for tournament predictions.
+    # It prevents a temporary/partial provider scorer cache from incorrectly
+    # marking an active player (for example, Харри Кейн) as out of the race.
+    team_hint = get_prediction_player_team_hint(player_name) or {}
 
     leaderboard = get_top_scorers(db, refresh=False, limit=50).get("items") or []
-    scorer_row = dict(scorer)
-    target_key = _canonical_text(player_name)
+    scorer_row = dict(scorer or {})
     for row in leaderboard:
-        if scorer.get("player_id") and str(row.get("player_id")) == str(scorer.get("player_id")):
+        if scorer and scorer.get("player_id") and str(row.get("player_id")) == str(scorer.get("player_id")):
             scorer_row.update(row)
             break
-        if _canonical_text(row.get("name")) == target_key:
+        if same_player_name(row.get("name"), player_name):
             scorer_row.update(row)
             break
 
-    team_name = str(scorer_row.get("team") or scorer.get("team") or "").strip()
-    if not team_name:
-        return False
-    if _team_is_still_alive(team_name, match_index, knockout_started):
+    team_name = str(team_hint.get("team") or scorer_row.get("team") or (scorer or {}).get("team") or "").strip()
+    if team_name and _team_is_still_alive(team_name, match_index, knockout_started):
         return True
+    if not scorer and not team_name:
+        # There is no safe player/team attribution at all, so future scorer
+        # points cannot be claimed by the model.
+        return False
 
     goals = int(scorer_row.get("goals") or 0)
     leader_goals = max((int(row.get("goals") or 0) for row in leaderboard), default=0)
@@ -906,7 +912,7 @@ def _scenario_plan_text(plan: dict[str, int], missing_open: int) -> list[str]:
 # background refresh inexpensive for medium-sized private leagues. The value can
 # be raised for a dedicated deployment without touching application code.
 SIMULATION_RUNS = max(2000, int(os.getenv("LEAGUE_WIN_SIMULATION_RUNS", "6000")))
-LEAGUE_WIN_CACHE_SCHEMA_VERSION = "v2"
+LEAGUE_WIN_CACHE_SCHEMA_VERSION = "v3"
 
 
 

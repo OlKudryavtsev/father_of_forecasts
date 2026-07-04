@@ -68,7 +68,15 @@ from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.news import get_news_usage_summary, serialize_news_item
 from app.services.match_details import build_match_details_payload, sync_match_details_cache
-from app.services.tournament_hub import find_top_scorer, get_team_scorers, get_top_scorers, player_match_rows, resolve_player_by_name
+from app.services.tournament_hub import (
+    find_top_scorer,
+    get_prediction_player_team_hint,
+    get_team_scorers,
+    get_top_scorers,
+    player_match_rows,
+    resolve_player_by_name,
+    same_player_name,
+)
 from app.services.leagues import (
     approve_league_join_request,
     create_user_league,
@@ -2065,7 +2073,7 @@ def get_dashboard(
 
 @router.get("/matches")
 def get_matches(
-    scope: str = Query(default="all", regex="^(nearest|all|missing)$"),
+    scope: str = Query(default="all", pattern="^(nearest|all|missing)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -3274,16 +3282,8 @@ def _prediction_top_scorer_status(
 
 
 def _same_prediction_player_name(left: str | None, right: str | None) -> bool:
-    """Local, conservative player-name comparison for a prediction card."""
-    def norm(value: str | None) -> str:
-        return re.sub(r"[^a-zа-я0-9]+", " ", str(value or "").casefold()).strip()
-    l, r = norm(left), norm(right)
-    if not l or not r:
-        return False
-    if l == r:
-        return True
-    lparts, rparts = l.split(), r.split()
-    return bool(lparts and rparts and lparts[-1] == rparts[-1] and (len(lparts) == 1 or len(rparts) == 1 or lparts[0][:1] == rparts[0][:1]))
+    """Compare scorer names through the shared transliteration aliases."""
+    return same_player_name(left, right)
 
 def _find_prediction_scorer(db: Session, player_name: str | None) -> dict | None:
     """Resolve a tournament-prediction scorer via cache, Fantasy roster and aliases."""
@@ -3354,6 +3354,11 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db
         payload[f"{key}_status"] = _prediction_placement_status(key, name, context, standings_by_group)
 
     scorer = _find_prediction_scorer(db, prediction.top_scorer)
+    scorer_hint = get_prediction_player_team_hint(prediction.top_scorer) or {}
+    # Keep a known national-team link/status even when the provider response is
+    # partial or a scorer row is temporarily absent from its cache.
+    if scorer_hint:
+        scorer = {**(scorer or {}), "team": scorer_hint.get("team") or (scorer or {}).get("team"), "team_api_name": scorer_hint.get("team_api_name") or (scorer or {}).get("team_api_name")}
     payload["top_scorer_player_id"] = scorer.get("player_id") if scorer else None
     payload["top_scorer_team_id"] = scorer.get("team_id") if scorer else None
     scorer_team_name = (scorer or {}).get("team") or ""

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.db import Base, SessionLocal, engine
+from app.db import SessionLocal, ensure_schema
 from app.models import Match, Prediction, TournamentPrediction, User
 from app.scoring import score_match_prediction, score_tournament_prediction
 from app.services.league_quiz import advance_due_quizzes
@@ -16,7 +16,7 @@ from app.admin import require_admin_api_token
 
 app = FastAPI(title="Отец прогнозов")
 
-Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 from app.api.webapp import router as webapp_router
 

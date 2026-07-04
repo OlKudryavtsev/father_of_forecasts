@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -24,6 +24,25 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+
+def ensure_schema() -> None:
+    """Create missing SQLAlchemy tables without a concurrent PostgreSQL DDL race.
+
+    Railway starts the bot and Uvicorn from the same container.  PostgreSQL
+    ``CREATE TABLE IF NOT EXISTS`` semantics used internally by SQLAlchemy are
+    not safe when both processes inspect and create a brand-new table at the
+    exact same time. A transaction-scoped advisory lock makes that bootstrap
+    single-writer while keeping SQLite/local development unchanged.
+    """
+    if engine.dialect.name != "postgresql":
+        Base.metadata.create_all(bind=engine)
+        return
+
+    lock_key = 20260704_376
+    with engine.begin() as connection:
+        connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+        Base.metadata.create_all(bind=connection)
 
 
 def get_db():

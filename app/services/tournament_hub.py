@@ -90,12 +90,23 @@ def _normalize_text(value: str | None) -> str:
     return re.sub(r"[^a-zа-я0-9]+", " ", normalized.casefold()).strip()
 
 
+# Alias keys are normalized with exactly the same routine used for user input.
+# This matters for Russian names containing ``й``: Unicode NFKD decomposes that
+# character, so looking up a raw dictionary key such as ``харри кейн`` would
+# otherwise miss the normalized input ``харри кеин``.
+_NORMALIZED_PLAYER_NAME_ALIASES = {
+    _normalize_text(alias): _normalize_text(target)
+    for alias, target in PLAYER_NAME_ALIASES.items()
+}
+
+
 def _canonical_player_name(value: str | None) -> str:
     normalized = _normalize_text(value)
-    return PLAYER_NAME_ALIASES.get(normalized, normalized)
+    return _NORMALIZED_PLAYER_NAME_ALIASES.get(normalized, normalized)
 
 
-def _same_player_name(left: str | None, right: str | None) -> bool:
+def same_player_name(left: str | None, right: str | None) -> bool:
+    """Compare provider and prediction player names through shared aliases."""
     left_key = _canonical_player_name(left)
     right_key = _canonical_player_name(right)
     if not left_key or not right_key:
@@ -110,6 +121,20 @@ def _same_player_name(left: str | None, right: str | None) -> bool:
         and left_parts[-1] == right_parts[-1]
         and left_parts[0][:1] == right_parts[0][:1]
     )
+
+
+# Backward-compatible private alias for internal callers in this module.
+_same_player_name = same_player_name
+
+
+def get_prediction_player_team_hint(player_name: str | None) -> dict[str, str] | None:
+    """Return the curated national-team hint for a tournament prediction.
+
+    It is intentionally available separately from provider/player resolution so
+    a valid pick remains attributable even during a partial scorer-cache sync.
+    """
+    hint = PLAYER_TEAM_HINTS.get(_canonical_player_name(player_name))
+    return dict(hint) if hint else None
 
 
 def _cache_row(db: Session, key: str) -> TournamentDataCache | None:

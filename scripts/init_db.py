@@ -7,13 +7,13 @@ exist yet. It does not perform schema migrations for existing tables/columns.
 For production schema evolution, prefer Alembic migrations.
 """
 
-from app.db import Base, engine
+from app.db import ensure_schema
 import app.models  # noqa: F401 - ensures model classes are registered in metadata
 
 
 def main() -> None:
     """Create all missing tables declared in app.models."""
-    Base.metadata.create_all(bind=engine)
+    ensure_schema()
     print("DB schema created/verified.")
 
 
