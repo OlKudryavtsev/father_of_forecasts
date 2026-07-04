@@ -126,6 +126,7 @@ from app.services.match_details import sync_active_match_details
 from app.services.matches import pregame_analysis_loop
 from app.services.news import news_loop
 from app.services.tournament_hub import sync_tournament_hub_cache
+from app.services.standings import sync_all_league_win_model_caches
 from app.services.league_quiz_telegram import process_league_quiz_telegram_events
 from app.wc2026_sync import sync_wc2026_schedule
 from app.db import SessionLocal
@@ -330,6 +331,29 @@ async def match_details_cache_loop():
         await asyncio.sleep(interval_seconds)
 
 
+async def league_win_model_cache_loop():
+    """Refresh expensive league-win simulations away from Mini App requests."""
+    enabled = os.getenv("LEAGUE_WIN_MODEL_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+
+    interval_seconds = max(60, int(os.getenv("LEAGUE_WIN_MODEL_AUTOSYNC_INTERVAL_SECONDS", "180")))
+    while True:
+        def _sync_models():
+            db = SessionLocal()
+            try:
+                return sync_all_league_win_model_caches(db)
+            finally:
+                db.close()
+
+        try:
+            result = await asyncio.to_thread(_sync_models)
+            print(f"League win model cache sync: {result}")
+        except Exception as error:
+            print(f"League win model cache sync failed: {error}")
+        await asyncio.sleep(interval_seconds)
+
+
 async def tournament_hub_cache_loop():
     """Warm shared tournament data (currently the top-scorer table)."""
     enabled = os.getenv("TOURNAMENT_HUB_AUTOSYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
@@ -416,6 +440,7 @@ async def main():
     asyncio.create_task(wc2026_schedule_auto_sync_loop())
     asyncio.create_task(match_details_cache_loop())
     asyncio.create_task(tournament_hub_cache_loop())
+    asyncio.create_task(league_win_model_cache_loop())
     asyncio.create_task(league_quiz_telegram_loop())
 
     await dp.start_polling(bot)

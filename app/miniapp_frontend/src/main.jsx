@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import './styles.css';
 
 const tg = window.Telegram?.WebApp;
-const APP_VERSION = '3.7.3';
+const APP_VERSION = __APP_VERSION__;
 const FANTASY_UI_ENABLED = false;
 
 
@@ -5382,10 +5382,13 @@ function StandingsScenarios({ rows, activeLeagueId }) {
             </select>
           </div>
 
-          {error && <p className="standings-error">Не удалось рассчитать расклады: {error.message}</p>}
-          {!error && !data && <div className="standings-loading">Собираю варианты для таблицы…</div>}
+          {error && <p className="standings-error">Не удалось открыть расклады: {error.message}</p>}
+          {!error && !data && <div className="standings-loading">Загружаю расчёт из фонового кэша…</div>}
+          {!error && data?.status === 'pending' && (
+            <div className="standings-loading">{data.message || 'Расчёт обновляется в фоне. Попробуйте через несколько минут.'}</div>
+          )}
 
-          {data && (
+          {data && data.status !== 'pending' && (
             <div className="standings-content">
               <div className="standings-summary">
                 <span>Сейчас <b>#{data.participant?.rank || '—'}</b> · {data.participant?.current_points || 0} очк.</span>
@@ -5476,6 +5479,9 @@ function Rating({ activeLeagueId }) {
   return (
     <main className="screen-content rating-screen">
       <div className="section-label">Рейтинг участников</div>
+      {data.win_model?.status === 'pending' && (
+        <p className="muted small rating-win-model-pending">Вероятности сейчас пересчитываются в фоне; карточки обновятся без долгой загрузки рейтинга.</p>
+      )}
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row) => {

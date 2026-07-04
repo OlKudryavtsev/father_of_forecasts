@@ -1,3 +1,7 @@
+# v3.7.5 — Фоновый кэш вероятностей и PWA
+
+См. `RELEASE_V3_7_5_BACKGROUND_WIN_CACHE.md`.
+
 # v3.7.4 — Вероятности победы и вероятные пути
 
 См. `RELEASE_V3_7_4_LIKELY_WIN_PATHS.md`.

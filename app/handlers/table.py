@@ -19,7 +19,7 @@ from app.runtime import (
 )
 from app.services.leagues import get_default_or_first_user_league, get_league_by_chat_id, get_user_active_leagues, league_scoring_start_at, require_user_league
 from app.services.misc import build_table_rows, build_user_summary_context
-from app.services.standings import build_standings_scenarios, format_standings_scenarios_telegram
+from app.services.standings import format_standings_scenarios_telegram, get_cached_standings_scenarios
 from app.services.predictions import get_prediction_points_breakdown
 from app.services.users import get_or_create_user
 
@@ -122,7 +122,10 @@ async def standings_pick_callback(callback: CallbackQuery):
             return
         try:
             require_user_league(db, user, league.id)
-            payload = build_standings_scenarios(db, league, participant_user_id, limit=10)
+            payload = get_cached_standings_scenarios(db, league, participant_user_id)
+            if payload is None:
+                await callback.answer("Расчёт обновляется в фоне. Попробуйте через несколько минут.", show_alert=True)
+                return
         except ValueError as error:
             await callback.answer(str(error), show_alert=True)
             return

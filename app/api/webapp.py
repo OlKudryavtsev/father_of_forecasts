@@ -54,7 +54,7 @@ from app.scoring import score_match_prediction
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
 from app.services.rating_history import build_rating_history
-from app.services.standings import build_league_win_probabilities, build_standings_scenarios
+from app.services.standings import get_cached_league_win_probabilities, get_cached_standings_scenarios
 from app.services.gamification import (
     HUMOR_MODES,
     build_achievement_cards,
@@ -2549,21 +2549,24 @@ def get_table(
         row["accuracy_base"] = finished_predictions_count
         row["accuracy_percent"] = round(successful_predictions * 100 / finished_predictions_count) if finished_predictions_count else 0
 
-    # One common simulation for the whole league keeps every card on the
-    # Rating tab consistent with the detailed "Расклады" calculation.
-    win_probabilities = build_league_win_probabilities(db, active_league)
+    # The Monte-Carlo model is calculated by the bot in the background. Never
+    # run it synchronously on a Mini App request: stale/empty values are much
+    # better than blocking the Rating tab for minutes.
+    win_probabilities = get_cached_league_win_probabilities(db, active_league)
+    win_model_status = "ready" if win_probabilities is not None else "pending"
     for row in rows:
         user_id = int(row.get("user_id") or 0)
-        probability = win_probabilities.get(user_id) or {}
-        row["win_probability"] = float(probability.get("probability") or 0.0)
-        row["win_probability_label"] = str(probability.get("label") or "0,0%")
-        row["win_probability_runs"] = int(probability.get("simulation_runs") or 0)
+        probability = (win_probabilities or {}).get(user_id) or {}
+        row["win_probability"] = probability.get("probability") if probability else None
+        row["win_probability_label"] = str(probability.get("label")) if probability else None
+        row["win_probability_runs"] = int(probability.get("simulation_runs") or 0) if probability else 0
 
     return {
         "league": _serialize_league(active_league, current_user),
         "rows": rows,
         "father_row": father_row,
         "match_analytics": _build_league_match_points_analytics(db, active_league),
+        "win_model": {"status": win_model_status},
     }
 
 
@@ -2585,17 +2588,25 @@ def get_standings_scenarios(
         raise HTTPException(status_code=403, detail=str(error)) from error
 
     target_user_id = int(participant_user_id or current_user.id)
-    try:
-        payload = build_standings_scenarios(
-            db=db,
-            league=active_league,
-            participant_user_id=target_user_id,
-            limit=10,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-    payload["league"] = _serialize_league(active_league, current_user)
-    return payload
+    is_active_member = db.query(LeagueMember).filter(
+        LeagueMember.league_id == active_league.id,
+        LeagueMember.user_id == target_user_id,
+        LeagueMember.status == "active",
+    ).first() is not None
+    if not is_active_member:
+        raise HTTPException(status_code=404, detail="Участник не состоит в выбранной лиге")
+    cached_payload = get_cached_standings_scenarios(db, active_league, target_user_id)
+    if cached_payload is None:
+        return {
+            "status": "pending",
+            "league": _serialize_league(active_league, current_user),
+            "participant": {"user_id": target_user_id},
+            "scenarios": [],
+            "message": "Вероятности и расклады пересчитываются в фоне. Обновите раздел через несколько минут.",
+        }
+    cached_payload["status"] = "ready"
+    cached_payload["league"] = _serialize_league(active_league, current_user)
+    return cached_payload
 
 
 @router.get("/rating-history")
@@ -4664,11 +4675,16 @@ def get_app_version(response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
 
-    version_path = Path(__file__).resolve().parents[2] / "VERSION"
+    static_version_path = Path(__file__).resolve().parents[1] / "miniapp_static" / "app-version.json"
+    fallback_version_path = Path(__file__).resolve().parents[2] / "VERSION"
     try:
-        version = version_path.read_text(encoding="utf-8").strip()
+        version_payload = json.loads(static_version_path.read_text(encoding="utf-8"))
+        version = str(version_payload.get("version") or "").strip() or "unknown"
     except Exception:
-        version = "unknown"
+        try:
+            version = fallback_version_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            version = "unknown"
 
     return {
         "version": version,

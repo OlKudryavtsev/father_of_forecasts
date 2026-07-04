@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from hashlib import sha256
+import os
 from random import Random
 import json
 import math
@@ -24,7 +25,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import FatherMatchPrediction, League, LeagueMember, Match, Prediction, TournamentPrediction, TournamentResult, User
+from app.models import FatherMatchPrediction, League, LeagueMember, LeagueWinModelCache, Match, Prediction, TournamentPrediction, TournamentResult, User
 from app.runtime import TOURNAMENT_CODE
 from app.services.leagues import league_scoring_start_at
 from app.services.misc import build_table_rows
@@ -901,7 +902,12 @@ def _scenario_plan_text(plan: dict[str, int], missing_open: int) -> list[str]:
 
 
 
-SIMULATION_RUNS = 12000
+# 6,000 runs provide a stable directional estimate while keeping the periodic
+# background refresh inexpensive for medium-sized private leagues. The value can
+# be raised for a dedicated deployment without touching application code.
+SIMULATION_RUNS = max(2000, int(os.getenv("LEAGUE_WIN_SIMULATION_RUNS", "6000")))
+LEAGUE_WIN_CACHE_SCHEMA_VERSION = "v2"
+
 
 
 def _build_league_probability_context(db: Session, league: League) -> dict[str, Any]:
@@ -1309,12 +1315,9 @@ def _build_likely_winning_scenarios(
     return scenarios
 
 
-def build_league_win_probabilities(db: Session, league: League) -> dict[int, dict[str, Any]]:
-    """Return strict-first-place chances for every active human participant."""
-    context = _build_league_probability_context(db, league)
-    simulation = _simulate_league_win_model(context)
+def _probability_payload_from_simulation(context: dict[str, Any], simulation: dict[str, Any]) -> dict[int, dict[str, Any]]:
     return {
-        user_id: {
+        int(user_id): {
             "probability": round(float(simulation["probabilities"].get(user_id) or 0.0), 6),
             "label": _probability_label(float(simulation["probabilities"].get(user_id) or 0.0)),
             "simulation_runs": int(simulation["runs"]),
@@ -1323,14 +1326,14 @@ def build_league_win_probabilities(db: Session, league: League) -> dict[int, dic
     }
 
 
-def build_standings_scenarios(
-    db: Session,
-    league: League,
+def _build_standings_scenarios_from_context(
+    *,
+    context: dict[str, Any],
+    simulation: dict[str, Any],
     participant_user_id: int,
     limit: int = 10,
 ) -> dict[str, Any]:
-    """Return the most likely simulated paths to a strict first-place finish."""
-    context = _build_league_probability_context(db, league)
+    """Build one participant payload from an already simulated league model."""
     users: dict[int, User] = context["users"]
     if participant_user_id not in users:
         raise ValueError("Участник не состоит в выбранной лиге")
@@ -1361,13 +1364,12 @@ def build_standings_scenarios(
     leader_current = max((item["current_points"] for item in competitors), default=-1)
 
     probability_context = context["probability_context_by_user"][participant_user_id]
-    simulation = _simulate_league_win_model(context)
     strict_wins = int(simulation["winner_counts"].get(participant_user_id) or 0)
     win_probability = float(simulation["probabilities"].get(participant_user_id) or 0.0)
     probability_sources = sorted(set(probability_context.get("sources") or []))
 
     base_payload = {
-        "league": {"id": league.id, "name": league.name},
+        "league": {"id": context["league"].id, "name": context["league"].name},
         "participant": {
             "user_id": participant_user_id,
             "name": users[participant_user_id].display_name,
@@ -1389,13 +1391,13 @@ def build_standings_scenarios(
             "advancement_opportunities": int(target_potential["advancement_slots"] or 0),
             "simulation_runs": int(simulation["runs"]),
             "probability_model": {
-                "label": "Вероятность — по симуляции оставшегося турнира",
+                "label": "Вероятность — по фоновой симуляции оставшегося турнира",
                 "description": (
-                    "Модель многократно разыгрывает оставшиеся матчи, проходы и живые долгосрочные ставки "
+                    "Модель периодически разыгрывает оставшиеся матчи, проходы и живые долгосрочные ставки "
                     "по текущему ИИ-прогнозу Отца и футбольным данным. Варианты ниже — самые частые "
                     "среди симуляций, где выбранный участник финиширует единоличным первым. "
-                    "Процент в карточке варианта показывает его долю среди победных путей; рядом указан "
-                    "общий шанс такого пути во всех симуляциях. Это оценка, а не букмекерский коэффициент и не гарантия."
+                    "Данные берутся из фонового кэша: после нового прогноза или результата могут обновиться в течение нескольких минут. "
+                    "Это оценка, а не букмекерский коэффициент и не гарантия."
                 ),
                 "sources": probability_sources,
             },
@@ -1428,6 +1430,155 @@ def build_standings_scenarios(
         limit=limit,
     )
     return base_payload
+
+
+def build_league_win_model_payload(db: Session, league: League) -> tuple[str, dict[str, Any]]:
+    """Calculate the complete reusable payload for one league exactly once."""
+    context = _build_league_probability_context(db, league)
+    source_signature = f"{LEAGUE_WIN_CACHE_SCHEMA_VERSION}:{_simulation_seed(context):x}"
+    simulation = _simulate_league_win_model(context)
+    probabilities = _probability_payload_from_simulation(context, simulation)
+    scenarios_by_user = {
+        str(user_id): _build_standings_scenarios_from_context(
+            context=context,
+            simulation=simulation,
+            participant_user_id=user_id,
+            limit=10,
+        )
+        for user_id in context["users"]
+    }
+    return source_signature, {
+        "schema_version": LEAGUE_WIN_CACHE_SCHEMA_VERSION,
+        "league_id": int(league.id),
+        "probabilities": {str(user_id): value for user_id, value in probabilities.items()},
+        "scenarios_by_user": scenarios_by_user,
+        "simulation_runs": int(simulation["runs"]),
+        "unresolved_share": round(float(simulation.get("unresolved_share") or 0.0), 6),
+    }
+
+
+def _league_win_cache_row(db: Session, league_id: int) -> LeagueWinModelCache | None:
+    return db.query(LeagueWinModelCache).filter(LeagueWinModelCache.league_id == int(league_id)).first()
+
+
+def get_cached_league_win_model(db: Session, league: League) -> dict[str, Any] | None:
+    """Return last successful cache without recalculating in request handlers."""
+    row = _league_win_cache_row(db, league.id)
+    if not row or row.sync_status != "ready" or not isinstance(row.payload, dict):
+        return None
+    return dict(row.payload)
+
+
+def get_cached_league_win_probabilities(db: Session, league: League) -> dict[int, dict[str, Any]] | None:
+    payload = get_cached_league_win_model(db, league)
+    if not payload:
+        return None
+    raw = payload.get("probabilities") or {}
+    return {int(user_id): dict(value or {}) for user_id, value in raw.items() if str(user_id).isdigit()}
+
+
+def get_cached_standings_scenarios(
+    db: Session,
+    league: League,
+    participant_user_id: int,
+) -> dict[str, Any] | None:
+    payload = get_cached_league_win_model(db, league)
+    if not payload:
+        return None
+    cached = (payload.get("scenarios_by_user") or {}).get(str(int(participant_user_id)))
+    return dict(cached) if isinstance(cached, dict) else None
+
+
+def sync_league_win_model_cache(db: Session, league: League, *, force: bool = False) -> dict[str, Any]:
+    """Refresh one durable cache row. Intended exclusively for a background job."""
+    now = datetime.now(timezone.utc)
+    row = _league_win_cache_row(db, league.id)
+    if row is None:
+        row = LeagueWinModelCache(league_id=league.id, sync_status="pending")
+        db.add(row)
+        db.flush()
+
+    try:
+        # Build the context first: its deterministic signature tells us whether
+        # a result/prediction/league change makes the existing cache obsolete.
+        context = _build_league_probability_context(db, league)
+        signature = f"{LEAGUE_WIN_CACHE_SCHEMA_VERSION}:{_simulation_seed(context):x}"
+        if not force and row.sync_status == "ready" and row.source_signature == signature and row.payload:
+            row.last_synced_at = now
+            db.commit()
+            return {"league_id": league.id, "status": "fresh", "recalculated": False}
+
+        simulation = _simulate_league_win_model(context)
+        probabilities = _probability_payload_from_simulation(context, simulation)
+        scenarios_by_user = {
+            str(user_id): _build_standings_scenarios_from_context(
+                context=context,
+                simulation=simulation,
+                participant_user_id=user_id,
+                limit=10,
+            )
+            for user_id in context["users"]
+        }
+        row.source_signature = signature
+        row.payload = {
+            "schema_version": LEAGUE_WIN_CACHE_SCHEMA_VERSION,
+            "league_id": int(league.id),
+            "probabilities": {str(user_id): value for user_id, value in probabilities.items()},
+            "scenarios_by_user": scenarios_by_user,
+            "simulation_runs": int(simulation["runs"]),
+            "unresolved_share": round(float(simulation.get("unresolved_share") or 0.0), 6),
+        }
+        row.sync_status = "ready"
+        row.last_error = None
+        row.last_success_at = now
+        row.last_synced_at = now
+        db.commit()
+        return {"league_id": league.id, "status": "ready", "recalculated": True, "runs": int(simulation["runs"])}
+    except Exception as error:
+        db.rollback()
+        row = _league_win_cache_row(db, league.id)
+        if row is None:
+            row = LeagueWinModelCache(league_id=league.id)
+            db.add(row)
+        row.sync_status = "partial" if row.payload else "error"
+        row.last_synced_at = now
+        row.last_error = str(error)[:2000]
+        db.commit()
+        return {"league_id": league.id, "status": row.sync_status, "recalculated": False, "error": str(error)}
+
+
+def sync_all_league_win_model_caches(db: Session, *, force: bool = False) -> dict[str, Any]:
+    leagues = db.query(League).filter(League.is_active == True).order_by(League.id.asc()).all()
+    results = [sync_league_win_model_cache(db, league, force=force) for league in leagues]
+    return {
+        "leagues": len(results),
+        "ready": sum(1 for item in results if item.get("status") in {"ready", "fresh"}),
+        "recalculated": sum(1 for item in results if item.get("recalculated")),
+        "errors": [item for item in results if item.get("status") == "error"],
+    }
+
+
+def build_league_win_probabilities(db: Session, league: League) -> dict[int, dict[str, Any]]:
+    """Compatibility helper for offline/admin callers; web requests use cache."""
+    context = _build_league_probability_context(db, league)
+    return _probability_payload_from_simulation(context, _simulate_league_win_model(context))
+
+
+def build_standings_scenarios(
+    db: Session,
+    league: League,
+    participant_user_id: int,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Compatibility helper for offline/admin callers; web requests use cache."""
+    context = _build_league_probability_context(db, league)
+    simulation = _simulate_league_win_model(context)
+    return _build_standings_scenarios_from_context(
+        context=context,
+        simulation=simulation,
+        participant_user_id=participant_user_id,
+        limit=limit,
+    )
 
 def _format_bracket_breakdown(remaining: dict[str, Any]) -> str:
     rows = list(remaining.get("bracket_breakdown") or [])

@@ -270,6 +270,30 @@ class TournamentDataCache(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class LeagueWinModelCache(Base):
+    """Precomputed league win probabilities and likely victory paths.
+
+    The Monte-Carlo model is intentionally refreshed by the bot in the
+    background. Mini App and Telegram reads use this durable PostgreSQL cache
+    and therefore never block on a multi-thousand-run simulation.
+    """
+
+    __tablename__ = "league_win_model_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    source_signature = Column(String(96), nullable=True, index=True)
+    payload = Column(JSON, nullable=True)
+    sync_status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    league = relationship("League")
+
+
 class MatchVideo(Base):
     __tablename__ = "match_videos"
 
