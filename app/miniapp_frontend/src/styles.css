@@ -13593,3 +13593,202 @@ body,
   .rating-foot-line { flex-wrap: wrap; }
   .rating-foot-line .rating-win-chance { flex-basis: 100%; padding-top: 1px; }
 }
+
+/* v3.7.7 — pairwise prediction agreement analytics */
+.prediction-agreement-card {
+  margin: 14px 0 18px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.92));
+}
+
+.prediction-agreement-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.prediction-agreement-head h2 {
+  margin: 2px 0 4px;
+  font-size: 19px;
+  line-height: 1.1;
+}
+
+.prediction-agreement-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.prediction-agreement-head > b {
+  min-width: 38px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  background: var(--gold-soft);
+  font-size: 14px;
+}
+
+.prediction-agreement-controls,
+.prediction-stage-filter {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+  scrollbar-width: none;
+}
+
+.prediction-agreement-controls::-webkit-scrollbar,
+.prediction-stage-filter::-webkit-scrollbar { display: none; }
+
+.prediction-agreement-controls button,
+.prediction-stage-filter button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  padding: 0 11px;
+  color: var(--muted);
+  background: rgba(15, 23, 42, 0.72);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.prediction-stage-filter button span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  margin-left: 6px;
+  border-radius: 999px;
+  color: #dbeafe;
+  background: rgba(96, 165, 250, 0.18);
+  font-size: 10px;
+}
+
+.prediction-agreement-controls button.active,
+.prediction-stage-filter button.active {
+  color: #d7fbe8;
+  border-color: rgba(34, 197, 94, 0.48);
+  background: rgba(34, 197, 94, 0.16);
+}
+
+.prediction-agreement-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.prediction-agreement-summary span {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 12px;
+  color: var(--muted);
+  background: rgba(15, 23, 42, 0.78);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.prediction-agreement-summary b {
+  color: var(--text);
+}
+
+.prediction-agreement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.prediction-agreement-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 15px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.prediction-agreement-place {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.16);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.prediction-agreement-pair {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.prediction-agreement-pair strong {
+  min-width: 0;
+  overflow: hidden;
+  max-width: 42%;
+  color: #f8fafc;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prediction-agreement-pair em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.prediction-agreement-pair small {
+  flex-basis: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prediction-agreement-score {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.prediction-agreement-score b {
+  color: #ecfeff;
+  font-size: 13px;
+}
+
+.prediction-agreement-score span {
+  color: #86efac;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.prediction-agreement-more {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 390px) {
+  .prediction-agreement-card { padding: 12px; }
+  .prediction-agreement-row { grid-template-columns: 26px minmax(0, 1fr) auto; gap: 7px; padding: 9px; }
+  .prediction-agreement-pair strong { font-size: 11px; max-width: 41%; }
+  .prediction-agreement-summary { gap: 6px; }
+  .prediction-agreement-summary span { padding: 7px 5px; font-size: 9.5px; }
+}

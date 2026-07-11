@@ -4493,7 +4493,122 @@ function FantasyPlayerPicker({
   );
 }
 
-function Predictions({ onPredict, onForecast, tournamentPrediction, onTournamentPick, onTournamentParticipants, onOpenTournamentTeam, onOpenTournamentPlayer }) {
+
+function PredictionAgreementAnalytics({ activeLeagueId = null }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [includeAdvancement, setIncludeAdvancement] = useState(false);
+  const [selectedStages, setSelectedStages] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const stageKeys = (data?.stages || []).map((stage) => stage.key);
+  const effectiveSelectedStages = selectedStages.length ? selectedStages : stageKeys;
+  const allStagesSelected = !selectedStages.length || effectiveSelectedStages.length === stageKeys.length;
+
+  async function loadAgreement() {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+      params.set('include_advancement', includeAdvancement ? 'true' : 'false');
+      if (selectedStages.length) params.set('stages', selectedStages.join(','));
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      const result = await api(`/api/webapp/predictions/agreement${suffix}`);
+      setData(result);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadAgreement(); }, [activeLeagueId, includeAdvancement, selectedStages.join('|')]);
+
+  function toggleStage(key) {
+    if (!key) return;
+    setSelectedStages((current) => {
+      const base = current.length ? current : stageKeys;
+      const next = base.includes(key) ? base.filter((item) => item !== key) : [...base, key];
+      if (next.length === 0 || next.length === stageKeys.length) return [];
+      return next;
+    });
+  }
+
+  function selectAllStages() {
+    setSelectedStages([]);
+  }
+
+  const pairs = data?.pairs || [];
+  const summary = data?.summary || {};
+  const shownPairs = pairs.slice(0, 30);
+
+  return (
+    <section className="card prediction-agreement-card">
+      <div className="prediction-agreement-head">
+        <div>
+          <div className="section-label">Аналитика прогнозов</div>
+          <h2>Кто с кем думал одинаково</h2>
+          <p>{data?.league?.name ? `Лига «${data.league.name}»` : 'Выбранная лига'} · только начавшиеся и завершённые матчи</p>
+        </div>
+        <b>{summary.pairs_count ?? '—'}</b>
+      </div>
+
+      <div className="prediction-agreement-controls">
+        <button type="button" className={!includeAdvancement ? 'active' : ''} onClick={() => setIncludeAdvancement(false)}>Без прохода</button>
+        <button type="button" className={includeAdvancement ? 'active' : ''} onClick={() => setIncludeAdvancement(true)}>С проходом</button>
+      </div>
+
+      <div className="prediction-stage-filter" aria-label="Фильтр стадий">
+        <button type="button" className={allStagesSelected ? 'active' : ''} onClick={selectAllStages}>Все стадии</button>
+        {(data?.stages || []).map((stage) => (
+          <button
+            key={stage.key}
+            type="button"
+            className={effectiveSelectedStages.includes(stage.key) ? 'active' : ''}
+            onClick={() => toggleStage(stage.key)}
+          >
+            {stage.label}<span>{stage.count}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="prediction-agreement-summary">
+        <span>Матчей: <b>{summary.matches_count ?? '—'}</b></span>
+        <span>Участников: <b>{summary.participants_count ?? '—'}</b></span>
+        <span>Пар: <b>{summary.pairs_count ?? '—'}</b></span>
+      </div>
+
+      {error && <p className="error-text">{error.message || 'Не удалось загрузить аналитику совпадений.'}</p>}
+      {loading && !data && <LoadingCard text="Сравниваю прогнозы участников..." />}
+      {!loading && !error && data && pairs.length === 0 && (
+        <EmptyState iconName="team" title="Пока нет пар для сравнения" text="Нужны матчи, где минимум два участника сделали прогноз." />
+      )}
+      {data && pairs.length > 0 && (
+        <div className="prediction-agreement-list">
+          {shownPairs.map((pair, index) => (
+            <article className="prediction-agreement-row" key={`${pair.user1_id}-${pair.user2_id}`}>
+              <span className="prediction-agreement-place">{index + 1}</span>
+              <div className="prediction-agreement-pair">
+                <strong>{pair.user1}</strong>
+                <em>×</em>
+                <strong>{pair.user2}</strong>
+                {pair.examples?.length > 0 && <small>Примеры: {pair.examples.map((item) => `${item.home_team} — ${item.away_team} ${item.score}`).join('; ')}</small>}
+              </div>
+              <div className="prediction-agreement-score">
+                <b>{pair.same_count}/{pair.compared_count}</b>
+                <span>{pair.same_percent}%</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      {pairs.length > shownPairs.length && <p className="prediction-agreement-more">Показаны первые {shownPairs.length} пар из {pairs.length}.</p>}
+    </section>
+  );
+}
+
+function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentPrediction, onTournamentPick, onTournamentParticipants, onOpenTournamentTeam, onOpenTournamentPlayer }) {
   const [data, setData] = useState(null);
   const [activeSection, setActiveSection] = useState('missing');
   const [error, setError] = useState(null);
@@ -4527,6 +4642,7 @@ function Predictions({ onPredict, onForecast, tournamentPrediction, onTournament
         onOpenTournamentTeam={onOpenTournamentTeam}
         onOpenTournamentPlayer={onOpenTournamentPlayer}
       />
+      <PredictionAgreementAnalytics activeLeagueId={activeLeagueId} />
       <div className="stat-grid prediction-tabs">
         <button className={`stat-card ${activeSection === 'missing' ? 'active' : ''}`} onClick={() => setActiveSection('missing')}>
           <b>{data ? missingMatches.length : '—'}</b>
@@ -8580,7 +8696,8 @@ function App() {
       )}
       {FANTASY_UI_ENABLED && tab === 'fantasy' && <Fantasy />}
       {tab === 'predictions' && <Predictions
-        key={`predictions-${refreshKey}`}
+        key={`predictions-${refreshKey}-${activeLeagueId || 'default'}`}
+        activeLeagueId={activeLeagueId}
         onPredict={setPredictionMatch}
         onForecast={setForecastMatch}
         tournamentPrediction={tournamentPrediction}

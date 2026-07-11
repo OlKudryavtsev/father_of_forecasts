@@ -554,6 +554,46 @@ def _stage_label_for_match(match: Match | None) -> str:
     return round_text or match.stage or "Турнир"
 
 
+
+
+def _prediction_agreement_stage(match: Match) -> dict:
+    """Return stable stage metadata for pairwise prediction-agreement analytics."""
+    stage = (match.stage or "").lower()
+    raw = f"{match.match_round or ''} {match.api_league_round or ''}".lower()
+    label = _stage_label_for_match(match)
+
+    if stage == "group":
+        round_number = _parse_round_number(match.match_round) or _parse_round_number(match.api_league_round) or 1
+        key = f"group_{round_number}"
+        sort = round_number
+        label = f"{round_number} тур"
+    elif stage in {"round_of_32", "r32", "round_32", "last_32"} or "1/16" in raw or "round of 32" in raw:
+        key, sort, label = "round_of_32", 32, "1/16"
+    elif stage in {"round_of_16", "r16", "round_16", "last_16"} or "1/8" in raw or "round of 16" in raw:
+        key, sort, label = "round_of_16", 33, "1/8"
+    elif stage in {"quarterfinal", "quarter", "quarter-final"} or "1/4" in raw or "quarter" in raw:
+        key, sort, label = "quarterfinal", 34, "1/4"
+    elif stage in {"semifinal", "semi", "semi-final"} or "1/2" in raw or "semi" in raw:
+        key, sort, label = "semifinal", 35, "1/2"
+    elif stage == "third_place" or "third" in raw or "3" in raw and "мест" in raw:
+        key, sort, label = "third_place", 36, "3-е место"
+    elif stage == "final" or "final" in raw or "финал" in raw:
+        key, sort, label = "final", 37, "Финал"
+    else:
+        key = re.sub(r"[^a-z0-9_]+", "_", stage or raw or "stage").strip("_") or "stage"
+        sort = 100
+
+    return {"key": key, "label": label, "sort": sort}
+
+
+def _prediction_agreement_signature(prediction: Prediction, *, include_advancement: bool, match: Match) -> tuple:
+    """Return the comparable prediction signature for pairwise agreement."""
+    signature = (int(prediction.pred_home), int(prediction.pred_away))
+    if include_advancement and is_playoff_match(match):
+        side = prediction.predicted_advancing_side if prediction.advancement_bet_enabled else None
+        signature = (*signature, side or "")
+    return signature
+
 def _current_stage_label(db: Session) -> str:
     """Return current/nearest tournament stage label for top Mini App header."""
     now = datetime.now(timezone.utc)
@@ -2068,6 +2108,152 @@ def get_dashboard(
             "starts_at": tournament_starts_at.isoformat(),
             "current_stage_label": _current_stage_label(db),
         },
+    }
+
+
+@router.get("/predictions/agreement")
+def get_prediction_agreement_analytics(
+    league_id: int | None = Query(default=None),
+    include_advancement: bool = Query(default=False),
+    stages: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return pairwise analytics for participants with identical predictions.
+
+    Only matches that already started are included. A pair is compared for a
+    match only when both active league members had submitted a prediction for it.
+    """
+    try:
+        active_league = require_user_league(db, current_user, league_id)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+    now = datetime.now(timezone.utc)
+    started_matches = (
+        db.query(Match)
+        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .filter((Match.starts_at <= now) | (Match.is_finished == True))  # noqa: E712
+        .order_by(Match.starts_at.asc(), Match.id.asc())
+        .all()
+    )
+
+    stage_counts: dict[str, dict] = {}
+    match_stage_by_id: dict[int, dict] = {}
+    for match in started_matches:
+        meta = _prediction_agreement_stage(match)
+        match_stage_by_id[match.id] = meta
+        existing = stage_counts.setdefault(meta["key"], {"key": meta["key"], "label": meta["label"], "sort": meta["sort"], "count": 0})
+        existing["count"] += 1
+
+    selected_stage_keys = {item.strip() for item in (stages or "").split(",") if item.strip()}
+    if selected_stage_keys:
+        matches = [match for match in started_matches if match_stage_by_id.get(match.id, {}).get("key") in selected_stage_keys]
+    else:
+        matches = started_matches
+
+    stages_payload = sorted(stage_counts.values(), key=lambda item: (item["sort"], item["label"]))
+    selected_keys = selected_stage_keys or {item["key"] for item in stages_payload}
+    for item in stages_payload:
+        item["selected"] = item["key"] in selected_keys
+
+    member_rows = (
+        db.query(LeagueMember, User)
+        .join(User, User.id == LeagueMember.user_id)
+        .filter(
+            LeagueMember.league_id == active_league.id,
+            LeagueMember.status == "active",
+            User.access_status == "approved",
+        )
+        .order_by(User.display_name.asc())
+        .all()
+    )
+    members = [
+        {
+            "user_id": user.id,
+            "display_name": user.display_name,
+            "username": user.username,
+            "joined_at": _ensure_utc(membership.joined_at) if membership.joined_at else datetime.min.replace(tzinfo=timezone.utc),
+        }
+        for membership, user in member_rows
+    ]
+    member_by_id = {item["user_id"]: item for item in members}
+    match_ids = [match.id for match in matches]
+    predictions = []
+    if match_ids and member_by_id:
+        predictions = (
+            db.query(Prediction)
+            .filter(Prediction.match_id.in_(match_ids), Prediction.user_id.in_(list(member_by_id.keys())))
+            .all()
+        )
+    prediction_by_match_user = {(prediction.match_id, prediction.user_id): prediction for prediction in predictions}
+
+    pairs: list[dict] = []
+    for left_index, left in enumerate(members):
+        for right in members[left_index + 1:]:
+            compared = 0
+            same = 0
+            same_score = 0
+            same_advancement = 0
+            examples: list[dict] = []
+            for match in matches:
+                match_start = _ensure_utc(match.starts_at)
+                if left["joined_at"] > match_start or right["joined_at"] > match_start:
+                    continue
+                left_prediction = prediction_by_match_user.get((match.id, left["user_id"]))
+                right_prediction = prediction_by_match_user.get((match.id, right["user_id"]))
+                if not left_prediction or not right_prediction:
+                    continue
+                compared += 1
+                score_equal = left_prediction.pred_home == right_prediction.pred_home and left_prediction.pred_away == right_prediction.pred_away
+                if score_equal:
+                    same_score += 1
+                if is_playoff_match(match):
+                    left_side = left_prediction.predicted_advancing_side if left_prediction.advancement_bet_enabled else None
+                    right_side = right_prediction.predicted_advancing_side if right_prediction.advancement_bet_enabled else None
+                    advancement_equal = bool(left_side and right_side and left_side == right_side)
+                else:
+                    advancement_equal = True
+                if is_playoff_match(match) and advancement_equal:
+                    same_advancement += 1
+                signatures_equal = _prediction_agreement_signature(left_prediction, include_advancement=include_advancement, match=match) == _prediction_agreement_signature(right_prediction, include_advancement=include_advancement, match=match)
+                if signatures_equal:
+                    same += 1
+                    if len(examples) < 3:
+                        examples.append({
+                            "match_id": match.id,
+                            "home_team": get_team_name_ru(match.home_team),
+                            "away_team": get_team_name_ru(match.away_team),
+                            "score": f"{left_prediction.pred_home}:{left_prediction.pred_away}",
+                            "stage": match_stage_by_id.get(match.id, {}).get("label") or _stage_label_for_match(match),
+                        })
+            if compared:
+                pairs.append({
+                    "user1_id": left["user_id"],
+                    "user1": left["display_name"],
+                    "user2_id": right["user_id"],
+                    "user2": right["display_name"],
+                    "same_count": same,
+                    "compared_count": compared,
+                    "same_percent": round((same / compared) * 100, 1) if compared else 0,
+                    "same_score_count": same_score,
+                    "same_advancement_count": same_advancement,
+                    "examples": examples,
+                })
+
+    pairs.sort(key=lambda item: (-item["same_count"], -item["same_percent"], -item["compared_count"], item["user1"], item["user2"]))
+
+    return {
+        "league": _serialize_league(active_league, current_user),
+        "include_advancement": include_advancement,
+        "stages": stages_payload,
+        "summary": {
+            "matches_count": len(matches),
+            "started_matches_count": len(started_matches),
+            "participants_count": len(members),
+            "pairs_count": len(pairs),
+        },
+        "pairs": pairs,
     }
 
 
