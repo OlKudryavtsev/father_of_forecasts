@@ -4500,6 +4500,9 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
   const [includeAdvancement, setIncludeAdvancement] = useState(false);
   const [selectedStages, setSelectedStages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [stageMenuOpen, setStageMenuOpen] = useState(false);
+  const [selectedPair, setSelectedPair] = useState(null);
 
   const stageKeys = (data?.stages || []).map((stage) => stage.key);
   const effectiveSelectedStages = selectedStages.length ? selectedStages : stageKeys;
@@ -4516,6 +4519,7 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
       const suffix = params.toString() ? `?${params.toString()}` : '';
       const result = await api(`/api/webapp/predictions/agreement${suffix}`);
       setData(result);
+      setSelectedPair(null);
     } catch (err) {
       setError(err);
     } finally {
@@ -4537,11 +4541,18 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
 
   function selectAllStages() {
     setSelectedStages([]);
+    setStageMenuOpen(false);
   }
 
   const pairs = data?.pairs || [];
   const summary = data?.summary || {};
-  const shownPairs = pairs.slice(0, 30);
+  const shownPairs = expanded ? pairs : pairs.slice(0, 5);
+  const selectedStageLabels = allStagesSelected
+    ? 'Все стадии'
+    : (data?.stages || [])
+        .filter((stage) => effectiveSelectedStages.includes(stage.key))
+        .map((stage) => stage.label)
+        .join(', ');
 
   return (
     <section className="card prediction-agreement-card">
@@ -4554,23 +4565,37 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
         <b>{summary.pairs_count ?? '—'}</b>
       </div>
 
-      <div className="prediction-agreement-controls">
-        <button type="button" className={!includeAdvancement ? 'active' : ''} onClick={() => setIncludeAdvancement(false)}>Без прохода</button>
-        <button type="button" className={includeAdvancement ? 'active' : ''} onClick={() => setIncludeAdvancement(true)}>С проходом</button>
-      </div>
-
-      <div className="prediction-stage-filter" aria-label="Фильтр стадий">
-        <button type="button" className={allStagesSelected ? 'active' : ''} onClick={selectAllStages}>Все стадии</button>
-        {(data?.stages || []).map((stage) => (
-          <button
-            key={stage.key}
-            type="button"
-            className={effectiveSelectedStages.includes(stage.key) ? 'active' : ''}
-            onClick={() => toggleStage(stage.key)}
-          >
-            {stage.label}<span>{stage.count}</span>
+      <div className="prediction-agreement-selects">
+        <label>
+          <span>Проход</span>
+          <select value={includeAdvancement ? 'with' : 'without'} onChange={(event) => setIncludeAdvancement(event.target.value === 'with')}>
+            <option value="without">Без учёта прохода</option>
+            <option value="with">С учётом прохода</option>
+          </select>
+        </label>
+        <label className="prediction-stage-dropdown">
+          <span>Стадии</span>
+          <button type="button" className="prediction-stage-dropdown-button" onClick={() => setStageMenuOpen((value) => !value)}>
+            <span>{selectedStageLabels || 'Выбрать стадии'}</span>
+            <b>{stageMenuOpen ? '−' : '+'}</b>
           </button>
-        ))}
+          {stageMenuOpen && (
+            <div className="prediction-stage-dropdown-menu">
+              <button type="button" className={allStagesSelected ? 'active' : ''} onClick={selectAllStages}>Все стадии</button>
+              {(data?.stages || []).map((stage) => (
+                <button
+                  key={stage.key}
+                  type="button"
+                  className={effectiveSelectedStages.includes(stage.key) ? 'active' : ''}
+                  onClick={() => toggleStage(stage.key)}
+                >
+                  <span>{stage.label}</span>
+                  <small>{stage.count}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </label>
       </div>
 
       <div className="prediction-agreement-summary">
@@ -4587,7 +4612,7 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
       {data && pairs.length > 0 && (
         <div className="prediction-agreement-list">
           {shownPairs.map((pair, index) => (
-            <article className="prediction-agreement-row" key={`${pair.user1_id}-${pair.user2_id}`}>
+            <button className="prediction-agreement-row" type="button" key={`${pair.user1_id}-${pair.user2_id}`} onClick={() => setSelectedPair(pair)}>
               <span className="prediction-agreement-place">{index + 1}</span>
               <div className="prediction-agreement-pair">
                 <strong>{pair.user1}</strong>
@@ -4599,14 +4624,54 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
                 <b>{pair.same_count}/{pair.compared_count}</b>
                 <span>{pair.same_percent}%</span>
               </div>
-            </article>
+            </button>
           ))}
         </div>
       )}
-      {pairs.length > shownPairs.length && <p className="prediction-agreement-more">Показаны первые {shownPairs.length} пар из {pairs.length}.</p>}
+      {pairs.length > 5 && (
+        <button type="button" className="prediction-agreement-expand" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? 'Свернуть' : `Показать ещё ${pairs.length - 5}`}
+        </button>
+      )}
+      {selectedPair && (
+        <PredictionAgreementPairModal pair={selectedPair} includeAdvancement={includeAdvancement} onClose={() => setSelectedPair(null)} />
+      )}
     </section>
   );
 }
+
+function PredictionAgreementPairModal({ pair, includeAdvancement = false, onClose }) {
+  const matches = pair?.matches || [];
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card prediction-agreement-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2>{pair.user1} × {pair.user2}</h2>
+        <p className="muted">Совпали {pair.same_count} из {pair.compared_count} · {pair.same_percent}% · {includeAdvancement ? 'с учётом прохода' : 'без учёта прохода'}</p>
+        {matches.length === 0 ? (
+          <EmptyState iconName="target" title="Нет матчей" text="По этой паре пока нет общих прогнозов." />
+        ) : (
+          <div className="prediction-agreement-match-list">
+            {matches.map((match) => (
+              <article className={`prediction-agreement-match ${match.same ? 'same' : 'different'}`} key={match.match_id}>
+                <div>
+                  <strong>{match.home_team} — {match.away_team}</strong>
+                  <span>{match.stage}</span>
+                </div>
+                <div className="prediction-agreement-match-predictions">
+                  <p><b>{pair.user1}:</b> {match.user1_prediction}</p>
+                  <p><b>{pair.user2}:</b> {match.user2_prediction}</p>
+                </div>
+                <em>{match.same ? 'Совпали' : 'Разошлись'}</em>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 
 function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentPrediction, onTournamentPick, onTournamentParticipants, onOpenTournamentTeam, onOpenTournamentPlayer }) {
   const [data, setData] = useState(null);
@@ -4642,7 +4707,6 @@ function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentP
         onOpenTournamentTeam={onOpenTournamentTeam}
         onOpenTournamentPlayer={onOpenTournamentPlayer}
       />
-      <PredictionAgreementAnalytics activeLeagueId={activeLeagueId} />
       <div className="stat-grid prediction-tabs">
         <button className={`stat-card ${activeSection === 'missing' ? 'active' : ''}`} onClick={() => setActiveSection('missing')}>
           <b>{data ? missingMatches.length : '—'}</b>
@@ -4676,6 +4740,7 @@ function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentP
           )}
         </section>
       )}
+      <PredictionAgreementAnalytics activeLeagueId={activeLeagueId} />
     </main>
   );
 }

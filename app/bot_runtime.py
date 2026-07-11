@@ -77,6 +77,7 @@ from app.handlers.predictions import (
     predict_handler,
     predict_match_callback,
     predict_score_callback,
+    prediction_agreement_top_handler,
     predictions_handler,
     predictions_match_callback,
 )
@@ -167,6 +168,8 @@ def register_handlers():
     dp.message.register(forecast_handler, Command("forecast"))
     dp.message.register(mybets_handler, Command("mybets"))
     dp.message.register(predictions_handler, Command("predictions"))
+    dp.message.register(prediction_agreement_top_handler, Command("same"))
+    dp.message.register(prediction_agreement_top_handler, Command("agreement"))
     dp.message.register(table_handler, Command("table"))
     dp.message.register(standings_handler, Command("standings"))
     dp.message.register(rules_handler, Command("rules"))

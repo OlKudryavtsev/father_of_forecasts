@@ -17,6 +17,7 @@ from app.runtime import (
 )
 from app.services.matches import get_all_available_matches, get_nearest_matchday_matches, get_recent_and_upcoming_matches, is_playoff_match
 from app.services.predictions import build_predictions_text, get_missing_predictions_for_matches, parse_advancement_choice, parse_score, save_prediction_and_notify_admins
+from app.services.prediction_agreement import build_prediction_agreement_analytics, format_prediction_agreement_top_text
 from app.services.leagues import get_default_or_first_user_league, get_league_by_chat_id
 from app.services.users import get_or_create_user
 from app.states import MatchPredictionForm
@@ -588,6 +589,38 @@ async def predictions_match_callback(callback: CallbackQuery):
         await callback.message.answer(build_predictions_text(db, match, league_id=league_id))
         await callback.answer()
 
+    finally:
+        db.close()
+
+async def prediction_agreement_top_handler(message: Message):
+    """Show top-10 pairs with identical predictions in private or group chats."""
+    db = SessionLocal()
+    try:
+        user, _ = get_or_create_user(db, message.from_user)
+        include_advancement = any(part.lower() in {"pass", "adv", "advance", "проход", "проходы"} for part in (message.text or "").split()[1:])
+
+        league = None
+        chat_type = getattr(message.chat, "type", "private")
+        if chat_type in {"group", "supergroup"}:
+            league = get_league_by_chat_id(db, getattr(message.chat, "id", None))
+        if league is None:
+            league = get_default_or_first_user_league(db, user)
+
+        if not league:
+            await message.answer(
+                "Не нашёл лигу для расчёта. В личке нужна активная лига участника, в группе — привязанный chat_id лиги."
+            )
+            return
+
+        payload = build_prediction_agreement_analytics(
+            db,
+            league=league,
+            include_advancement=include_advancement,
+            stages=None,
+            examples_limit=2,
+            include_match_details=False,
+        )
+        await message.answer(format_prediction_agreement_top_text(payload, limit=10))
     finally:
         db.close()
 
