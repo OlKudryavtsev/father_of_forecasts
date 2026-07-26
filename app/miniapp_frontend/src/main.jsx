@@ -3533,7 +3533,10 @@ function TournamentPredictionsModal({
               <article key={row.user_name} className={`tournament-prediction-row ${row.has_prediction ? '' : 'empty'}`}>
                 <header className="tournament-prediction-row-head">
                   <strong>{row.user_name}</strong>
-                  {row.prediction && <b className="tournament-prediction-remaining">ещё до +{row.remaining_points ?? row.prediction.remaining_points ?? 0}</b>}
+                  {row.prediction && (data.tournament_finished
+                    ? <b className="tournament-prediction-remaining">+{row.prediction.points ?? 0}</b>
+                    : <b className="tournament-prediction-remaining">ещё до +{row.remaining_points ?? row.prediction.remaining_points ?? 0}</b>
+                  )}
                 </header>
                 {row.prediction ? (
                   <div className="tournament-prediction-items">

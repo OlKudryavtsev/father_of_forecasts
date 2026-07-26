@@ -22,7 +22,13 @@ from app.team_names import get_team_name_ru
 def _stage_key(match: Match) -> str:
     stage = str(getattr(match, "stage", "") or "").lower()
     raw = f"{getattr(match, 'match_round', '') or ''} {getattr(match, 'api_league_round', '') or ''}".lower()
-    if stage == "third_place" or "third" in raw or ("3" in raw and "мест" in raw):
+    if (
+        stage in {"third_place", "bronze", "third"}
+        or "third" in raw
+        or "3rd" in raw
+        or "bronze" in raw
+        or ("3" in raw and "мест" in raw)
+    ):
         return "third_place"
     if stage == "final" or "final" in raw or "финал" in raw:
         return "final"
@@ -42,17 +48,8 @@ def _winner_and_loser(match: Match) -> tuple[str | None, str | None]:
     return None, None
 
 
-def infer_tournament_result(db: Session, tournament_code: str = TOURNAMENT_CODE) -> TournamentResult | None:
-    """Return saved result, or infer placements from finished final/bronze matches.
-
-    The saved admin result remains authoritative. The fallback keeps the rating
-    useful when all matches are completed but the admin has not run the result
-    recalculation command yet.
-    """
-    explicit = db.query(TournamentResult).filter(TournamentResult.tournament_code == tournament_code).first()
-    if explicit:
-        return explicit
-
+def _infer_tournament_result_from_matches(db: Session, tournament_code: str = TOURNAMENT_CODE) -> TournamentResult | None:
+    """Infer final placements from finished final/bronze matches and scorer cache."""
     matches = (
         db.query(Match)
         .filter(Match.tournament_code == tournament_code, Match.is_finished == True)
@@ -85,6 +82,28 @@ def infer_tournament_result(db: Session, tournament_code: str = TOURNAMENT_CODE)
         top_scorer=top_scorer,
     )
 
+
+def infer_tournament_result(db: Session, tournament_code: str = TOURNAMENT_CODE) -> TournamentResult | None:
+    """Return saved result, enriched with inferred final/bronze data when needed.
+
+    Older deployments could save an incomplete result or fail to infer the bronze
+    match because the provider called it ``3rd Place Playoff``. When that
+    happens, keep the explicit admin values that exist but backfill missing
+    champion/runner-up/third-place/top-scorer fields from finished official data.
+    """
+    explicit = db.query(TournamentResult).filter(TournamentResult.tournament_code == tournament_code).first()
+    inferred = _infer_tournament_result_from_matches(db, tournament_code)
+    if explicit:
+        if not inferred:
+            return explicit
+        return TournamentResult(
+            tournament_code=tournament_code,
+            champion=explicit.champion or inferred.champion,
+            runner_up=explicit.runner_up or inferred.runner_up,
+            third_place=explicit.third_place or inferred.third_place,
+            top_scorer=explicit.top_scorer or inferred.top_scorer,
+        )
+    return inferred
 
 def apply_tournament_result_score(
     prediction: TournamentPrediction | None,

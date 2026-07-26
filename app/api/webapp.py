@@ -2694,8 +2694,10 @@ def get_table(
         advancement_plus = row.get("advancement_plus", 0)
         advancement_minus = row.get("advancement_minus", 0)
         match_points = row.get("match_points", 0)
-        tournament_points = row.get("tournament_points", 0)
-        total_points = row.get("points", 0)
+        # Tournament points are recalculated dynamically after the final result.
+        # Do not trust stale persisted/legacy row totals from earlier versions.
+        tournament_points = int(getattr(tournament_prediction, "points", 0) or row.get("tournament_points", 0) or 0)
+        total_points = int(match_points or 0) + tournament_points
         successful_predictions = exact_scores + outcomes
 
         row["rank"] = index
@@ -3185,7 +3187,13 @@ def get_tournament_predictions(
             }
         )
 
-    return {"revealed": revealed, "league": _serialize_league(active_league, current_user), "rows": rows}
+    return {
+        "revealed": revealed,
+        "tournament_finished": _tournament_is_finished(db),
+        "tournament_result": tournament_result_payload(infer_tournament_result(db, TOURNAMENT_CODE)),
+        "league": _serialize_league(active_league, current_user),
+        "rows": rows,
+    }
 
 
 def _top_scorer_photo(db: Session | None, player_name: str | None) -> str | None:
@@ -3543,6 +3551,38 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db
         reference = context.get(get_team_name_ru(name)) or {}
         payload[f"{key}_team_id"] = reference.get("team_id")
         payload[f"{key}_status"] = _prediction_placement_status(key, name, context, standings_by_group)
+
+    tournament_result = infer_tournament_result(db, TOURNAMENT_CODE)
+
+    # Once the tournament is finished, card colours must be final scoring states,
+    # not live possibility states. Gold = forecast hit, red = forecast missed.
+    if tournament_result is not None:
+        final_labels = {
+            "champion": "Чемпион угадан",
+            "runner_up": "Финалист угадан",
+            "third_place": "3-е место угадано",
+            "top_scorer": "Бомбардир угадан",
+        }
+        miss_labels = {
+            "champion": "Чемпион не угадан",
+            "runner_up": "Финалист не угадан",
+            "third_place": "3-е место не угадано",
+            "top_scorer": "Бомбардир не угадан",
+        }
+        for status_key, points_key in (
+            ("champion", "champion_points"),
+            ("runner_up", "runner_up_points"),
+            ("third_place", "third_place_points"),
+            ("top_scorer", "top_scorer_points"),
+        ):
+            points = int(payload.get(points_key) or 0)
+            suffix = f" +{points}" if points > 0 else ""
+            payload[f"{status_key}_status"] = {
+                "label": f"{final_labels[status_key]}{suffix}" if points > 0 else miss_labels[status_key],
+                "tone": "winner" if points > 0 else "eliminated",
+            }
+        payload["remaining_points"] = 0
+        return payload
 
     scorer = _find_prediction_scorer(db, prediction.top_scorer)
     scorer_hint = get_prediction_player_team_hint(prediction.top_scorer) or {}
