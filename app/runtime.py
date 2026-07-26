@@ -116,6 +116,13 @@ DAILY_FACT_TIMEZONE = ZoneInfo(os.getenv("DAILY_FACT_TIMEZONE", "Europe/Moscow")
 
 DAILY_FACT_TARGET = os.getenv("DAILY_FACT_TARGET", "private").lower()
 
+# Tournament has finished: scheduled public/private digest broadcasts are off
+# by default. Manual admin commands and Mini App resources remain available.
+TOURNAMENT_SCHEDULED_BROADCASTS_ENABLED = os.getenv(
+    "TOURNAMENT_SCHEDULED_BROADCASTS_ENABLED",
+    "false",
+).strip().lower() in {"1", "true", "yes", "on"}
+
 GROUP_CHAT_ID_RAW = os.getenv("GROUP_CHAT_ID", "").strip()
 
 ADMIN_NOTIFY_ENABLED = os.getenv("ADMIN_NOTIFY_ENABLED", "true").lower() == "true"

@@ -549,6 +549,83 @@ function pointsLabel(value) {
   return `${points} ${pluralRu(points, 'очко', 'очка', 'очков')}`;
 }
 
+const RATING_POINT_MODES = [
+  { id: 'total', label: 'Всего', hint: 'Матчи + турнир' },
+  { id: 'match', label: 'Матчи', hint: 'Счёт + проход' },
+  { id: 'tournament', label: 'Турнир', hint: 'Долгосрок' },
+];
+
+function ratingDisplayPoints(row, mode) {
+  if (mode === 'match') return Number(row.match_points || 0);
+  if (mode === 'tournament') return Number(row.tournament_points || 0);
+  return Number(row.points || 0);
+}
+
+function signedPoints(value) {
+  const number = Number(value || 0);
+  if (number > 0) return `+${number}`;
+  return String(number);
+}
+
+function RatingMath({ row, mode }) {
+  const breakdown = row.points_breakdown || {};
+  const match = breakdown.match || {};
+  const tournament = breakdown.tournament || {};
+  const tournamentItems = [tournament.champion, tournament.runner_up, tournament.third_place, tournament.top_scorer].filter(Boolean);
+  const exactCount = Number(match.exact_count || 0);
+  const outcomeCount = Number(match.outcome_count || 0);
+  const advPlus = Number(match.advancement_plus_count || 0);
+  const advMinus = Number(match.advancement_minus_count || 0);
+  const advPoints = Number(match.advancement_points || 0);
+  const showMatch = mode === 'total' || mode === 'match';
+  const showTournament = !row.is_father && (mode === 'total' || mode === 'tournament');
+
+  return (
+    <div className="rating-math">
+      {showMatch && (
+        <div>
+          <b>Матчи: {row.match_points || 0}</b>
+          <span>
+            🎯 {exactCount}×3={match.exact_points || 0} · ✅ {outcomeCount}×1={match.outcome_points || 0} · 🟢 проходы {advPlus} − {advMinus} = {signedPoints(advPoints)}
+          </span>
+        </div>
+      )}
+      {showTournament && (
+        <div>
+          <b>Турнир: {row.tournament_points || 0}</b>
+          <span>
+            {tournamentItems.length
+              ? tournamentItems.map((item) => `${item.label}: ${signedPoints(item.points || 0)}`).join(' · ')
+              : 'долгосрочный прогноз не заполнен'}
+          </span>
+        </div>
+      )}
+      {mode === 'total' && (
+        <div className="rating-math-total">
+          <b>Итого: {row.points || 0}</b>
+          <span>{row.match_points || 0} за матчи + {row.tournament_points || 0} за турнир</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TournamentChampionCard({ summary }) {
+  if (!summary?.finished || !(summary.winners || []).length) return null;
+  const winners = summary.winners || [];
+  const title = summary.is_tie ? 'Победители турнира прогнозов' : 'Победитель турнира прогнозов';
+  return (
+    <section className="card tournament-winner-card">
+      <div>
+        <span>🏁 Турнир завершён</span>
+        <h2>{title}</h2>
+        <p>{winners.map((winner) => winner.name).join(', ')}</p>
+      </div>
+      <strong>{pointsLabel(summary.winner_points || 0)}</strong>
+    </section>
+  );
+}
+
 function getTelegramPhotoUrl() {
   return tg?.initDataUnsafe?.user?.photo_url || '';
 }
@@ -3064,6 +3141,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
   return <main className="screen-content">
     <div className="section-label">Матч-центр</div>
     <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => changeCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => changeCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => changeCenterMode('scorers')}>Бомбардиры</button></div>
+    <TournamentChampionCard summary={data?.tournament_summary} />
     <section className="match-center-mode-content" aria-live="polite">
     {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={changeCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
       <div className="filter-strip modern-filters">
@@ -5634,6 +5712,7 @@ function Rating({ activeLeagueId }) {
   const [error, setError] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [selectedAnalytics, setSelectedAnalytics] = useState(null);
+  const [pointsMode, setPointsMode] = useState('total');
 
   useEffect(() => {
     setData(null);
@@ -5652,17 +5731,28 @@ function Rating({ activeLeagueId }) {
   const rows = sourceRows
     .map((row) => ({
       ...row,
-      display_points: row.points || 0,
+      display_points: ratingDisplayPoints(row, pointsMode),
     }))
-    .sort((a, b) => (b.display_points - a.display_points) || ((b.exact_scores || 0) - (a.exact_scores || 0)))
+    .sort((a, b) => (b.display_points - a.display_points) || ((b.points || 0) - (a.points || 0)) || ((b.exact_scores || 0) - (a.exact_scores || 0)))
     .map((row, index) => ({ ...row, display_rank: index + 1 }));
 
   return (
     <main className="screen-content rating-screen">
       <div className="section-label">Рейтинг участников</div>
-      {data.win_model?.status === 'pending' && (
-        <p className="muted small rating-win-model-pending">Вероятности сейчас пересчитываются в фоне; карточки обновятся без долгой загрузки рейтинга.</p>
-      )}
+      <div className="rating-points-mode-tabs" role="group" aria-label="Какие баллы показывать">
+        {RATING_POINT_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            className={pointsMode === mode.id ? 'active' : ''}
+            aria-pressed={pointsMode === mode.id}
+            onClick={() => setPointsMode(mode.id)}
+          >
+            <b>{mode.label}</b>
+            <span>{mode.hint}</span>
+          </button>
+        ))}
+      </div>
 
       <div className="ranking-list compact-ranking-list">
         {rows.map((row) => {
@@ -5690,7 +5780,7 @@ function Rating({ activeLeagueId }) {
               <div className="rating-player">
                 <strong>{row.name}</strong>
                 <small>
-                  {row.is_father ? 'ИИ-прогнозы вне конкурса, но в общей гонке видны' : `Очки: ${row.points || 0} · Турнир: ${row.tournament_prediction_progress || '0/4'}`}
+                  {row.is_father ? 'ИИ-прогнозы вне конкурса, но в общей гонке видны' : `Всего: ${row.points || 0} · Матчи: ${row.match_points || 0} · Турнир: ${row.tournament_points || 0}`}
                 </small>
               </div>
               <div className="rating-points-pill">
@@ -5717,18 +5807,19 @@ function Rating({ activeLeagueId }) {
               </div>
             </div>
 
+            <RatingMath row={row} mode={pointsMode} />
+
             <div className="rating-foot-line">
               <span>Матчи: {row.match_predictions_progress || row.match_predictions_count || 0}</span>
               <span>Завершено: {row.match_predictions_finished_count || 0}</span>
               <span>{row.is_father ? 'ИИ-вне конкурса' : `Проход: +${row.advancement_plus || 0} / ${row.advancement_minus || 0}`}</span>
-              {!row.is_father && <span className="rating-win-chance">Шанс на 1-е: <b>{row.win_probability_label || '—'}</b></span>}
             </div>
           </div>
           );
         })}
       </div>
 
-      <StandingsScenarios rows={rows} activeLeagueId={activeLeagueId} />
+      {!data.tournament_finished && <StandingsScenarios rows={rows} activeLeagueId={activeLeagueId} />}
 
       <RatingRace activeLeagueId={activeLeagueId} />
 

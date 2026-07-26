@@ -10,7 +10,7 @@ import asyncio
 from aiogram import F
 from aiogram.filters import Command
 
-from app.runtime import DAILY_FACTS_ENABLED, bot, dp
+from app.runtime import DAILY_FACTS_ENABLED, TOURNAMENT_SCHEDULED_BROADCASTS_ENABLED, bot, dp
 from app.middleware.access import (
     CommandLoggingMiddleware,
     UserAccessStatusMiddleware,
@@ -431,11 +431,15 @@ async def main():
     # match slot starts, including immediately after a Railway deploy.
     asyncio.create_task(pregame_analysis_loop())
 
-    # Low-cost RSS discovery; one shared curation call per scheduled scan.
-    asyncio.create_task(news_loop())
-
-    if DAILY_FACTS_ENABLED:
-        asyncio.create_task(daily_facts_loop())
+    # Tournament daily broadcasts are disabled by default after the tournament.
+    # This prevents the former 09:00 news scan and 10:00 daily-result recaps
+    # from being sent unless the operator explicitly re-enables them.
+    if TOURNAMENT_SCHEDULED_BROADCASTS_ENABLED:
+        asyncio.create_task(news_loop())
+        if DAILY_FACTS_ENABLED:
+            asyncio.create_task(daily_facts_loop())
+    else:
+        print("Tournament scheduled broadcasts are disabled")
 
     asyncio.create_task(matchtv_videos_loop())
     asyncio.create_task(api_football_auto_sync_loop())

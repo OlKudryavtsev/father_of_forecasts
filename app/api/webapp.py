@@ -44,6 +44,7 @@ from app.models import (
     LeagueQuizSession,
     LeagueQuizSessionRound,
     TournamentPrediction,
+    TournamentResult,
     User,
     UserNotificationSetting,
     WorldCupFact,
@@ -2430,6 +2431,104 @@ async def save_prediction_endpoint(
     }
 
 
+def _tournament_is_finished(db: Session) -> bool:
+    """Return whether the current tournament is effectively complete."""
+    result_exists = db.query(TournamentResult).filter(TournamentResult.tournament_code == TOURNAMENT_CODE).first() is not None
+    if result_exists:
+        return True
+    total_matches = db.query(Match).filter(Match.tournament_code == TOURNAMENT_CODE).count()
+    if total_matches <= 0:
+        return False
+    unfinished = (
+        db.query(Match)
+        .filter(
+            Match.tournament_code == TOURNAMENT_CODE,
+            Match.is_finished == False,
+        )
+        .count()
+    )
+    return unfinished == 0
+
+
+def _points_breakdown_payload(
+    *,
+    match_points: int,
+    exact_scores: int,
+    outcomes: int,
+    advancement_plus: int,
+    advancement_minus: int,
+    tournament_prediction: TournamentPrediction | None = None,
+) -> dict:
+    """Build a compact math explanation for a rating row."""
+    exact_points = int(exact_scores or 0) * 3
+    outcome_points = int(outcomes or 0)
+    advancement_points = int(advancement_plus or 0) - int(advancement_minus or 0)
+    score_points = exact_points + outcome_points
+    tournament = {
+        "total": int(getattr(tournament_prediction, "points", 0) or 0) if tournament_prediction else 0,
+        "champion": {
+            "pick": getattr(tournament_prediction, "champion", None) if tournament_prediction else None,
+            "points": int(getattr(tournament_prediction, "champion_points", 0) or 0) if tournament_prediction else 0,
+            "max_points": 15,
+            "label": "Чемпион",
+        },
+        "runner_up": {
+            "pick": getattr(tournament_prediction, "runner_up", None) if tournament_prediction else None,
+            "points": int(getattr(tournament_prediction, "runner_up_points", 0) or 0) if tournament_prediction else 0,
+            "max_points": 10,
+            "label": "Финалист",
+        },
+        "third_place": {
+            "pick": getattr(tournament_prediction, "third_place", None) if tournament_prediction else None,
+            "points": int(getattr(tournament_prediction, "third_place_points", 0) or 0) if tournament_prediction else 0,
+            "max_points": 5,
+            "label": "3-е место",
+        },
+        "top_scorer": {
+            "pick": getattr(tournament_prediction, "top_scorer", None) if tournament_prediction else None,
+            "points": int(getattr(tournament_prediction, "top_scorer_points", 0) or 0) if tournament_prediction else 0,
+            "max_points": 15,
+            "label": "Бомбардир",
+        },
+    }
+    total = int(match_points or 0) + int(tournament["total"] or 0)
+    return {
+        "total": total,
+        "match": {
+            "total": int(match_points or 0),
+            "score_points": score_points,
+            "exact_count": int(exact_scores or 0),
+            "exact_points": exact_points,
+            "outcome_count": int(outcomes or 0),
+            "outcome_points": outcome_points,
+            "advancement_plus_count": int(advancement_plus or 0),
+            "advancement_minus_count": int(advancement_minus or 0),
+            "advancement_points": advancement_points,
+        },
+        "tournament": tournament,
+    }
+
+
+def _build_league_tournament_summary(db: Session, league: League) -> dict:
+    """Return final tournament-winner summary for the Match Center header."""
+    finished = _tournament_is_finished(db)
+    rows = build_table_rows(db, league_id=league.id)
+    if not rows:
+        return {"finished": finished, "winners": [], "winner_points": 0, "participants_count": 0, "is_tie": False}
+    best_points = max(int(row.get("points") or 0) for row in rows)
+    winners = [row for row in rows if int(row.get("points") or 0) == best_points]
+    return {
+        "finished": finished,
+        "winner_points": best_points,
+        "participants_count": len(rows),
+        "is_tie": len(winners) > 1,
+        "winners": [
+            {"user_id": row.get("user_id"), "name": row.get("name"), "points": int(row.get("points") or 0)}
+            for row in winners
+        ],
+    }
+
+
 @router.get("/table")
 def get_table(
     league_id: int | None = Query(default=None),
@@ -2534,6 +2633,14 @@ def get_table(
         "fantasy_team_progress": "—",
         "fantasy_team_complete": False,
         "points_with_fantasy": father_points,
+        "points_breakdown": _points_breakdown_payload(
+            match_points=father_points,
+            exact_scores=father_exact,
+            outcomes=father_outcomes,
+            advancement_plus=father_advancement_plus,
+            advancement_minus=father_advancement_minus,
+            tournament_prediction=None,
+        ),
     }
 
     for index, row in enumerate(rows, start=1):
@@ -2621,12 +2728,22 @@ def get_table(
         row["successful_predictions"] = successful_predictions
         row["accuracy_base"] = finished_predictions_count
         row["accuracy_percent"] = round(successful_predictions * 100 / finished_predictions_count) if finished_predictions_count else 0
+        row["points_breakdown"] = _points_breakdown_payload(
+            match_points=match_points,
+            exact_scores=exact_scores,
+            outcomes=outcomes,
+            advancement_plus=advancement_plus,
+            advancement_minus=advancement_minus,
+            tournament_prediction=tournament_prediction,
+        )
+
+    tournament_finished = _tournament_is_finished(db)
 
     # The Monte-Carlo model is calculated by the bot in the background. Never
     # run it synchronously on a Mini App request: stale/empty values are much
     # better than blocking the Rating tab for minutes.
-    win_probabilities = get_cached_league_win_probabilities(db, active_league)
-    win_model_status = "ready" if win_probabilities is not None else "pending"
+    win_probabilities = None if tournament_finished else get_cached_league_win_probabilities(db, active_league)
+    win_model_status = "finished" if tournament_finished else ("ready" if win_probabilities is not None else "pending")
     for row in rows:
         user_id = int(row.get("user_id") or 0)
         probability = (win_probabilities or {}).get(user_id) or {}
@@ -2640,6 +2757,8 @@ def get_table(
         "father_row": father_row,
         "match_analytics": _build_league_match_points_analytics(db, active_league),
         "win_model": {"status": win_model_status},
+        "tournament_finished": tournament_finished,
+        "tournament_summary": _build_league_tournament_summary(db, active_league),
     }
 
 
@@ -7496,6 +7615,7 @@ def get_match_center(
         "league": _serialize_league(active_league, current_user),
         "groups": groups,
         "standings": selected_group_standings,
+        "tournament_summary": _build_league_tournament_summary(db, active_league),
         "matches": [
             _serialize_match_center_match(db, match, predictions_by_match.get(match.id), league_id=active_league.id)
             for match in matches

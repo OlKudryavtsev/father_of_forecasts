@@ -14004,3 +14004,114 @@ body,
   .prediction-agreement-selects { grid-template-columns: 1fr; }
   .prediction-agreement-match > div:first-child { align-items: flex-start; flex-direction: column; }
 }
+
+/* v3.7.9 — final tournament rating math */
+.tournament-winner-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, rgba(244, 191, 54, .2), rgba(22, 199, 132, .1)), var(--panel);
+  border-color: rgba(244, 191, 54, .36);
+}
+.tournament-winner-card span {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--gold);
+  background: var(--gold-soft);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.tournament-winner-card h2 {
+  margin: 9px 0 4px;
+  font-size: 19px;
+}
+.tournament-winner-card p {
+  margin: 0;
+  color: var(--text);
+  font-weight: 800;
+}
+.tournament-winner-card > strong {
+  min-width: 92px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  text-align: center;
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid rgba(22, 199, 132, .35);
+}
+.rating-points-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.rating-points-mode-tabs button {
+  min-height: 58px;
+  padding: 8px 9px;
+  border-radius: 17px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  text-align: left;
+}
+.rating-points-mode-tabs button b,
+.rating-points-mode-tabs button span {
+  display: block;
+}
+.rating-points-mode-tabs button b {
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 3px;
+}
+.rating-points-mode-tabs button span {
+  font-size: 10.5px;
+  line-height: 1.18;
+}
+.rating-points-mode-tabs button.active {
+  background: var(--green-soft);
+  border-color: rgba(22, 199, 132, .55);
+}
+.rating-points-mode-tabs button.active b,
+.rating-points-mode-tabs button.active span {
+  color: var(--green);
+}
+.rating-math {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 2px;
+  padding: 9px;
+  border-radius: 15px;
+  background: rgba(2, 6, 23, .28);
+  border: 1px solid rgba(148, 163, 184, .14);
+}
+.rating-math div {
+  display: grid;
+  gap: 2px;
+}
+.rating-math b {
+  font-size: 12px;
+  color: var(--text);
+}
+.rating-math span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+.rating-math-total {
+  border-top: 1px dashed rgba(148, 163, 184, .22);
+  padding-top: 6px;
+}
+@media (max-width: 390px) {
+  .rating-points-mode-tabs { gap: 6px; }
+  .rating-points-mode-tabs button { min-height: 54px; padding: 7px; }
+  .rating-points-mode-tabs button b { font-size: 12px; }
+  .rating-points-mode-tabs button span { font-size: 9.5px; }
+  .tournament-winner-card { grid-template-columns: 1fr; }
+  .tournament-winner-card > strong { width: fit-content; }
+}
