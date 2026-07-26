@@ -66,6 +66,7 @@ from app.services.gamification import (
 from app.services.predictions import save_prediction_and_notify_admins
 from app.services.prediction_agreement import build_prediction_agreement_analytics
 from app.services.tournament import get_tournament_starts_at, is_tournament_started, save_tournament_prediction_and_notify_admins, tournament_prediction_submit_state
+from app.services.tournament_scoring import apply_tournament_result_score, infer_tournament_result, tournament_result_payload
 from app.services.forecast import build_forecast_text
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.news import get_news_usage_summary, serialize_news_item
@@ -2606,6 +2607,7 @@ def get_table(
             father_advancement_minus += 1
 
     father_successful = father_exact + father_outcomes
+    tournament_result = infer_tournament_result(db, TOURNAMENT_CODE)
     father_row = {
         "name": "🤖 Отец прогнозов",
         "points": father_points,
@@ -2659,6 +2661,7 @@ def get_table(
                 )
                 .first()
             )
+            apply_tournament_result_score(tournament_prediction, tournament_result)
             user_predictions_query = (
                 db.query(Prediction)
                 .join(Match, Prediction.match_id == Match.id)
@@ -2758,6 +2761,7 @@ def get_table(
         "match_analytics": _build_league_match_points_analytics(db, active_league),
         "win_model": {"status": win_model_status},
         "tournament_finished": tournament_finished,
+        "tournament_result": tournament_result_payload(tournament_result),
         "tournament_summary": _build_league_tournament_summary(db, active_league),
     }
 
@@ -3503,6 +3507,9 @@ def _serialize_tournament_prediction(prediction: TournamentPrediction | None, db
     """Serialize a tournament prediction with stable profile links and live statuses."""
     if not prediction:
         return None
+
+    if db is not None:
+        apply_tournament_result_score(prediction, infer_tournament_result(db, TOURNAMENT_CODE))
 
     payload = {
         "champion": prediction.champion,
@@ -5385,7 +5392,8 @@ def get_profile(
         rank = None
         total_points = sum(int(prediction.points or 0) for prediction in predictions)
         match_points = total_points
-        tournament_points = int(tournament_prediction.points or 0) if tournament_prediction else 0
+        tournament_score = apply_tournament_result_score(tournament_prediction, infer_tournament_result(db, TOURNAMENT_CODE))
+        tournament_points = int(tournament_score.get("total_points") or 0)
         total_points += tournament_points
         exact_scores = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 3)
         outcomes = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 1)

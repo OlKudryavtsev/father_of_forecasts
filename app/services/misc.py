@@ -14,6 +14,7 @@ from app.runtime import (
     datetime,
     timezone,
 )
+from app.services.tournament_scoring import apply_tournament_result_score, infer_tournament_result
 
 def get_group_chat_id() -> int | None:
     """Provide bot helper logic for get_group_chat_id."""
@@ -103,6 +104,7 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
     _league, scoring_start_at = _get_league_context(db, league_name=league_name, league_id=league_id)
 
     rows = []
+    tournament_result = infer_tournament_result(db, TOURNAMENT_CODE)
 
     for user in users:
         if getattr(user, "is_bot", False):
@@ -131,11 +133,8 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
             for prediction in predictions
         )
 
-        tournament_points = (
-            tournament_prediction.points
-            if tournament_prediction
-            else 0
-        )
+        tournament_score = apply_tournament_result_score(tournament_prediction, tournament_result)
+        tournament_points = int(tournament_score.get("total_points") or 0)
 
         total_points = match_points + tournament_points
 
@@ -241,6 +240,8 @@ def build_user_summary_context(db, user: User, league_id: int | None = None) -> 
         TournamentPrediction.user_id == user.id,
         TournamentPrediction.tournament_code == TOURNAMENT_CODE,
     ).first()
+    tournament_result = infer_tournament_result(db, TOURNAMENT_CODE)
+    apply_tournament_result_score(tournament_prediction, tournament_result)
 
     all_users = db.query(User).all()
 
@@ -261,11 +262,8 @@ def build_user_summary_context(db, user: User, league_id: int | None = None) -> 
             TournamentPrediction.tournament_code == TOURNAMENT_CODE,
         ).first()
 
-        participant_tournament_points = (
-            participant_tournament_prediction.points
-            if participant_tournament_prediction
-            else 0
-        )
+        participant_score = apply_tournament_result_score(participant_tournament_prediction, tournament_result)
+        participant_tournament_points = int(participant_score.get("total_points") or 0)
 
         leaderboard_rows.append(
             {
@@ -302,11 +300,8 @@ def build_user_summary_context(db, user: User, league_id: int | None = None) -> 
 
     match_points = sum(prediction.points or 0 for prediction in predictions)
 
-    tournament_points = (
-        tournament_prediction.points
-        if tournament_prediction
-        else 0
-    )
+    tournament_score = apply_tournament_result_score(tournament_prediction, tournament_result)
+    tournament_points = int(tournament_score.get("total_points") or 0)
 
     total_points = match_points + tournament_points
 
@@ -396,7 +391,7 @@ def build_user_summary_context(db, user: User, league_id: int | None = None) -> 
             "runner_up": tournament_prediction.runner_up,
             "third_place": tournament_prediction.third_place,
             "top_scorer": tournament_prediction.top_scorer,
-            "points": tournament_prediction.points or 0,
+            "points": int(tournament_prediction.points or 0),
         }
 
     return {

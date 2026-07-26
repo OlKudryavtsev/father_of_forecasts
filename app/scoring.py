@@ -85,8 +85,120 @@ def score_match_prediction(
         "total_points": score_points + advancement_points,
     }
 
-def normalize_text(value: str) -> str:
-    return value.strip().lower().replace("ё", "е")
+def normalize_text(value: str | None) -> str:
+    """Normalize user/API text for stable prediction scoring."""
+    import re
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return re.sub(r"[^a-zа-я0-9]+", " ", normalized.casefold().replace("ё", "е")).strip()
+
+
+_TEAM_ALIASES = {
+    "argentina": "аргентина",
+    "australia": "австралия",
+    "austria": "австрия",
+    "belgium": "бельгия",
+    "bosnia herzegovina": "босния и герцеговина",
+    "bosnia and herzegovina": "босния и герцеговина",
+    "brazil": "бразилия",
+    "canada": "канада",
+    "cape verde": "кабо верде",
+    "cape verde islands": "кабо верде",
+    "colombia": "колумбия",
+    "congo dr": "др конго",
+    "dr congo": "др конго",
+    "croatia": "хорватия",
+    "ecuador": "эквадор",
+    "egypt": "египет",
+    "england": "англия",
+    "france": "франция",
+    "germany": "германия",
+    "ghana": "гана",
+    "ivory coast": "кот д ивуар",
+    "cote d ivoire": "кот д ивуар",
+    "japan": "япония",
+    "mexico": "мексика",
+    "morocco": "марокко",
+    "netherlands": "нидерланды",
+    "holland": "нидерланды",
+    "norway": "норвегия",
+    "paraguay": "парагваи",
+    "portugal": "португалия",
+    "south africa": "юар",
+    "spain": "испания",
+    "sweden": "швеция",
+    "switzerland": "швейцария",
+    "usa": "сша",
+    "united states": "сша",
+}
+
+
+def _team_key(value: str | None) -> str:
+    normalized = normalize_text(value)
+    return _TEAM_ALIASES.get(normalized, normalized)
+
+
+_PLAYER_ALIASES = {
+    "эрлинг холанд": "erling haaland",
+    "холанд": "erling haaland",
+    "erling braut haaland": "erling haaland",
+    "erling haaland": "erling haaland",
+    "haaland": "erling haaland",
+    "килиан мбаппе": "kylian mbappe",
+    "мбаппе": "kylian mbappe",
+    "kylian mbappe": "kylian mbappe",
+    "харри кеин": "harry kane",
+    "харри кейн": "harry kane",
+    "гарри кеин": "harry kane",
+    "гарри кейн": "harry kane",
+    "кеин": "harry kane",
+    "кейн": "harry kane",
+    "harry kane": "harry kane",
+    "ламин ямаль": "lamine yamal",
+    "ламин ямал": "lamine yamal",
+    "ямаль": "lamine yamal",
+    "ямал": "lamine yamal",
+    "yamal": "lamine yamal",
+    "lamine yamal": "lamine yamal",
+    "винисиус жуниор": "vinicius junior",
+    "vinicius jr": "vinicius junior",
+    "vinicius junior": "vinicius junior",
+    "лаутаро мартинес": "lautaro martinez",
+    "криштиану роналду": "cristiano ronaldo",
+    "ромелу лукаку": "romelu lukaku",
+    "усман дембеле": "ousmane dembele",
+    "лионель месси": "lionel messi",
+    "джуд беллингем": "jude bellingham",
+    "рафинья": "raphinha",
+}
+
+
+def _player_key(value: str | None) -> str:
+    normalized = normalize_text(value)
+    return _PLAYER_ALIASES.get(normalized, normalized)
+
+
+def _same_team(left: str | None, right: str | None) -> bool:
+    return bool(_team_key(left) and _team_key(left) == _team_key(right))
+
+
+def _same_player(left: str | None, right: str | None) -> bool:
+    left_key = _player_key(left)
+    right_key = _player_key(right)
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+    left_parts = left_key.split()
+    right_parts = right_key.split()
+    return (
+        len(left_parts) >= 2
+        and len(right_parts) >= 2
+        and left_parts[-1] == right_parts[-1]
+        and left_parts[0][:1] == right_parts[0][:1]
+    )
 
 
 def score_tournament_prediction(
@@ -104,16 +216,16 @@ def score_tournament_prediction(
     third_place_points = 0
     top_scorer_points = 0
 
-    if normalize_text(pred_champion) == normalize_text(actual_champion):
+    if _same_team(pred_champion, actual_champion):
         champion_points = 15
 
-    if normalize_text(pred_runner_up) == normalize_text(actual_runner_up):
+    if _same_team(pred_runner_up, actual_runner_up):
         runner_up_points = 10
 
-    if normalize_text(pred_third_place) == normalize_text(actual_third_place):
+    if _same_team(pred_third_place, actual_third_place):
         third_place_points = 5
 
-    if normalize_text(pred_top_scorer) == normalize_text(actual_top_scorer):
+    if _same_player(pred_top_scorer, actual_top_scorer):
         top_scorer_points = 15
 
     total_points = (

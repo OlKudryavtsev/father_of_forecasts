@@ -10,6 +10,7 @@ from app.formatters.matches import format_datetime, format_match_label, format_m
 from app.formatters.misc import format_reminder_offset
 from app.keyboards.matches import build_matches_keyboard, build_prediction_reminder_keyboard
 from app.models import AppSetting, FatherMatchPrediction, League, LeagueMember
+from app.services.tournament_scoring import apply_tournament_result_score, infer_tournament_result
 from app.services.gamification import normalize_humor_mode, sync_new_achievements
 from app.runtime import (
     APP_TIMEZONE,
@@ -1034,7 +1035,8 @@ def _league_rank_snapshots_for_match(db, league: League, match: Match) -> tuple[
             )
             .first()
         )
-        tournament_points = int(tournament_prediction.points or 0) if tournament_prediction else 0
+        tournament_score = apply_tournament_result_score(tournament_prediction, infer_tournament_result(db, TOURNAMENT_CODE))
+        tournament_points = int(tournament_score.get("total_points") or 0)
         match_points = sum(_prediction_total_points(prediction, prediction.match) for prediction in predictions)
         exact_scores = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 3)
         outcomes = sum(1 for prediction in predictions if int(prediction.score_points or 0) == 1)

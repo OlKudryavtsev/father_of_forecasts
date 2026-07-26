@@ -21,6 +21,7 @@ from app.services.leagues import get_default_or_first_user_league, get_league_by
 from app.services.misc import build_table_rows, build_user_summary_context
 from app.services.standings import format_standings_scenarios_telegram, get_cached_standings_scenarios
 from app.services.predictions import get_prediction_points_breakdown
+from app.services.tournament_scoring import apply_tournament_result_score, infer_tournament_result
 from app.services.users import get_or_create_user
 
 def _format_league_table(db, league) -> str:
@@ -172,15 +173,12 @@ async def summary_handler(message: Message):
             TournamentPrediction.user_id == user.id,
             TournamentPrediction.tournament_code == TOURNAMENT_CODE,
         ).first()
+        tournament_score = apply_tournament_result_score(tournament_prediction, infer_tournament_result(db, TOURNAMENT_CODE))
 
         total_predictions = len(predictions)
 
         match_points = sum(prediction.points or 0 for prediction in predictions)
-        tournament_points = (
-            tournament_prediction.points
-            if tournament_prediction
-            else 0
-        )
+        tournament_points = int(tournament_score.get("total_points") or 0)
 
         total_points = match_points + tournament_points
 
@@ -283,7 +281,7 @@ async def summary_handler(message: Message):
                     f"2 место: {tournament_prediction.runner_up}",
                     f"3 место: {tournament_prediction.third_place}",
                     f"Бомбардир: {tournament_prediction.top_scorer}",
-                    f"Очки: {tournament_prediction.points}",
+                    f"Очки: {tournament_points}",
                     "",
                 ]
             )

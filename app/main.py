@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.db import SessionLocal, ensure_schema
 from app.models import Match, Prediction, TournamentPrediction, User
 from app.scoring import score_match_prediction, score_tournament_prediction
+from app.services.tournament_scoring import apply_tournament_result_score, infer_tournament_result
 from app.services.league_quiz import advance_due_quizzes
 from app.admin import require_admin_api_token
 
@@ -378,6 +379,7 @@ def get_table():
 
     try:
         users = db.query(User).order_by(User.display_name).all()
+        tournament_result = infer_tournament_result(db, "wc2026")
 
         table = []
 
@@ -393,11 +395,8 @@ def get_table():
                 TournamentPrediction.tournament_code == "wc2026",
             ).first()
 
-            tournament_points = (
-                tournament_prediction.points
-                if tournament_prediction
-                else 0
-            )
+            tournament_score = apply_tournament_result_score(tournament_prediction, tournament_result)
+            tournament_points = int(tournament_score.get("total_points") or 0)
 
             total_points = match_points + tournament_points
             exact_scores = sum(
