@@ -1,6 +1,80 @@
 const UCL_TOURNAMENT_CODE = 'ucl_2026_2027';
 const ACTIVE_TOURNAMENT_STORAGE_KEY = 'ff_active_tournament_code';
 
+const UCL_CLUBS = [
+  ['AEK Athens', 'АЕК Афины', '🇬🇷', 'gr', ['AEK Athens FC']],
+  ['Arsenal', 'Арсенал', '🏴', 'gb-eng', []],
+  ['Aston Villa', 'Астон Вилла', '🏴', 'gb-eng', []],
+  ['Atletico Madrid', 'Атлетико Мадрид', '🇪🇸', 'es', ['Atlético de Madrid', 'Atleti', 'Atl. Madrid']],
+  ['Barcelona', 'Барселона', '🇪🇸', 'es', ['FC Barcelona']],
+  ['Bayern Munich', 'Бавария', '🇩🇪', 'de', ['Bayern München', 'FC Bayern Munich', 'Bayern']],
+  ['Bodo/Glimt', 'Будё-Глимт', '🇳🇴', 'no', ['Bodø/Glimt', 'Bodoe/Glimt', 'Bodo Glimt']],
+  ['Borussia Dortmund', 'Боруссия Дортмунд', '🇩🇪', 'de', ['B. Dortmund', 'Dortmund']],
+  ['Club Brugge', 'Брюгге', '🇧🇪', 'be', ['Club Brugge KV']],
+  ['Como', 'Комо', '🇮🇹', 'it', []],
+  ['Fenerbahce', 'Фенербахче', '🇹🇷', 'tr', ['Fenerbahçe']],
+  ['Feyenoord', 'Фейеноорд', '🇳🇱', 'nl', []],
+  ['Galatasaray', 'Галатасарай', '🇹🇷', 'tr', []],
+  ['Inter', 'Интер', '🇮🇹', 'it', ['Inter Milan', 'Internazionale']],
+  ['LASK', 'ЛАСК', '🇦🇹', 'at', ['Lask Linz', 'LASK Linz']],
+  ['Lens', 'Ланс', '🇫🇷', 'fr', ['RC Lens']],
+  ['Leipzig', 'Лейпциг', '🇩🇪', 'de', ['RB Leipzig', 'RasenBallsport Leipzig']],
+  ['Lille', 'Лилль', '🇫🇷', 'fr', ['LOSC Lille']],
+  ['Liverpool', 'Ливерпуль', '🏴', 'gb-eng', []],
+  ['Manchester City', 'Манчестер Сити', '🏴', 'gb-eng', ['Man City']],
+  ['Manchester United', 'Манчестер Юнайтед', '🏴', 'gb-eng', ['Man Utd', 'Manchester Utd']],
+  ['Napoli', 'Наполи', '🇮🇹', 'it', ['SSC Napoli']],
+  ['Paris Saint-Germain', 'ПСЖ', '🇫🇷', 'fr', ['Paris SG', 'PSG', 'Paris']],
+  ['Porto', 'Порту', '🇵🇹', 'pt', ['FC Porto']],
+  ['PSV Eindhoven', 'ПСВ', '🇳🇱', 'nl', ['PSV']],
+  ['Real Betis', 'Бетис', '🇪🇸', 'es', ['Betis']],
+  ['Real Madrid', 'Реал Мадрид', '🇪🇸', 'es', []],
+  ['Roma', 'Рома', '🇮🇹', 'it', ['AS Roma']],
+  ['Sabah', 'Сабах', '🇦🇿', 'az', ['Sabah FK']],
+  ['Shakhtar Donetsk', 'Шахтёр', '🇺🇦', 'ua', ['Shakhtar']],
+  ['Slavia Praha', 'Славия Прага', '🇨🇿', 'cz', ['Slavia Prague']],
+  ['Slovan Bratislava', 'Слован Братислава', '🇸🇰', 'sk', ['S. Bratislava']],
+  ['Sporting CP', 'Спортинг', '🇵🇹', 'pt', ['Sporting Lisbon', 'Sporting']],
+  ['Stuttgart', 'Штутгарт', '🇩🇪', 'de', ['VfB Stuttgart']],
+  ['Viking', 'Викинг', '🇳🇴', 'no', ['Viking FK']],
+  ['Villarreal', 'Вильярреал', '🇪🇸', 'es', ['Villarreal CF']],
+];
+
+function normalizeClubName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+const UCL_CLUB_BY_KEY = new Map();
+for (const [canonical, ru, flag, flagCode, aliases] of UCL_CLUBS) {
+  const meta = { canonical, ru, flag, flagCode };
+  [canonical, ru, ...(aliases || [])].forEach((name) => UCL_CLUB_BY_KEY.set(normalizeClubName(name), meta));
+}
+const UCL_CLUB_ALIASES = [...UCL_CLUBS.flatMap(([canonical, ru, flag, flagCode, aliases]) => {
+  const meta = { canonical, ru, flag, flagCode };
+  return [canonical, ...(aliases || [])].map((name) => ({ name, meta }));
+})].sort((left, right) => right.name.length - left.name.length);
+
+function clubMeta(value) {
+  return UCL_CLUB_BY_KEY.get(normalizeClubName(value));
+}
+
+function translateKnownClubText(value) {
+  if (typeof value !== 'string' || !value) return value;
+  const exact = clubMeta(value);
+  if (exact) return exact.ru;
+  let result = value;
+  for (const { name, meta } of UCL_CLUB_ALIASES) {
+    if (!result.includes(name)) continue;
+    result = result.split(name).join(meta.ru);
+  }
+  return result;
+}
+
 function readActiveTournamentCode() {
   const selectorValue = document.querySelector('.header-tournament-selector select')?.value;
   return selectorValue || localStorage.getItem(ACTIVE_TOURNAMENT_STORAGE_KEY) || '';
@@ -16,6 +90,57 @@ function isUclTournamentRequest(url) {
     return parsed.searchParams.get('tournament_code') === UCL_TOURNAMENT_CODE || isUclActive();
   } catch (_) {
     return isUclActive();
+  }
+}
+
+function decorateTeamObject(target, prefix, value) {
+  const meta = clubMeta(value);
+  if (!meta) return;
+  target[`${prefix}_team`] = meta.ru;
+  target[`${prefix}_flag`] = meta.flag;
+  target[`${prefix}_flag_code`] = meta.flagCode;
+}
+
+function transformUclPayload(value) {
+  if (Array.isArray(value)) return value.map((item) => transformUclPayload(item));
+  if (value && typeof value === 'object') {
+    const next = {};
+    for (const [key, item] of Object.entries(value)) {
+      next[key] = transformUclPayload(item);
+    }
+
+    if (next.home_team) decorateTeamObject(next, 'home', next.home_team_api_name || next.home_team);
+    if (next.away_team) decorateTeamObject(next, 'away', next.away_team_api_name || next.away_team);
+    if (next.team?.name) {
+      const meta = clubMeta(next.team.api_name || next.team.name);
+      if (meta) next.team = { ...next.team, name: meta.ru, flag: meta.flag, flag_code: meta.flagCode };
+    }
+
+    for (const key of ['name', 'team_name', 'champion', 'runner_up', 'third_place']) {
+      if (typeof next[key] === 'string') next[key] = translateKnownClubText(next[key]);
+    }
+    return next;
+  }
+  return typeof value === 'string' ? translateKnownClubText(value) : value;
+}
+
+async function maybeTransformUclResponse(response, url) {
+  if (!isUclTournamentRequest(url)) return response;
+  const contentType = response.headers.get('Content-Type') || response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) return response;
+
+  try {
+    const data = await response.clone().json();
+    const transformed = transformUclPayload(data);
+    const headers = new Headers(response.headers);
+    headers.set('Content-Type', 'application/json');
+    return new Response(JSON.stringify(transformed), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (_) {
+    return response;
   }
 }
 
@@ -54,11 +179,48 @@ function installUclFetchPatch() {
           // Leave malformed or non-JSON bodies untouched.
         }
       }
-      return originalFetch(input, nextInit);
+      const response = await originalFetch(input, nextInit);
+      return maybeTransformUclResponse(response, url);
     }
 
-    return originalFetch(input, init);
+    const response = await originalFetch(input, init);
+    return maybeTransformUclResponse(response, url);
   };
+}
+
+function installUclStyles() {
+  if (document.getElementById('ff-ucl-style-patch')) return;
+  const style = document.createElement('style');
+  style.id = 'ff-ucl-style-patch';
+  style.textContent = `
+    .ff-ucl-tournament .next-match-hero.ff-ucl-hidden-simultaneous { display: none !important; }
+    .ff-ucl-schedule-note { margin: 16px 0; padding: 14px 16px; border-radius: 18px; background: rgba(96, 165, 250, 0.12); border: 1px solid rgba(96, 165, 250, 0.28); color: inherit; }
+    .ff-ucl-schedule-note strong { display: block; margin-bottom: 4px; }
+    .ff-ucl-schedule-note small { color: rgba(203, 213, 225, 0.78); }
+    .ff-ucl-tournament .tournament-mini-card,
+    .ff-ucl-tournament .tournament-mini-card-main { min-width: 0; max-width: 100%; }
+  `;
+  document.head.appendChild(style);
+}
+
+function patchSimultaneousHeroForUcl() {
+  const oldNote = document.querySelector('.ff-ucl-schedule-note');
+  if (oldNote && !isUclActive()) oldNote.remove();
+  if (!isUclActive()) return;
+
+  const hero = document.querySelector('.next-match-hero');
+  if (!hero) return;
+  const text = (hero.textContent || '').replace(/\s+/g, ' ');
+  const match = text.match(/(\d+)\s+матч[а-я]*\s+стартуют\s+одновременно/i);
+  const count = match ? Number(match[1]) : 0;
+  if (count <= 12) return;
+
+  hero.classList.add('ff-ucl-hidden-simultaneous');
+  if (document.querySelector('.ff-ucl-schedule-note')) return;
+  const note = document.createElement('section');
+  note.className = 'ff-ucl-schedule-note';
+  note.innerHTML = '<strong>Календарь ЛЧ загружен</strong><small>Показываю матчи по турам. Блок массового прогноза скрыт, потому что провайдер сначала отдал общий placeholder для всех матчей.</small>';
+  hero.parentNode?.insertBefore(note, hero);
 }
 
 function hideThirdPlaceElementsForUcl() {
@@ -102,7 +264,11 @@ function hideThirdPlaceElementsForUcl() {
 }
 
 function installUclDomPatch() {
-  const run = () => hideThirdPlaceElementsForUcl();
+  installUclStyles();
+  const run = () => {
+    hideThirdPlaceElementsForUcl();
+    patchSimultaneousHeroForUcl();
+  };
   run();
 
   document.addEventListener('change', (event) => {
