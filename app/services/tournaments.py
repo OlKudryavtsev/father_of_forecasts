@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import zlib
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import League, LeagueMember, Match, Prediction, Tournament, TournamentPrediction, TournamentResult, User
@@ -67,7 +68,14 @@ def ensure_default_tournament(db: Session) -> Tournament:
         display_order=10,
     )
     db.add(tournament)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(Tournament).filter(Tournament.code == code).first()
+        if existing:
+            return existing
+        raise
     db.refresh(tournament)
     return tournament
 
