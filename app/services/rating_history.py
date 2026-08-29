@@ -58,13 +58,15 @@ def _step_label(value: datetime) -> str:
     return local.strftime("%d.%m")
 
 
-def build_rating_history(db: Session, league: League, current_user_id: int | None = None) -> dict:
+def build_rating_history(db: Session, league: League, current_user_id: int | None = None, tournament_code: str | None = None) -> dict:
     """Build one leaderboard snapshot after each completed match.
 
     Snapshots are calculated from immutable scored predictions for completed
     matches. No new database table is required: historical rank movement can be
     safely rebuilt on demand and always follows the current scoring rules.
     """
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+
     members = (
         db.query(LeagueMember, User)
         .join(User, User.id == LeagueMember.user_id)
@@ -80,9 +82,11 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
     users = [user for _membership, user in members if not getattr(user, "is_bot", False)]
     user_ids = [user.id for user in users]
     scoring_start = league_scoring_start_at(league)
+    if selected_tournament_code != TOURNAMENT_CODE:
+        scoring_start = None
 
     matches_query = db.query(Match).filter(
-        Match.tournament_code == TOURNAMENT_CODE,
+        Match.tournament_code == selected_tournament_code,
         Match.is_finished == True,
         Match.score_home.isnot(None),
         Match.score_away.isnot(None),
@@ -151,14 +155,14 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
         for prediction in db.query(TournamentPrediction)
         .filter(
             TournamentPrediction.user_id.in_(user_ids),
-            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+            TournamentPrediction.tournament_code == selected_tournament_code,
         )
         .all()
     } if user_ids else {}
 
     all_tournament_finished = bool(matches) and (
         db.query(Match)
-        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .filter(Match.tournament_code == selected_tournament_code)
         .filter(Match.is_finished == False)
         .count() == 0
     )
@@ -259,6 +263,7 @@ def build_rating_history(db: Session, league: League, current_user_id: int | Non
 
     return {
         "league_id": league.id,
+        "tournament_code": selected_tournament_code,
         "steps": steps,
         "participants": participants,
         "current_user_id": current_user_id,

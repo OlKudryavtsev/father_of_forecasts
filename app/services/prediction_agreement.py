@@ -12,7 +12,7 @@ from app.models import League, LeagueMember, Match, Prediction, User
 from app.constants.categories import PLAYOFF_STAGES
 from app.team_names import get_team_name_ru
 
-TOURNAMENT_CODE = "wc2026"
+DEFAULT_TOURNAMENT_CODE = "wc2026"
 
 
 def is_playoff_match(match: Match) -> bool:
@@ -112,6 +112,7 @@ def build_prediction_agreement_analytics(
     stages: Iterable[str] | None = None,
     examples_limit: int = 3,
     include_match_details: bool = True,
+    tournament_code: str | None = None,
 ) -> dict:
     """Build pairwise analytics for identical predictions inside one league.
 
@@ -119,10 +120,11 @@ def build_prediction_agreement_analytics(
     A pair is compared for a match only when both active league members had
     submitted a prediction before/for that match.
     """
+    selected_tournament_code = tournament_code or DEFAULT_TOURNAMENT_CODE
     now = datetime.now(timezone.utc)
     started_matches = (
         db.query(Match)
-        .filter(Match.tournament_code == TOURNAMENT_CODE)
+        .filter(Match.tournament_code == selected_tournament_code)
         .filter((Match.starts_at <= now) | (Match.is_finished == True))  # noqa: E712
         .order_by(Match.starts_at.asc(), Match.id.asc())
         .all()
@@ -265,6 +267,7 @@ def build_prediction_agreement_analytics(
             "id": league.id,
             "name": league.name,
         },
+        "tournament_code": selected_tournament_code,
         "include_advancement": include_advancement,
         "stages": stages_payload,
         "summary": {

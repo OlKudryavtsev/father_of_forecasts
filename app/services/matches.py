@@ -129,11 +129,13 @@ def parse_result_payload(text: str):
     return match_id, score_home, score_away, winner_side
 
 
-def get_available_matches_query(db):
+def get_available_matches_query(db, tournament_code: str | None = None):
     """Provide bot helper logic for get_available_matches_query."""
     now = datetime.now(timezone.utc)
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
 
     return db.query(Match).filter(
+        Match.tournament_code == selected_tournament_code,
         Match.is_finished == False,
         Match.starts_at > now,
     ).order_by(Match.starts_at.asc())
@@ -142,6 +144,7 @@ def get_available_matches_query(db):
 def get_nearest_matchday_matches(
     db,
     matchdays_count: int = 1,
+    tournament_code: str | None = None,
 ) -> list[Match]:
     """
     Возвращает матчи ближайших N игровых дней.
@@ -156,7 +159,7 @@ def get_nearest_matchday_matches(
     if matchdays_count < 1:
         matchdays_count = 1
 
-    all_future_matches = get_available_matches_query(db).all()
+    all_future_matches = get_available_matches_query(db, tournament_code=tournament_code).all()
 
     if not all_future_matches:
         return []
@@ -181,9 +184,9 @@ def get_nearest_matchday_matches(
     return result
 
 
-def get_all_available_matches(db, limit: int = 30) -> list[Match]:
+def get_all_available_matches(db, limit: int = 30, tournament_code: str | None = None) -> list[Match]:
     """Provide bot helper logic for get_all_available_matches."""
-    return get_available_matches_query(db).limit(limit).all()
+    return get_available_matches_query(db, tournament_code=tournament_code).limit(limit).all()
 
 
 def get_default_match_round(stage: str) -> str:
