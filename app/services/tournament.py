@@ -56,6 +56,15 @@ def _tournament_has_third_place(db, tournament_code: str | None = None) -> bool:
         return True
 
 
+def _selected_tournament_starts_at(db, tournament_code: str | None = None):
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    try:
+        from app.services.tournaments import get_tournament_starts_at_for_code
+        return get_tournament_starts_at_for_code(db, selected_tournament_code)
+    except Exception:
+        return get_tournament_starts_at(selected_tournament_code)
+
+
 def _tournament_prediction_payload(
     champion: str,
     runner_up: str,
@@ -113,7 +122,7 @@ def tournament_prediction_submit_state(db, user: User, tournament_code: str | No
         }
 
     registered_at = _to_utc(getattr(user, "access_requested_at", None) or getattr(user, "created_at", None))
-    starts_at = get_tournament_starts_at(selected_tournament_code)
+    starts_at = _selected_tournament_starts_at(db, selected_tournament_code)
     is_late_entry = bool(registered_at and registered_at >= starts_at)
     can_submit = existing_prediction is None and is_late_entry
 
