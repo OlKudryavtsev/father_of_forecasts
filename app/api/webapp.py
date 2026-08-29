@@ -2965,6 +2965,9 @@ def get_participant_finished_predictions(
     except ValueError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
 
+    tournament = _resolve_tournament(db, tournament_code)
+    selected_tournament_code = tournament.code
+
     membership = (
         db.query(LeagueMember)
         .join(User, User.id == LeagueMember.user_id)
@@ -2986,13 +2989,15 @@ def get_participant_finished_predictions(
     matches_query = (
         db.query(Match)
         .filter(
-            Match.tournament_code == TOURNAMENT_CODE,
+            Match.tournament_code == selected_tournament_code,
             Match.is_finished == True,
             Match.score_home.isnot(None),
             Match.score_away.isnot(None),
         )
     )
     scoring_start = league_scoring_start_at(active_league)
+    if selected_tournament_code != TOURNAMENT_CODE:
+        scoring_start = None
     if scoring_start is not None:
         matches_query = matches_query.filter(Match.starts_at >= scoring_start)
 
@@ -3089,7 +3094,8 @@ def get_father_finished_predictions(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Return Father's completed forecasts in the same shape as participant history."""
-    selected_tournament_code = _resolved_tournament_code(db, tournament_code)
+    tournament = _resolve_tournament(db, tournament_code)
+    selected_tournament_code = tournament.code
     try:
         active_league = require_user_league(db, current_user, league_id)
     except ValueError as error:
@@ -3106,6 +3112,8 @@ def get_father_finished_predictions(
         )
     )
     scoring_start = league_scoring_start_at(active_league)
+    if selected_tournament_code != TOURNAMENT_CODE:
+        scoring_start = None
     if scoring_start is not None:
         query = query.filter(Match.starts_at >= scoring_start)
 
@@ -3289,6 +3297,9 @@ def get_tournament_predictions(
         active_league = require_user_league(db, current_user, league_id)
     except ValueError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+
+    tournament = _resolve_tournament(db, tournament_code)
+    selected_tournament_code = tournament.code
 
     users = (
         db.query(User)
