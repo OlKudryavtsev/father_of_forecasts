@@ -45,6 +45,28 @@ class User(Base):
     league_memberships = relationship("LeagueMember", back_populates="user", cascade="all, delete-orphan", foreign_keys="LeagueMember.user_id")
 
 
+
+
+class Tournament(Base):
+    __tablename__ = "tournaments"
+
+    code = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    short_name = Column(String, nullable=True)
+    tournament_type = Column(String, nullable=False, default="custom", server_default="custom", index=True)
+    year = Column(Integer, nullable=True, index=True)
+    host = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="draft", server_default="draft", index=True)
+    starts_at = Column(DateTime(timezone=True), nullable=True)
+    ends_at = Column(DateTime(timezone=True), nullable=True)
+    prediction_deadline = Column(DateTime(timezone=True), nullable=True)
+    has_third_place_match = Column(Boolean, nullable=False, default=True, server_default="true")
+    scoring_rules = Column(JSON, nullable=False, default=dict, server_default="{}")
+    is_default = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    display_order = Column(Integer, nullable=False, default=100, server_default="100")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 class League(Base):
     __tablename__ = "leagues"
 
@@ -281,7 +303,8 @@ class LeagueWinModelCache(Base):
     __tablename__ = "league_win_model_cache"
 
     id = Column(Integer, primary_key=True, index=True)
-    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    league_id = Column(Integer, ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False, index=True)
+    tournament_code = Column(String, nullable=False, default="wc2026", server_default="wc2026", index=True)
     source_signature = Column(String(96), nullable=True, index=True)
     payload = Column(JSON, nullable=True)
     sync_status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
@@ -292,6 +315,10 @@ class LeagueWinModelCache(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     league = relationship("League")
+
+    __table_args__ = (
+        UniqueConstraint("league_id", "tournament_code", name="uq_league_win_model_cache_league_tournament"),
+    )
 
 
 class MatchVideo(Base):

@@ -1438,9 +1438,10 @@ def _build_standings_scenarios_from_context(
     return base_payload
 
 
-def build_league_win_model_payload(db: Session, league: League) -> tuple[str, dict[str, Any]]:
+def build_league_win_model_payload(db: Session, league: League, tournament_code: str | None = None) -> tuple[str, dict[str, Any]]:
     """Calculate the complete reusable payload for one league exactly once."""
     context = _build_league_probability_context(db, league)
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
     source_signature = f"{LEAGUE_WIN_CACHE_SCHEMA_VERSION}:{_simulation_seed(context):x}"
     simulation = _simulate_league_win_model(context)
     probabilities = _probability_payload_from_simulation(context, simulation)
@@ -1456,6 +1457,7 @@ def build_league_win_model_payload(db: Session, league: League) -> tuple[str, di
     return source_signature, {
         "schema_version": LEAGUE_WIN_CACHE_SCHEMA_VERSION,
         "league_id": int(league.id),
+        "tournament_code": selected_tournament_code,
         "probabilities": {str(user_id): value for user_id, value in probabilities.items()},
         "scenarios_by_user": scenarios_by_user,
         "simulation_runs": int(simulation["runs"]),
@@ -1463,20 +1465,24 @@ def build_league_win_model_payload(db: Session, league: League) -> tuple[str, di
     }
 
 
-def _league_win_cache_row(db: Session, league_id: int) -> LeagueWinModelCache | None:
-    return db.query(LeagueWinModelCache).filter(LeagueWinModelCache.league_id == int(league_id)).first()
+def _league_win_cache_row(db: Session, league_id: int, tournament_code: str | None = None) -> LeagueWinModelCache | None:
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    return db.query(LeagueWinModelCache).filter(
+        LeagueWinModelCache.league_id == int(league_id),
+        LeagueWinModelCache.tournament_code == selected_tournament_code,
+    ).first()
 
 
-def get_cached_league_win_model(db: Session, league: League) -> dict[str, Any] | None:
+def get_cached_league_win_model(db: Session, league: League, tournament_code: str | None = None) -> dict[str, Any] | None:
     """Return last successful cache without recalculating in request handlers."""
-    row = _league_win_cache_row(db, league.id)
+    row = _league_win_cache_row(db, league.id, tournament_code)
     if not row or row.sync_status != "ready" or not isinstance(row.payload, dict):
         return None
     return dict(row.payload)
 
 
-def get_cached_league_win_probabilities(db: Session, league: League) -> dict[int, dict[str, Any]] | None:
-    payload = get_cached_league_win_model(db, league)
+def get_cached_league_win_probabilities(db: Session, league: League, tournament_code: str | None = None) -> dict[int, dict[str, Any]] | None:
+    payload = get_cached_league_win_model(db, league, tournament_code)
     if not payload:
         return None
     raw = payload.get("probabilities") or {}
@@ -1487,20 +1493,22 @@ def get_cached_standings_scenarios(
     db: Session,
     league: League,
     participant_user_id: int,
+    tournament_code: str | None = None,
 ) -> dict[str, Any] | None:
-    payload = get_cached_league_win_model(db, league)
+    payload = get_cached_league_win_model(db, league, tournament_code)
     if not payload:
         return None
     cached = (payload.get("scenarios_by_user") or {}).get(str(int(participant_user_id)))
     return dict(cached) if isinstance(cached, dict) else None
 
 
-def sync_league_win_model_cache(db: Session, league: League, *, force: bool = False) -> dict[str, Any]:
+def sync_league_win_model_cache(db: Session, league: League, *, force: bool = False, tournament_code: str | None = None) -> dict[str, Any]:
     """Refresh one durable cache row. Intended exclusively for a background job."""
     now = datetime.now(timezone.utc)
-    row = _league_win_cache_row(db, league.id)
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    row = _league_win_cache_row(db, league.id, selected_tournament_code)
     if row is None:
-        row = LeagueWinModelCache(league_id=league.id, sync_status="pending")
+        row = LeagueWinModelCache(league_id=league.id, tournament_code=selected_tournament_code, sync_status="pending")
         db.add(row)
         db.flush()
 
@@ -1529,6 +1537,7 @@ def sync_league_win_model_cache(db: Session, league: League, *, force: bool = Fa
         row.payload = {
             "schema_version": LEAGUE_WIN_CACHE_SCHEMA_VERSION,
             "league_id": int(league.id),
+            "tournament_code": selected_tournament_code,
             "probabilities": {str(user_id): value for user_id, value in probabilities.items()},
             "scenarios_by_user": scenarios_by_user,
             "simulation_runs": int(simulation["runs"]),
@@ -1542,9 +1551,9 @@ def sync_league_win_model_cache(db: Session, league: League, *, force: bool = Fa
         return {"league_id": league.id, "status": "ready", "recalculated": True, "runs": int(simulation["runs"])}
     except Exception as error:
         db.rollback()
-        row = _league_win_cache_row(db, league.id)
+        row = _league_win_cache_row(db, league.id, selected_tournament_code)
         if row is None:
-            row = LeagueWinModelCache(league_id=league.id)
+            row = LeagueWinModelCache(league_id=league.id, tournament_code=selected_tournament_code)
             db.add(row)
         row.sync_status = "partial" if row.payload else "error"
         row.last_synced_at = now

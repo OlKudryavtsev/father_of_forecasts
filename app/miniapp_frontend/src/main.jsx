@@ -1236,8 +1236,25 @@ function HeaderLeagueSelector({ leagues = [], activeLeagueId, onChange }) {
   );
 }
 
-function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onLeagueChange }) {
+function HeaderTournamentSelector({ tournaments = [], activeTournamentCode, onChange }) {
+  if (!tournaments.length) return null;
+  const selected = tournaments.find((item) => item.code === activeTournamentCode) || tournaments[0];
+  return (
+    <label className="header-tournament-selector" aria-label="Выбор турнира">
+      <Icon name="cup" />
+      <select value={selected?.code || ''} onChange={(event) => onChange?.(event.target.value)}>
+        {tournaments.map((item) => (
+          <option key={item.code} value={item.code}>{item.short_name || item.name || item.code}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onLeagueChange, tournaments = [], activeTournamentCode, onTournamentChange }) {
   const stageText = dashboard?.tournament?.current_stage_label || (dashboard?.tournament?.is_started ? 'Турнир идет' : 'До старта');
+  const tournamentTitle = dashboard?.tournament?.name || dashboard?.tournament?.short_name || 'Турнир';
+  const tournamentHost = dashboard?.tournament?.host || '';
 
   return (
     <header className="league-header">
@@ -1245,7 +1262,7 @@ function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onL
         <div className="league-logo"><Icon name="cup" /></div>
         <div className="league-text">
           <h1>Отец прогнозов</h1>
-          <div className="league-subtitle">ЧМ-2026 · США · Мексика · Канада</div>
+          <div className="league-subtitle">{tournamentTitle}{tournamentHost ? ` · ${tournamentHost}` : ''}</div>
         </div>
         <button className="rules-button" onClick={onRules}>Правила</button>
       </div>
@@ -1253,6 +1270,8 @@ function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onL
       <div className="league-status-row">
         {dashboard?.user?.is_admin && <button className="header-admin-button" onClick={onAdmin}><Icon name="shield" /> Админ</button>}
         <div className="league-status">
+          <HeaderTournamentSelector tournaments={tournaments} activeTournamentCode={activeTournamentCode} onChange={onTournamentChange} />
+          {tournaments.length > 0 && <span className="divider header-league-divider" />}
           <HeaderLeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
           {leagues.length > 0 && <span className="divider header-league-divider" />}
           <span className="status-section live-countdown">{stageText}</span>
@@ -2383,8 +2402,8 @@ function MatchDetailsModal({ match, onClose, onPredict, onOpenTeam, onOpenPlayer
   );
 }
 
-function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution = true, leagueId = null, leagueName = '' }) {
-  const locked = match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
+function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution = true, leagueId = null, leagueName = '', readOnly = false }) {
+  const locked = readOnly || match.is_finished || new Date(match.starts_at).getTime() <= Date.now();
   const predictionScoreClass = predictionResultClass(match);
   const activeVideos = visibleVideosForMatch(match);
   const hasVideos = activeVideos.length > 0;
@@ -3047,7 +3066,7 @@ function MatchCenterTeamFilterModal({ teams = [], selectedTeam = null, onSelect,
   );
 }
 
-function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
+function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, activeTournamentCode = "wc2026" }) {
   const [scope, setScope] = useState('all');
   const [group, setGroup] = useState(null);
   const [dateOrder, setDateOrder] = useState('asc');
@@ -3066,10 +3085,11 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
       const params = new URLSearchParams({ scope });
       if (group) params.set('group_code', group);
       if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+      if (activeTournamentCode) params.set('tournament_code', activeTournamentCode);
       setData(await api(`/api/webapp/match-center?${params.toString()}`));
     } catch (err) { setError(err); } finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [scope, group, activeLeagueId]);
+  useEffect(() => { load(); }, [scope, group, activeLeagueId, activeTournamentCode]);
   const orderedMatches = useMemo(() => {
     const matches = [...(data?.matches || [])];
     const toTime = (match) => {
@@ -3173,7 +3193,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId }) {
           </div>
         </div>
       </div>
-      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} compact />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title={teamFilter ? `Нет матчей сборной «${teamFilter.name}»` : 'Нет матчей'} text={teamFilter ? 'Попробуйте изменить сборную или фильтры выше.' : scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} />)}</section>)}</>}</div>
+      <div className="match-center-results">{loading && !data ? <LoadingCard /> : <>{selectedStanding && <GroupTable group={selectedStanding} onTeam={openTeam} compact />}{loading && <LoadingCard text="Обновляю список..." />}{!loading && grouped.length === 0 && <EmptyState iconName="ball" title={teamFilter ? `Нет матчей сборной «${teamFilter.name}»` : 'Нет матчей'} text={teamFilter ? 'Попробуйте изменить сборную или фильтры выше.' : scope === 'results' ? 'Пока нет завершенных матчей' : scope === 'upcoming' ? 'Нет будущих матчей' : 'Матчи не найдены'} />}{!loading && grouped.map(([day, matches]) => <section key={day} className="match-day"><div className="day-heading"><span>{formatDayTitle(matches[0]?.starts_at)}</span><b>{matches.length} матч{matches.length === 1 ? '' : 'а'}</b></div>{matches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} onDetails={openMatch} leagueId={activeLeagueId} leagueName={leagueName} readOnly={data?.tournament?.is_read_only} />)}</section>)}</>}</div>
     </>}
     </section>
     {teamFilterOpen && <MatchCenterTeamFilterModal teams={teamOptions} selectedTeam={teamFilter} onSelect={selectTeamFilter} onClear={clearTeamFilter} onClose={() => setTeamFilterOpen(false)} />}
@@ -3353,7 +3373,7 @@ function ScorePicker({ match, onClose, onSaved }) {
 }
 
 
-function TournamentPredictionModal({ currentPrediction, initialField = 'champion', onClose, onSaved }) {
+function TournamentPredictionModal({ currentPrediction, initialField = 'champion', tournamentCode = 'wc2026', onClose, onSaved }) {
   const [teams, setTeams] = useState([]);
   const [scorers, setScorers] = useState([]);
   const existing = currentPrediction?.prediction || {};
@@ -3373,13 +3393,13 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
   }, [initialField]);
 
   useEffect(() => {
-    api('/api/webapp/tournament-teams')
+    api(`/api/webapp/tournament-teams${tournamentCode ? `?tournament_code=${encodeURIComponent(tournamentCode)}` : ''}`)
       .then((result) => setTeams(result.teams || []))
       .catch(setError);
     api('/api/webapp/top-scorer-candidates')
       .then((result) => setScorers(result.candidates || []))
       .catch(() => {});
-  }, []);
+  }, [tournamentCode]);
 
   useEffect(() => {
     const node = document.querySelector(`[data-field="${initialField}"]`);
@@ -3411,7 +3431,7 @@ function TournamentPredictionModal({ currentPrediction, initialField = 'champion
     }
 
     try {
-      await api('/api/webapp/tournament-prediction', {
+      await api(`/api/webapp/tournament-prediction${tournamentCode ? `?tournament_code=${encodeURIComponent(tournamentCode)}` : ''}`, {
         method: 'POST',
         body: JSON.stringify({
           champion,
@@ -3489,6 +3509,7 @@ function TournamentPredictionsModal({
   onClose,
   leagueId = null,
   leagueName = '',
+  tournamentCode = 'wc2026',
   onOpenTournamentTeam,
   onOpenTournamentPlayer,
 }) {
@@ -3503,11 +3524,15 @@ function TournamentPredictionsModal({
 
   useEffect(() => {
     let active = true;
-    api(`/api/webapp/tournament-predictions${leagueId ? `?league_id=${leagueId}` : ''}`)
+    const params = new URLSearchParams();
+    if (leagueId) params.set('league_id', String(leagueId));
+    if (tournamentCode) params.set('tournament_code', tournamentCode);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    api(`/api/webapp/tournament-predictions${suffix}`)
       .then((result) => { if (active) setData(result); })
       .catch((err) => { if (active) setError(err); });
     return () => { active = false; };
-  }, [leagueId]);
+  }, [leagueId, tournamentCode]);
 
   function openTarget(target) {
     if (!target) return;
@@ -4575,7 +4600,7 @@ function FantasyPlayerPicker({
 }
 
 
-function PredictionAgreementAnalytics({ activeLeagueId = null }) {
+function PredictionAgreementAnalytics({ activeLeagueId = null, activeTournamentCode = "wc2026" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [includeAdvancement, setIncludeAdvancement] = useState(false);
@@ -4595,6 +4620,7 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
     try {
       const params = new URLSearchParams();
       if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+      if (activeTournamentCode) params.set('tournament_code', activeTournamentCode);
       params.set('include_advancement', includeAdvancement ? 'true' : 'false');
       if (selectedStages.length) params.set('stages', selectedStages.join(','));
       const suffix = params.toString() ? `?${params.toString()}` : '';
@@ -4608,7 +4634,7 @@ function PredictionAgreementAnalytics({ activeLeagueId = null }) {
     }
   }
 
-  useEffect(() => { loadAgreement(); }, [activeLeagueId, includeAdvancement, selectedStages.join('|')]);
+  useEffect(() => { loadAgreement(); }, [activeLeagueId, activeTournamentCode, includeAdvancement, selectedStages.join('|')]);
 
   function toggleStage(key) {
     if (!key) return;
@@ -4754,7 +4780,7 @@ function PredictionAgreementPairModal({ pair, includeAdvancement = false, onClos
 }
 
 
-function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentPrediction, onTournamentPick, onTournamentParticipants, onOpenTournamentTeam, onOpenTournamentPlayer }) {
+function Predictions({ activeLeagueId = null, activeTournamentCode = "wc2026", onPredict, onForecast, tournamentPrediction, onTournamentPick, onTournamentParticipants, onOpenTournamentTeam, onOpenTournamentPlayer }) {
   const [data, setData] = useState(null);
   const [activeSection, setActiveSection] = useState('missing');
   const [error, setError] = useState(null);
@@ -4762,7 +4788,9 @@ function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentP
   async function load() {
     setError(null);
     try {
-      const result = await api('/api/webapp/matches?scope=all');
+      const params = new URLSearchParams({ scope: 'all' });
+      if (activeTournamentCode) params.set('tournament_code', activeTournamentCode);
+      const result = await api(`/api/webapp/matches?${params.toString()}`);
       setData(result);
     } catch (err) {
       setError(err);
@@ -4815,13 +4843,13 @@ function Predictions({ activeLeagueId = null, onPredict, onForecast, tournamentP
             groupMatchesByDay(visibleMatches).map(([day, dayMatches]) => (
               <section key={day} className="match-day">
                 <div className="day-heading"><span>{formatDayTitle(dayMatches[0]?.starts_at)}</span><b>{dayMatches.length}</b></div>
-                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} />)}
+                {dayMatches.map((match) => <MatchCard key={match.id} match={match} onPredict={onPredict} onForecast={onForecast} showDistribution={false} readOnly={data?.tournament?.is_read_only} />)}
               </section>
             ))
           )}
         </section>
       )}
-      <PredictionAgreementAnalytics activeLeagueId={activeLeagueId} />
+      <PredictionAgreementAnalytics activeLeagueId={activeLeagueId} activeTournamentCode={activeTournamentCode} />
     </main>
   );
 }
@@ -4999,7 +5027,7 @@ function participantPointsLabel(value) {
   return String(points);
 }
 
-function ParticipantPredictionsModal({ participant, leagueId = null, leagueName = '', onClose }) {
+function ParticipantPredictionsModal({ participant, leagueId = null, leagueName = '', tournamentCode = 'wc2026', onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [resultFilter, setResultFilter] = useState(null);
@@ -5019,6 +5047,7 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
     setResultFilter(null);
     const params = new URLSearchParams();
     if (leagueId) params.set('league_id', String(leagueId));
+    if (tournamentCode) params.set('tournament_code', tournamentCode);
     const suffix = params.toString() ? `?${params.toString()}` : '';
     const endpoint = isFather
       ? `/api/webapp/table/father/predictions${suffix}`
@@ -5029,7 +5058,7 @@ function ParticipantPredictionsModal({ participant, leagueId = null, leagueName 
       .catch((err) => { if (active) setError(err); });
 
     return () => { active = false; };
-  }, [participant?.is_father, participant?.user_id, leagueId]);
+  }, [participant?.is_father, participant?.user_id, leagueId, tournamentCode]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -5247,7 +5276,7 @@ function ratingRaceSmoothPath(points) {
   return path;
 }
 
-function RatingRace({ activeLeagueId }) {
+function RatingRace({ activeLeagueId, activeTournamentCode = "wc2026" }) {
   const [isOpen, setIsOpen] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -5280,6 +5309,7 @@ function RatingRace({ activeLeagueId }) {
 
     const params = new URLSearchParams();
     if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+    if (activeTournamentCode) params.set('tournament_code', activeTournamentCode);
     const suffix = params.toString() ? `?${params.toString()}` : '';
 
     api(`/api/webapp/rating-history${suffix}`)
@@ -5293,13 +5323,13 @@ function RatingRace({ activeLeagueId }) {
         setVisibleRaceIds(new Set((result.participants || []).map((participant) => participant.race_id)));
         trackAnalytics('rating_race_open', {
           screen: 'rating',
-          properties: { league_id: activeLeagueId || 0, mode: 'match_history' },
+          properties: { league_id: activeLeagueId || 0, tournament_code: activeTournamentCode || '', mode: 'match_history' },
         });
       })
       .catch((err) => { if (active) setError(err); });
 
     return () => { active = false; };
-  }, [activeLeagueId, reloadKey, isOpen]);
+  }, [activeLeagueId, activeTournamentCode, reloadKey, isOpen]);
 
   const steps = data?.steps || [];
   const participants = data?.participants || [];
@@ -5710,7 +5740,7 @@ function StandingsScenarios({ rows, activeLeagueId }) {
   );
 }
 
-function Rating({ activeLeagueId }) {
+function Rating({ activeLeagueId, activeTournamentCode = "wc2026" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
@@ -5722,9 +5752,10 @@ function Rating({ activeLeagueId }) {
     setError(null);
     const params = new URLSearchParams();
     if (activeLeagueId) params.set('league_id', String(activeLeagueId));
+    if (activeTournamentCode) params.set('tournament_code', activeTournamentCode);
     const suffix = params.toString() ? `?${params.toString()}` : '';
     api(`/api/webapp/table${suffix}`).then(setData).catch(setError);
-  }, [activeLeagueId]);
+  }, [activeLeagueId, activeTournamentCode]);
 
   if (error) return <ErrorCard error={error} />;
   if (!data) return <LoadingCard />;
@@ -5824,7 +5855,7 @@ function Rating({ activeLeagueId }) {
 
       {!data.tournament_finished && <StandingsScenarios rows={rows} activeLeagueId={activeLeagueId} />}
 
-      <RatingRace activeLeagueId={activeLeagueId} />
+      <RatingRace activeLeagueId={activeLeagueId} activeTournamentCode={activeTournamentCode} />
 
       <RatingMatchAnalytics
         analytics={data.match_analytics}
@@ -5852,6 +5883,7 @@ function Rating({ activeLeagueId }) {
           participant={selectedParticipant}
           leagueId={activeLeagueId}
           leagueName={data.league?.name || ''}
+          tournamentCode={activeTournamentCode}
           onClose={() => setSelectedParticipant(null)}
         />
       )}
@@ -8685,6 +8717,8 @@ function App() {
   const [tab, setTab] = useState(() => launchQuizId ? 'quiz' : 'matches');
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('ff-app-theme') || 'light');
   const [leaguesData, setLeaguesData] = useState({ leagues: [], default_league_id: null });
+  const [tournamentsData, setTournamentsData] = useState({ tournaments: [], default_tournament_code: 'wc2026' });
+  const [activeTournamentCode, setActiveTournamentCodeState] = useState(() => localStorage.getItem('ff_active_tournament_code') || 'wc2026');
   const [activeLeagueId, setActiveLeagueIdState] = useState(() => Number(localStorage.getItem('ff_active_league_id') || 0) || null);
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState(null);
@@ -8722,9 +8756,9 @@ function App() {
 
   useEffect(() => {
     if (isTelegramMode() || hasBrowserSession) {
-      trackAnalytics('screen_view', { screen: tab, properties: { league_id: activeLeagueId || 0 } });
+      trackAnalytics('screen_view', { screen: tab, properties: { league_id: activeLeagueId || 0, tournament_code: activeTournamentCode || '' } });
     }
-  }, [tab, activeLeagueId, hasBrowserSession]);
+  }, [tab, activeLeagueId, activeTournamentCode, hasBrowserSession]);
 
   useEffect(() => {
     localStorage.setItem('ff-app-theme', appTheme);
@@ -8732,10 +8766,13 @@ function App() {
 
   async function loadDashboard() {
     try {
-      const dashboardQuery = activeLeagueId ? `?league_id=${encodeURIComponent(activeLeagueId)}` : '';
+      const dashboardParams = new URLSearchParams();
+      if (activeLeagueId) dashboardParams.set('league_id', String(activeLeagueId));
+      if (activeTournamentCode) dashboardParams.set('tournament_code', activeTournamentCode);
+      const dashboardQuery = dashboardParams.toString() ? `?${dashboardParams.toString()}` : '';
       const [dashboardResult, tournamentPredictionResult] = await Promise.all([
         api(`/api/webapp/dashboard${dashboardQuery}`),
-        api('/api/webapp/tournament-prediction/me').catch(() => null),
+        api(`/api/webapp/tournament-prediction/me${activeTournamentCode ? `?tournament_code=${encodeURIComponent(activeTournamentCode)}` : ''}`).catch(() => null),
       ]);
       setDashboard(dashboardResult);
       setTournamentPrediction(tournamentPredictionResult);
@@ -8747,7 +8784,7 @@ function App() {
   useEffect(() => {
     if (!isTelegramMode() && !hasBrowserSession) return;
     loadDashboard();
-  }, [refreshKey, hasBrowserSession, activeLeagueId]);
+  }, [refreshKey, hasBrowserSession, activeLeagueId, activeTournamentCode]);
 
   useEffect(() => {
     if (tab !== 'matches' || (!isTelegramMode() && !hasBrowserSession)) return undefined;
@@ -8768,7 +8805,7 @@ function App() {
       window.clearInterval(pollTimer);
       if (kickoffTimer) window.clearTimeout(kickoffTimer);
     };
-  }, [tab, activeLeagueId, refreshKey, hasBrowserSession, dashboard?.nearest_matches?.[0]?.starts_at]);
+  }, [tab, activeLeagueId, activeTournamentCode, refreshKey, hasBrowserSession, dashboard?.nearest_matches?.[0]?.starts_at]);
 
   function handleSaved() {
     setRefreshKey((value) => value + 1);
@@ -8785,6 +8822,30 @@ function App() {
       localStorage.setItem('ff_active_league_id', String(normalized));
     } else {
       localStorage.removeItem('ff_active_league_id');
+    }
+  }
+
+  function setActiveTournamentCode(nextCode) {
+    const normalized = String(nextCode || 'wc2026');
+    setActiveTournamentCodeState(normalized);
+    localStorage.setItem('ff_active_tournament_code', normalized);
+    setRefreshKey((value) => value + 1);
+  }
+
+  async function loadTournaments() {
+    try {
+      const result = await api('/api/webapp/tournaments');
+      const tournaments = result.tournaments || [];
+      setTournamentsData(result);
+      const stored = localStorage.getItem('ff_active_tournament_code');
+      const storedAvailable = stored && tournaments.some((item) => item.code === stored);
+      const fallback = result.active_tournament_code || result.default_tournament_code || tournaments[0]?.code || 'wc2026';
+      setActiveTournamentCodeState(storedAvailable ? stored : fallback);
+      if (!storedAvailable) localStorage.setItem('ff_active_tournament_code', fallback);
+      return result;
+    } catch (err) {
+      console.warn('Failed to load tournaments', err);
+      return null;
     }
   }
 
@@ -8810,6 +8871,11 @@ function App() {
 
   useEffect(() => {
     if (!isTelegramMode() && !hasBrowserSession) return;
+    loadTournaments();
+  }, [hasBrowserSession]);
+
+  useEffect(() => {
+    if (!isTelegramMode() && !hasBrowserSession) return;
     loadLeagues();
   }, [hasBrowserSession, refreshKey]);
 
@@ -8830,6 +8896,12 @@ function App() {
         dashboard={dashboard}
         leagues={leaguesData.leagues || []}
         activeLeagueId={activeLeagueId}
+        tournaments={tournamentsData.tournaments || []}
+        activeTournamentCode={activeTournamentCode}
+        onTournamentChange={(nextCode) => {
+          setActiveTournamentCode(nextCode);
+          trackAnalytics('tournament_mode_open', { screen: tab, properties: { tournament_code: nextCode || '' } });
+        }}
         onLeagueChange={(nextLeagueId) => {
           setActiveLeagueId(nextLeagueId);
           trackAnalytics('league_selected', { screen: tab, properties: { league_id: Number(nextLeagueId) || 0 } });
@@ -8850,13 +8922,14 @@ function App() {
             onOpenLiveMatch={(match) => setHomeTournamentMatch(match)}
             activeLeagueId={activeLeagueId}
           />
-          <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} />
+          <MatchCenter key={`matches-${refreshKey}-${activeLeagueId || 'default'}-${activeTournamentCode || 'tournament'}`} onPredict={setPredictionMatch} onForecast={setForecastMatch} leagues={leaguesData.leagues || []} activeLeagueId={activeLeagueId} activeTournamentCode={activeTournamentCode} />
         </>
       )}
       {FANTASY_UI_ENABLED && tab === 'fantasy' && <Fantasy />}
       {tab === 'predictions' && <Predictions
-        key={`predictions-${refreshKey}-${activeLeagueId || 'default'}`}
+        key={`predictions-${refreshKey}-${activeLeagueId || 'default'}-${activeTournamentCode || 'tournament'}`}
         activeLeagueId={activeLeagueId}
+        activeTournamentCode={activeTournamentCode}
         onPredict={setPredictionMatch}
         onForecast={setForecastMatch}
         tournamentPrediction={tournamentPrediction}
@@ -8867,7 +8940,7 @@ function App() {
       />}
       {tab === 'quiz' && <QuizScreen activeLeagueId={activeLeagueId} leaguesData={leaguesData} initialQuizId={launchQuizId} />}
       {tab === 'leagues' && <LeaguesScreen leaguesData={leaguesData} activeLeagueId={activeLeagueId} onLeagueChange={setActiveLeagueId} onLeaguesChanged={loadLeagues} />}
-      {tab === 'rating' && <Rating activeLeagueId={activeLeagueId} />}
+      {tab === 'rating' && <Rating activeLeagueId={activeLeagueId} activeTournamentCode={activeTournamentCode} />}
       {tab === 'profile' && <Profile tournamentPrediction={tournamentPrediction} appTheme={appTheme} setAppTheme={setAppTheme} activeLeagueId={activeLeagueId} />}
       {tab === 'admin' && dashboard?.user?.is_admin && <AdminPanel />}
 
@@ -8879,13 +8952,14 @@ function App() {
         onClose={() => setTournamentPredictionsOpen(false)}
         leagueId={activeLeagueId}
         leagueName={activeLeagueName}
+        tournamentCode={activeTournamentCode}
         onOpenTournamentTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }}
         onOpenTournamentPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }}
       />}
       {homeTournamentMatch && <MatchDetailsModal match={homeTournamentMatch} onClose={() => setHomeTournamentMatch(null)} onPredict={setPredictionMatch} onOpenTeam={(id) => { setHomeTournamentMatch(null); setHomeTournamentTeamId(id); }} onOpenPlayer={(id) => { setHomeTournamentMatch(null); setHomeTournamentPlayerId(id); }} />}
       {homeTournamentTeamId && <TeamProfileModal teamId={homeTournamentTeamId} onClose={() => setHomeTournamentTeamId(null)} onOpenMatch={(match) => { setHomeTournamentTeamId(null); setHomeTournamentMatch(match); }} onOpenPlayer={(id) => { setHomeTournamentTeamId(null); setHomeTournamentPlayerId(id); }} />}
       {homeTournamentPlayerId && <PlayerProfileModal playerId={homeTournamentPlayerId} onClose={() => setHomeTournamentPlayerId(null)} onOpenTeam={(id) => { setHomeTournamentPlayerId(null); setHomeTournamentTeamId(id); }} onOpenMatch={(match) => { setHomeTournamentPlayerId(null); setHomeTournamentMatch(match); }} />}
-      {tournamentPickField && (tournamentPrediction?.can_submit || !tournamentPrediction?.is_closed) && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
+      {tournamentPickField && (tournamentPrediction?.can_submit || !tournamentPrediction?.is_closed) && <TournamentPredictionModal currentPrediction={tournamentPrediction} initialField={tournamentPickField} tournamentCode={activeTournamentCode} onClose={() => setTournamentPickField(null)} onSaved={handleTournamentSaved} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   );

@@ -93,7 +93,7 @@ def _get_league_context(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: i
         return None, None
 
 
-def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int | None = None) -> list[dict]:
+def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int | None = None, tournament_code: str | None = None) -> list[dict]:
     """Provide bot helper logic for build_table_rows.
 
     When a league is selected, match points are counted only for matches whose
@@ -103,8 +103,14 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
     users = _get_league_users(db, league_name=league_name, league_id=league_id)
     _league, scoring_start_at = _get_league_context(db, league_name=league_name, league_id=league_id)
 
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    if selected_tournament_code != TOURNAMENT_CODE:
+        # Archive imports usually predate the live league creation/scoring date.
+        # Keep the selected tournament self-contained instead of filtering it out
+        # by the current WC2026 league baseline.
+        scoring_start_at = None
     rows = []
-    tournament_result = infer_tournament_result(db, TOURNAMENT_CODE)
+    tournament_result = infer_tournament_result(db, selected_tournament_code)
 
     for user in users:
         if getattr(user, "is_bot", False):
@@ -115,7 +121,7 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
             .join(Match, Prediction.match_id == Match.id)
             .filter(
                 Prediction.user_id == user.id,
-                Match.tournament_code == TOURNAMENT_CODE,
+                Match.tournament_code == selected_tournament_code,
             )
         )
         if scoring_start_at is not None:
@@ -125,7 +131,7 @@ def build_table_rows(db, league_name: str = DEFAULT_LEAGUE_NAME, league_id: int 
 
         tournament_prediction = db.query(TournamentPrediction).filter(
             TournamentPrediction.user_id == user.id,
-            TournamentPrediction.tournament_code == TOURNAMENT_CODE,
+            TournamentPrediction.tournament_code == selected_tournament_code,
         ).first()
 
         match_points = sum(

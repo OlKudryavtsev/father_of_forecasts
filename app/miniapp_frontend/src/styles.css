@@ -14115,3 +14115,65 @@ body,
   .tournament-winner-card { grid-template-columns: 1fr; }
   .tournament-winner-card > strong { width: fit-content; }
 }
+
+/* v3.8.0 — global tournament selector */
+.header-tournament-selector {
+  position: relative;
+  min-width: 0;
+  flex: 0 1 138px;
+  max-width: 150px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #dce9ff;
+}
+
+.header-tournament-selector .svg-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--gold);
+}
+
+.header-tournament-selector select {
+  min-width: 0;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  outline: 0;
+  padding: 0 12px 0 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-tournament-selector::after {
+  content: '⌄';
+  position: absolute;
+  right: 0;
+  top: 48%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.app.theme-light .header-tournament-selector {
+  color: #10203c;
+}
+
+@media (max-width: 420px) {
+  .header-tournament-selector {
+    flex-basis: 112px;
+    max-width: 120px;
+  }
+  .header-tournament-selector select {
+    font-size: 11px;
+  }
+}
