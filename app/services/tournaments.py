@@ -58,10 +58,6 @@ def _parse_datetime(value: Any) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def _truthy_env(name: str, default: str = "true") -> bool:
-    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on", "y"}
-
-
 def _int_env(name: str, default: int) -> int:
     try:
         return int(str(os.getenv(name, str(default))).strip())
@@ -197,11 +193,16 @@ def _api_fixture_winner_side(fixture: dict) -> str | None:
 
 
 def sync_ucl_2026_2027_fixtures(db: Session, *, force: bool = False) -> dict:
-    """Load/update Champions League 2026/27 fixtures from API-Football."""
+    """Load/update Champions League 2026/27 fixtures from API-Football.
+
+    This function is intentionally explicit: it is called from the sync script
+    or an admin/background workflow, not from ordinary Mini App read requests.
+    It always fetches provider fixtures when the API key is present and upserts
+    by tournament_code + provider + fixture id, so newly published fixtures are
+    added even when a partial earlier import already exists.
+    """
     ensure_ucl_2026_2027_tournament(db)
     existing_count = db.query(Match).filter(Match.tournament_code == UCL_2026_2027_CODE).count()
-    if existing_count and not force:
-        return {"status": "skipped", "reason": "fixtures already loaded", "matches": existing_count}
     if not os.getenv("API_FOOTBALL_KEY"):
         return {"status": "skipped", "reason": "API_FOOTBALL_KEY is not configured", "matches": existing_count}
 
@@ -286,6 +287,8 @@ def sync_ucl_2026_2027_fixtures(db: Session, *, force: bool = False) -> dict:
             match.final_score_home, match.final_score_away = _api_fixture_final_score(row)
             match.winner_side = _api_fixture_winner_side(row)
             match.is_finished = match.score_home is not None and match.score_away is not None
+        else:
+            match.is_finished = False
 
     tournament = db.query(Tournament).filter(Tournament.code == UCL_2026_2027_CODE).first()
     if tournament and first_match_at:
@@ -299,6 +302,7 @@ def sync_ucl_2026_2027_fixtures(db: Session, *, force: bool = False) -> dict:
         "fixtures_received": len(fixtures),
         "created": created,
         "updated": updated,
+        "existing_before": existing_count,
         "matches": db.query(Match).filter(Match.tournament_code == UCL_2026_2027_CODE).count(),
         "first_match_at": first_match_at.isoformat() if first_match_at else None,
         "status_counts": status_counts,
@@ -306,23 +310,14 @@ def sync_ucl_2026_2027_fixtures(db: Session, *, force: bool = False) -> dict:
 
 
 def maybe_sync_ucl_2026_2027_fixtures(db: Session) -> dict:
-    """Try to import UCL fixtures once when the tournament is first opened."""
-    if not _truthy_env("UCL_2026_2027_AUTO_SYNC_ON_SELECT", "true"):
-        return {"status": "skipped", "reason": "auto sync disabled"}
-    try:
-        return sync_ucl_2026_2027_fixtures(db, force=False)
-    except Exception as error:
-        db.rollback()
-        print(f"UCL 2026/27 fixture sync failed: {error}")
-        return {"status": "error", "error": str(error)}
+    """Deprecated compatibility wrapper: read paths must not sync fixtures."""
+    return {"status": "skipped", "reason": "fixture sync is explicit-only"}
 
 
 def get_tournament(db: Session, tournament_code: str | None = None) -> Tournament:
     code = normalize_tournament_code(tournament_code)
     if code == UCL_2026_2027_CODE:
-        tournament = ensure_ucl_2026_2027_tournament(db)
-        maybe_sync_ucl_2026_2027_fixtures(db)
-        return tournament
+        return ensure_ucl_2026_2027_tournament(db)
     tournament = db.query(Tournament).filter(Tournament.code == code).first()
     if tournament:
         return tournament
@@ -423,7 +418,6 @@ def upsert_archive_user(db: Session, row: dict, tournament_code: str) -> User:
     db.add(user)
     db.flush()
     return user
-
 
 
 def _ensure_archive_league(db: Session, payload: dict) -> League | None:
