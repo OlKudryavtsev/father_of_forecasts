@@ -52,7 +52,7 @@ function normalizeClubName(value) {
 const UCL_CLUB_BY_KEY = new Map();
 for (const [canonical, ru, flag, flagCode, aliases] of UCL_CLUBS) {
   const meta = { canonical, ru, flag, flagCode };
-  [canonical, ru, ...(aliases || [])].forEach((name) => UCL_CLUB_BY_KEY.set(normalizeClubName(name), meta));
+  [canonical, ...(aliases || [])].forEach((name) => UCL_CLUB_BY_KEY.set(normalizeClubName(name), meta));
 }
 const UCL_CLUB_ALIASES = [...UCL_CLUBS.flatMap(([canonical, ru, flag, flagCode, aliases]) => {
   const meta = { canonical, ru, flag, flagCode };
