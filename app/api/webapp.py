@@ -2643,6 +2643,8 @@ def get_table(
         raise HTTPException(status_code=403, detail=str(error)) from error
 
     league_scoring_start = league_scoring_start_at(active_league)
+    if selected_tournament_code != TOURNAMENT_CODE:
+        league_scoring_start = None
     rows = build_table_rows(db, league_id=active_league.id, tournament_code=selected_tournament_code)
 
     league_users = (
@@ -3002,6 +3004,8 @@ def get_participant_finished_predictions(
         matches_query = matches_query.filter(Match.starts_at >= scoring_start)
 
     joined_at = _ensure_utc(membership.joined_at) if membership.joined_at else None
+    if selected_tournament_code != TOURNAMENT_CODE:
+        joined_at = None
     matches = matches_query.order_by(Match.starts_at.desc()).all()
     if joined_at is not None:
         matches = [match for match in matches if _ensure_utc(match.starts_at) >= joined_at]
