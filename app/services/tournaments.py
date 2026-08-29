@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 import zlib
 from typing import Any
 
@@ -23,6 +24,21 @@ DEFAULT_SCORING_RULES = {
     "top_scorer": 15,
 }
 
+UCL_2026_2027_CODE = "ucl_2026_2027"
+UCL_2026_2027_SEASON = 2026
+UCL_2026_2027_SCORING_RULES = {
+    "exact_score": 3,
+    "outcome": 1,
+    "advancement_correct": 1,
+    "advancement_wrong": -1,
+    "champion": 15,
+    "runner_up": 10,
+    "third_place": 0,
+    "top_scorer": 15,
+}
+UCL_2026_2027_DEFAULT_START = datetime(2026, 9, 15, 16, 45, tzinfo=timezone.utc)
+API_FOOTBALL_FINISHED_STATUSES = {"FT", "AET", "PEN"}
+
 
 def normalize_tournament_code(value: str | None) -> str:
     code = str(value or TOURNAMENT_CODE or "wc2026").strip().lower()
@@ -40,6 +56,13 @@ def _parse_datetime(value: Any) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=APP_TIMEZONE)
     return dt.astimezone(timezone.utc)
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, str(default))).strip())
+    except (TypeError, ValueError):
+        return default
 
 
 def default_tournament_start() -> datetime:
@@ -80,8 +103,221 @@ def ensure_default_tournament(db: Session) -> Tournament:
     return tournament
 
 
+def ensure_ucl_2026_2027_tournament(db: Session) -> Tournament:
+    """Create/update the Champions League 2026/27 tournament registry row."""
+    tournament = db.query(Tournament).filter(Tournament.code == UCL_2026_2027_CODE).first()
+    created = False
+    if not tournament:
+        tournament = Tournament(code=UCL_2026_2027_CODE)
+        db.add(tournament)
+        created = True
+
+    tournament.name = "Лига чемпионов 2026/27"
+    tournament.short_name = "ЛЧ 2026/27"
+    tournament.tournament_type = "champions_league"
+    tournament.year = 2026
+    tournament.host = "Европа"
+    tournament.status = "active"
+    tournament.starts_at = tournament.starts_at or UCL_2026_2027_DEFAULT_START
+    tournament.prediction_deadline = tournament.prediction_deadline or tournament.starts_at or UCL_2026_2027_DEFAULT_START
+    tournament.ends_at = tournament.ends_at
+    tournament.has_third_place_match = False
+    tournament.scoring_rules = UCL_2026_2027_SCORING_RULES
+    tournament.is_default = False
+    tournament.display_order = 20
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(Tournament).filter(Tournament.code == UCL_2026_2027_CODE).first()
+        if existing:
+            return existing
+        raise
+
+    if created:
+        db.refresh(tournament)
+    return tournament
+
+
+def _api_football_ucl_league_id() -> int:
+    # API-Football usually identifies UEFA Champions League as league=2, but
+    # keep it configurable in Railway in case the provider changes the id.
+    return _int_env("API_FOOTBALL_UCL_LEAGUE_ID", 2)
+
+
+def _api_fixture_score(fixture: dict) -> tuple[int | None, int | None]:
+    goals = fixture.get("goals") or {}
+    home = goals.get("home")
+    away = goals.get("away")
+    return (int(home) if home is not None else None, int(away) if away is not None else None)
+
+
+def _api_fixture_final_score(fixture: dict) -> tuple[int | None, int | None]:
+    score = fixture.get("score") or {}
+    fulltime = score.get("fulltime") or {}
+    extratime = score.get("extratime") or {}
+    home = extratime.get("home") if extratime.get("home") is not None else fulltime.get("home")
+    away = extratime.get("away") if extratime.get("away") is not None else fulltime.get("away")
+    if home is None or away is None:
+        return _api_fixture_score(fixture)
+    return int(home), int(away)
+
+
+def _api_fixture_stage(round_name: str) -> str:
+    normalized = str(round_name or "").lower()
+    if "qualifying" in normalized:
+        return "qualifying"
+    if "play-off" in normalized or "playoff" in normalized:
+        return "playoff"
+    if "round of 16" in normalized or "1/8" in normalized:
+        return "round_16"
+    if "quarter" in normalized:
+        return "quarter_final"
+    if "semi" in normalized:
+        return "semi_final"
+    if "final" in normalized:
+        return "final"
+    return "league"
+
+
+def _api_fixture_winner_side(fixture: dict) -> str | None:
+    teams = fixture.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+    if home.get("winner") is True:
+        return "home"
+    if away.get("winner") is True:
+        return "away"
+    return None
+
+
+def sync_ucl_2026_2027_fixtures(db: Session, *, force: bool = False) -> dict:
+    """Load/update Champions League 2026/27 fixtures from API-Football.
+
+    This function is intentionally explicit: it is called from the sync script
+    or an admin/background workflow, not from ordinary Mini App read requests.
+    It always fetches provider fixtures when the API key is present and upserts
+    by tournament_code + provider + fixture id, so newly published fixtures are
+    added even when a partial earlier import already exists.
+    """
+    ensure_ucl_2026_2027_tournament(db)
+    existing_count = db.query(Match).filter(Match.tournament_code == UCL_2026_2027_CODE).count()
+    if not os.getenv("API_FOOTBALL_KEY"):
+        return {"status": "skipped", "reason": "API_FOOTBALL_KEY is not configured", "matches": existing_count}
+
+    from app.api_football import ApiFootballClient
+
+    client = ApiFootballClient()
+    payload = client.get(
+        "/fixtures",
+        params={
+            "league": _api_football_ucl_league_id(),
+            "season": _int_env("API_FOOTBALL_UCL_SEASON", UCL_2026_2027_SEASON),
+        },
+    )
+    fixtures = payload.get("response") or []
+    created = 0
+    updated = 0
+    status_counts: dict[str, int] = {}
+    first_match_at: datetime | None = None
+
+    for row in fixtures:
+        fixture = row.get("fixture") or {}
+        teams = row.get("teams") or {}
+        league = row.get("league") or {}
+        home = teams.get("home") or {}
+        away = teams.get("away") or {}
+        fixture_id = fixture.get("id")
+        starts_at = _parse_datetime(fixture.get("date"))
+        if not fixture_id or not home.get("name") or not away.get("name") or not starts_at:
+            continue
+
+        first_match_at = starts_at if first_match_at is None else min(first_match_at, starts_at)
+        status = fixture.get("status") or {}
+        status_short = str(status.get("short") or "").upper()
+        status_counts[status_short or "unknown"] = status_counts.get(status_short or "unknown", 0) + 1
+        round_name = str(league.get("round") or "")
+
+        match = (
+            db.query(Match)
+            .filter(
+                Match.tournament_code == UCL_2026_2027_CODE,
+                Match.external_provider == "api-football",
+                Match.external_fixture_id == str(fixture_id),
+            )
+            .first()
+        )
+        if not match:
+            match = Match(
+                tournament_code=UCL_2026_2027_CODE,
+                home_team=home.get("name") or "TBD",
+                away_team=away.get("name") or "TBD",
+                starts_at=starts_at,
+                stage=_api_fixture_stage(round_name),
+            )
+            db.add(match)
+            created += 1
+        else:
+            updated += 1
+
+        match.tournament_code = UCL_2026_2027_CODE
+        match.home_team = home.get("name") or match.home_team
+        match.away_team = away.get("name") or match.away_team
+        match.starts_at = starts_at
+        match.stage = _api_fixture_stage(round_name)
+        match.match_round = round_name or match.match_round
+        match.group_code = None
+        venue = fixture.get("venue") or {}
+        match.venue = venue.get("name") or match.venue
+        match.city = venue.get("city") or match.city
+        match.external_provider = "api-football"
+        match.external_fixture_id = str(fixture_id)
+        match.home_external_team_id = home.get("id") or match.home_external_team_id
+        match.away_external_team_id = away.get("id") or match.away_external_team_id
+        match.home_team_api_name = home.get("name") or match.home_team_api_name
+        match.away_team_api_name = away.get("name") or match.away_team_api_name
+        match.api_league_round = round_name or match.api_league_round
+        match.status_short = status_short or match.status_short
+        match.status_long = status.get("long") or match.status_long
+        match.synced_at = datetime.now(timezone.utc)
+
+        if status_short in API_FOOTBALL_FINISHED_STATUSES:
+            match.score_home, match.score_away = _api_fixture_score(row)
+            match.final_score_home, match.final_score_away = _api_fixture_final_score(row)
+            match.winner_side = _api_fixture_winner_side(row)
+            match.is_finished = match.score_home is not None and match.score_away is not None
+        else:
+            match.is_finished = False
+
+    tournament = db.query(Tournament).filter(Tournament.code == UCL_2026_2027_CODE).first()
+    if tournament and first_match_at:
+        tournament.starts_at = first_match_at
+        tournament.prediction_deadline = first_match_at
+
+    db.commit()
+    return {
+        "status": "ok",
+        "tournament_code": UCL_2026_2027_CODE,
+        "fixtures_received": len(fixtures),
+        "created": created,
+        "updated": updated,
+        "existing_before": existing_count,
+        "matches": db.query(Match).filter(Match.tournament_code == UCL_2026_2027_CODE).count(),
+        "first_match_at": first_match_at.isoformat() if first_match_at else None,
+        "status_counts": status_counts,
+    }
+
+
+def maybe_sync_ucl_2026_2027_fixtures(db: Session) -> dict:
+    """Deprecated compatibility wrapper: read paths must not sync fixtures."""
+    return {"status": "skipped", "reason": "fixture sync is explicit-only"}
+
+
 def get_tournament(db: Session, tournament_code: str | None = None) -> Tournament:
     code = normalize_tournament_code(tournament_code)
+    if code == UCL_2026_2027_CODE:
+        return ensure_ucl_2026_2027_tournament(db)
     tournament = db.query(Tournament).filter(Tournament.code == code).first()
     if tournament:
         return tournament
@@ -102,6 +338,7 @@ def get_default_tournament(db: Session) -> Tournament:
 
 def list_tournaments(db: Session) -> list[Tournament]:
     ensure_default_tournament(db)
+    ensure_ucl_2026_2027_tournament(db)
     return (
         db.query(Tournament)
         .order_by(Tournament.display_order.asc(), Tournament.year.desc().nullslast(), Tournament.code.asc())
@@ -183,7 +420,6 @@ def upsert_archive_user(db: Session, row: dict, tournament_code: str) -> User:
     return user
 
 
-
 def _ensure_archive_league(db: Session, payload: dict) -> League | None:
     league_data = dict(payload.get("league") or {})
     league_name = (payload.get("league_name") or league_data.get("name") or "Отец прогнозов").strip()
@@ -216,6 +452,7 @@ def _ensure_archive_membership(db: Session, league: League | None, user: User) -
         return False
     db.add(LeagueMember(league_id=league.id, user_id=user.id, role="member", status="active"))
     return True
+
 
 def import_tournament_archive(db: Session, payload: dict) -> dict:
     """Import a complete historical tournament from a normalized JSON payload.

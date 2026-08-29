@@ -13,6 +13,7 @@ from app.runtime import (
 from app.services.notifications import notify_admins, notify_group_tournament_prediction_saved
 from app.services.league_activity import record_user_league_activity
 
+
 def get_tournament_starts_at(tournament_code: str | None = None):
     """Provide bot helper logic for get_tournament_starts_at."""
     dt = datetime.fromisoformat(
@@ -45,6 +46,58 @@ def _to_utc(dt):
     return dt.astimezone(timezone.utc)
 
 
+def _tournament_has_third_place(db, tournament_code: str | None = None) -> bool:
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    try:
+        from app.services.tournaments import get_tournament
+        tournament = get_tournament(db, selected_tournament_code)
+        return bool(getattr(tournament, "has_third_place_match", True))
+    except Exception:
+        return True
+
+
+def _selected_tournament_starts_at(db, tournament_code: str | None = None):
+    selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    try:
+        from app.services.tournaments import get_tournament_starts_at_for_code
+        return get_tournament_starts_at_for_code(db, selected_tournament_code)
+    except Exception:
+        return get_tournament_starts_at(selected_tournament_code)
+
+
+def _tournament_prediction_payload(
+    champion: str,
+    runner_up: str,
+    third_place: str,
+    top_scorer: str,
+    has_third_place: bool,
+) -> dict:
+    payload = {"champion": champion, "runner_up": runner_up, "top_scorer": top_scorer}
+    if has_third_place:
+        payload["third_place"] = third_place
+    return payload
+
+
+def _tournament_prediction_message(
+    prefix: str,
+    champion: str,
+    runner_up: str,
+    third_place: str,
+    top_scorer: str,
+    has_third_place: bool,
+) -> str:
+    lines = [
+        prefix,
+        "",
+        f"Победитель: {champion}",
+        f"Финалист: {runner_up}",
+    ]
+    if has_third_place:
+        lines.append(f"3 место: {third_place}")
+    lines.append(f"Бомбардир: {top_scorer}")
+    return "\n".join(lines)
+
+
 def tournament_prediction_submit_state(db, user: User, tournament_code: str | None = None) -> dict:
     """Return whether the user may create/update a tournament prediction.
 
@@ -69,7 +122,7 @@ def tournament_prediction_submit_state(db, user: User, tournament_code: str | No
         }
 
     registered_at = _to_utc(getattr(user, "access_requested_at", None) or getattr(user, "created_at", None))
-    starts_at = get_tournament_starts_at(selected_tournament_code)
+    starts_at = _selected_tournament_starts_at(db, selected_tournament_code)
     is_late_entry = bool(registered_at and registered_at >= starts_at)
     can_submit = existing_prediction is None and is_late_entry
 
@@ -92,6 +145,9 @@ def save_tournament_prediction(
 ) -> tuple[bool, str]:
     """Provide bot helper logic for save_tournament_prediction."""
     selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    has_third_place = _tournament_has_third_place(db, selected_tournament_code)
+    if not has_third_place:
+        third_place = ""
     existing_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
         TournamentPrediction.tournament_code == selected_tournament_code,
@@ -115,18 +171,21 @@ def save_tournament_prediction(
                 db,
                 actor=user,
                 action_type="tournament_prediction_updated",
-                payload={"champion": champion, "runner_up": runner_up, "third_place": third_place, "top_scorer": top_scorer},
+                payload=_tournament_prediction_payload(champion, runner_up, third_place, top_scorer, has_third_place),
             )
         except Exception:
             db.rollback()
 
         return (
             True,
-            "Турнирный прогноз обновлен 🏆\n\n"
-            f"1 место: {champion}\n"
-            f"2 место: {runner_up}\n"
-            f"3 место: {third_place}\n"
-            f"Бомбардир: {top_scorer}",
+            _tournament_prediction_message(
+                "Турнирный прогноз обновлен 🏆",
+                champion,
+                runner_up,
+                third_place,
+                top_scorer,
+                has_third_place,
+            ),
         )
 
     prediction = TournamentPrediction(
@@ -145,18 +204,21 @@ def save_tournament_prediction(
             db,
             actor=user,
             action_type="tournament_prediction_created",
-            payload={"champion": champion, "runner_up": runner_up, "third_place": third_place, "top_scorer": top_scorer},
+            payload=_tournament_prediction_payload(champion, runner_up, third_place, top_scorer, has_third_place),
         )
     except Exception:
         db.rollback()
 
     return (
         True,
-        "Турнирный прогноз принят 🏆\n\n"
-        f"1 место: {champion}\n"
-        f"2 место: {runner_up}\n"
-        f"3 место: {third_place}\n"
-        f"Бомбардир: {top_scorer}",
+        _tournament_prediction_message(
+            "Турнирный прогноз принят 🏆",
+            champion,
+            runner_up,
+            third_place,
+            top_scorer,
+            has_third_place,
+        ),
     )
 
 
@@ -171,6 +233,9 @@ async def save_tournament_prediction_and_notify_admins(
 ) -> tuple[bool, str]:
     """Handle asynchronous bot workflow for save_tournament_prediction_and_notify_admins."""
     selected_tournament_code = tournament_code or TOURNAMENT_CODE
+    has_third_place = _tournament_has_third_place(db, selected_tournament_code)
+    if not has_third_place:
+        third_place = ""
     existing_prediction = db.query(TournamentPrediction).filter(
         TournamentPrediction.user_id == user.id,
         TournamentPrediction.tournament_code == selected_tournament_code,
@@ -192,12 +257,14 @@ async def save_tournament_prediction_and_notify_admins(
         action_text = "обновил" if was_update else "сделал"
 
         await notify_admins(
-            "🏆 Турнирный прогноз\n\n"
-            f"{user.display_name} {action_text} прогноз на турнир\n"
-            f"1 место: {champion}\n"
-            f"2 место: {runner_up}\n"
-            f"3 место: {third_place}\n"
-            f"Бомбардир: {top_scorer}",
+            _tournament_prediction_message(
+                f"🏆 Турнирный прогноз\n\n{user.display_name} {action_text} прогноз на турнир",
+                champion,
+                runner_up,
+                third_place,
+                top_scorer,
+                has_third_place,
+            ),
             exclude_telegram_id=user.telegram_id,
         )
 
