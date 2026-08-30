@@ -107,13 +107,6 @@ function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '' }) {
           loading="lazy"
           onError={() => setLogoFailed(true)}
         />
-        {(hasCode || emoji) && (
-          <span className="club-mark-country" aria-label={name ? `Страна клуба: ${name}` : 'Страна клуба'}>
-            {hasCode
-              ? <img src={`https://flagcdn.com/${normalizedCode}.svg`} alt="" loading="lazy" />
-              : <span>{emoji}</span>}
-          </span>
-        )}
       </span>
     );
   }
@@ -138,6 +131,16 @@ function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '' }) {
   }
 
   return <span className={`flag ${size === 'mini' ? 'mini' : ''}`.trim()} title={name}>{emoji || '🏳️'}</span>;
+}
+
+
+function TeamNameWithCountry({ code, emoji, name = '', showCountry = false, className = '' }) {
+  return (
+    <span className={`team-name-with-country ${className}`.trim()}>
+      {showCountry && <TeamFlag code={code} emoji={emoji} name={name} size="mini" />}
+      <strong>{name}</strong>
+    </span>
+  );
 }
 
 function Icon({ name, className = '' }) {
@@ -1401,7 +1404,7 @@ function NextMatchHero({ match, onPredict, onShowPredictions, kicker = 'След
       <div className="next-match-teams" aria-label={`${match.home_team} против ${match.away_team}`}>
         <div className="next-match-team home">
           <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} />
-          <strong>{match.home_team}</strong>
+          <TeamNameWithCountry code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} showCountry={Boolean(match.home_logo)} />
         </div>
         <div className="next-match-versus">
           <b>—</b>
@@ -1409,7 +1412,7 @@ function NextMatchHero({ match, onPredict, onShowPredictions, kicker = 'След
         </div>
         <div className="next-match-team away">
           <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} />
-          <strong>{match.away_team}</strong>
+          <TeamNameWithCountry code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} showCountry={Boolean(match.away_logo)} />
         </div>
       </div>
 
@@ -1535,12 +1538,12 @@ function LiveMatchHero({ match, onOpenDetails, leagueId = null }) {
       <div className="live-match-teams">
         <div className="live-match-team">
           <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} />
-          <strong>{match.home_team}</strong>
+          <TeamNameWithCountry code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} showCountry={Boolean(match.home_logo)} />
         </div>
         <div className="live-match-score"><b>{score}</b><small>{match.status_long || 'Матч идет'}</small></div>
         <div className="live-match-team">
           <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} />
-          <strong>{match.away_team}</strong>
+          <TeamNameWithCountry code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} showCountry={Boolean(match.away_logo)} />
         </div>
       </div>
       {goals.length > 0 ? (
@@ -2473,7 +2476,7 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
       <div className={`match-teams ${onDetails ? 'match-teams-clickable' : ''}`} {...detailTriggerProps}>
         <div className="team-side">
           <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} />
-          <strong>{match.home_team}</strong>
+          <TeamNameWithCountry code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} showCountry={Boolean(match.home_logo)} />
         </div>
         <div className="score-block match-score-stack">
           {match.is_finished ? (
@@ -2498,7 +2501,7 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
         </div>
         <div className="team-side">
           <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} />
-          <strong>{match.away_team}</strong>
+          <TeamNameWithCountry code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} showCountry={Boolean(match.away_logo)} />
         </div>
       </div>
 
@@ -2577,9 +2580,9 @@ function TeamProfileModal({ teamId, onClose, onOpenMatch, onOpenPlayer }) {
         <button className="hub-team-match" key={match.id} onClick={() => onOpenMatch?.(match)}>
           <span className="hub-match-date">{formatDayTitle(match.starts_at)}</span>
           <span className="hub-match-line">
-            <span><TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} size="mini" /> {match.home_team}</span>
+            <span className="hub-club-line"><TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} size="mini" /><TeamNameWithCountry code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} showCountry={Boolean(match.home_logo)} /></span>
             <b>{match.is_finished ? formatActualScore(match) : formatDateTime(match.starts_at).split(', ')[1] || '—'}</b>
-            <span>{match.away_team} <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} size="mini" /></span>
+            <span className="hub-club-line away"><TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} size="mini" /><TeamNameWithCountry code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} showCountry={Boolean(match.away_logo)} /></span>
           </span>
           <small>{match.is_finished ? 'Открыть детали матча' : 'Скоро матч'}</small>
         </button>
@@ -2968,7 +2971,7 @@ function UclLeaguePhaseTable({ matches = [] }) {
               const zone = index < 8 ? 'direct' : index < 24 ? 'playoff' : 'out';
               return <tr key={row.key} className={`ucl-${zone}`}>
                 <td>{index + 1}</td>
-                <td><span className="ucl-table-club"><TeamFlag code={row.flag_code} emoji={row.flag} logo={row.logo} name={row.name} size="mini" /><strong>{row.name}</strong></span></td>
+                <td><span className="ucl-table-club"><TeamFlag code={row.flag_code} emoji={row.flag} logo={row.logo} name={row.name} size="mini" /><TeamNameWithCountry code={row.flag_code} emoji={row.flag} name={row.name} showCountry={Boolean(row.logo)} /></span></td>
                 <td>{row.played}</td><td>{row.wins}</td><td>{row.draws}</td><td>{row.losses}</td><td>{row.gf}:{row.ga}</td><td>{goalDifference > 0 ? '+' : ''}{goalDifference}</td><td><b>{row.points}</b></td>
               </tr>;
             })}
@@ -3224,7 +3227,7 @@ function MatchCenterTeamFilterModal({ teams = [], selectedTeam = null, onSelect,
                 onClick={() => { onSelect?.(team); onClose?.(); }}
               >
                 <TeamFlag code={team.flag_code} emoji={team.flag} logo={team.logo} name={team.name} size="mini" />
-                <span>{team.name}</span>
+                <TeamNameWithCountry code={team.flag_code} emoji={team.flag} name={team.name} showCountry={Boolean(team.logo)} className="filter-team-name" />
                 {active && <b aria-hidden="true">✓</b>}
               </button>
             );
