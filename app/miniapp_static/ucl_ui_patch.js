@@ -30,7 +30,7 @@ const UCL_CLUBS = [
   ['Real Betis', 'Бетис', '🇪🇸', 'es', ['Betis']],
   ['Real Madrid', 'Реал Мадрид', '🇪🇸', 'es', []],
   ['Roma', 'Рома', '🇮🇹', 'it', ['AS Roma']],
-  ['Sabah', 'Сабах', '🇦🇿', 'az', ['Sabah FK']],
+  ['Sabah', 'Сабах', '🇦🇿', 'az', ['Sabah FK', 'Sabah FA']],
   ['Shakhtar Donetsk', 'Шахтёр', '🇺🇦', 'ua', ['Shakhtar']],
   ['Slavia Praha', 'Славия Прага', '🇨🇿', 'cz', ['Slavia Prague']],
   ['Slovan Bratislava', 'Слован Братислава', '🇸🇰', 'sk', ['S. Bratislava']],
@@ -50,17 +50,20 @@ function normalizeClubName(value) {
 }
 
 const UCL_CLUB_BY_KEY = new Map();
+const UCL_CLUB_BY_RU = new Map();
 for (const [canonical, ru, flag, flagCode, aliases] of UCL_CLUBS) {
   const meta = { canonical, ru, flag, flagCode };
+  UCL_CLUB_BY_RU.set(ru, meta);
   [canonical, ...(aliases || [])].forEach((name) => UCL_CLUB_BY_KEY.set(normalizeClubName(name), meta));
 }
 const UCL_CLUB_ALIASES = [...UCL_CLUBS.flatMap(([canonical, ru, flag, flagCode, aliases]) => {
   const meta = { canonical, ru, flag, flagCode };
-  return [canonical, ...(aliases || [])].map((name) => ({ name, meta }));
+  return [canonical, ru, ...(aliases || [])].map((name) => ({ name, meta }));
 })].sort((left, right) => right.name.length - left.name.length);
 
 function clubMeta(value) {
-  return UCL_CLUB_BY_KEY.get(normalizeClubName(value));
+  const raw = String(value || '').trim();
+  return UCL_CLUB_BY_RU.get(raw) || UCL_CLUB_BY_KEY.get(normalizeClubName(raw));
 }
 
 function translateKnownClubText(value) {
@@ -199,6 +202,7 @@ function installUclStyles() {
     .ff-ucl-schedule-note small { color: rgba(203, 213, 225, 0.78); }
     .ff-ucl-tournament .tournament-mini-card,
     .ff-ucl-tournament .tournament-mini-card-main { min-width: 0; max-width: 100%; }
+    .ff-ucl-inline-flag { display: inline-flex; align-items: center; justify-content: center; width: 1.45em; height: 1.45em; margin-right: 0.35em; vertical-align: -0.15em; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 0.95em; line-height: 1; }
   `;
   document.head.appendChild(style);
 }
@@ -221,6 +225,41 @@ function patchSimultaneousHeroForUcl() {
   note.className = 'ff-ucl-schedule-note';
   note.innerHTML = '<strong>Календарь ЛЧ загружен</strong><small>Показываю матчи по турам. Блок массового прогноза скрыт, потому что провайдер сначала отдал общий placeholder для всех матчей.</small>';
   hero.parentNode?.insertBefore(note, hero);
+}
+
+function visibleClubMeta(text) {
+  const trimmed = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) return null;
+  if (/^[\u{1F1E6}-\u{1F1FF}\u{1F3F4}]/u.test(trimmed)) return null;
+  const exact = clubMeta(trimmed);
+  if (exact) return exact;
+  return null;
+}
+
+function decorateVisibleClubFlags() {
+  if (!isUclActive()) return;
+  const selectors = [
+    '.next-match-hero strong',
+    '.next-match-slide strong',
+    '.live-match-team strong',
+    '.match-card strong',
+    '.match-team strong',
+    '.match-row strong',
+    '.prediction-match strong',
+    '.modal-card strong',
+    '.team-name',
+  ].join(',');
+
+  document.querySelectorAll(selectors).forEach((element) => {
+    if (element.querySelector?.('.ff-ucl-inline-flag')) return;
+    const meta = visibleClubMeta(element.textContent);
+    if (!meta) return;
+    const flag = document.createElement('span');
+    flag.className = 'ff-ucl-inline-flag';
+    flag.textContent = meta.flag;
+    flag.setAttribute('aria-hidden', 'true');
+    element.prepend(flag);
+  });
 }
 
 function hideThirdPlaceElementsForUcl() {
@@ -268,6 +307,7 @@ function installUclDomPatch() {
   const run = () => {
     hideThirdPlaceElementsForUcl();
     patchSimultaneousHeroForUcl();
+    decorateVisibleClubFlags();
   };
   run();
 
