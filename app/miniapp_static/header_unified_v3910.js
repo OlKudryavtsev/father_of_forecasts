@@ -1,0 +1,109 @@
+(() => {
+  if (window.__ffUnifiedHeaderV3910) return;
+  window.__ffUnifiedHeaderV3910 = true;
+
+  function findRank(status) {
+    if (!status) return null;
+    const candidates = [
+      status.querySelector('.ff-header-rank'),
+      status.querySelector('.ucl-score-rank > .muted'),
+      status.querySelector(':scope > .muted:last-child'),
+      ...Array.from(status.querySelectorAll('.muted, span, div')),
+    ].filter(Boolean);
+    return candidates.find((el) => {
+      const text = String(el.textContent || '').trim();
+      return /^#?\s*\d+$/.test(text) || /^место\s*#?\s*\d+$/i.test(text);
+    }) || null;
+  }
+
+  function normalizeRankText(rank) {
+    if (!rank) return;
+    const text = String(rank.textContent || '').trim();
+    const match = text.match(/#?\s*(\d+)/);
+    if (match) rank.textContent = `#${match[1]}`;
+    rank.classList.add('ff-header-rank');
+  }
+
+  function unifyHeader() {
+    const status = document.querySelector('.league-status');
+    if (!status) return;
+
+    const tournament = status.querySelector('.header-tournament-selector');
+    const league = status.querySelector('.header-league-selector');
+    const stage = status.querySelector('.status-section');
+    const points = status.querySelector('.points');
+    let rank = findRank(status);
+    if (!tournament || !league || !stage || !points) return;
+
+    status.classList.add('ff-header-unified');
+
+    let score = status.querySelector('.ff-header-score');
+    if (!score) {
+      score = document.createElement('div');
+      score.className = 'ff-header-score';
+      const oldWrapper = points.closest('.ucl-score-rank');
+      const parent = oldWrapper?.parentNode || points.parentNode;
+      parent.insertBefore(score, oldWrapper || points);
+      score.appendChild(points);
+      if (rank) score.appendChild(rank);
+      if (oldWrapper && oldWrapper !== score) oldWrapper.remove();
+    } else if (rank && !score.contains(rank)) {
+      score.appendChild(rank);
+    }
+
+    rank = score.querySelector('.ff-header-rank, .muted') || rank;
+    normalizeRankText(rank);
+
+    Array.from(status.children || []).forEach((child) => {
+      if (child.classList?.contains('divider')) child.style.display = 'none';
+    });
+  }
+
+  function installStyles() {
+    if (document.getElementById('ff-header-unified-v3910-style')) return;
+    const style = document.createElement('style');
+    style.id = 'ff-header-unified-v3910-style';
+    style.textContent = `
+      .league-status-row { background:transparent!important; border:0!important; box-shadow:none!important; border-radius:0!important; clip-path:none!important; mask:none!important; padding:0!important; overflow:visible!important; align-items:flex-start!important; }
+      .league-status.ff-header-unified { flex:1 1 auto!important; min-width:0!important; display:grid!important; grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important; grid-template-rows:auto 34px!important; gap:8px!important; padding:0!important; margin:0!important; background:transparent!important; border:0!important; box-shadow:none!important; border-radius:0!important; clip-path:none!important; mask:none!important; overflow:visible!important; }
+      .league-status.ff-header-unified .header-tournament-selector { grid-column:1!important; grid-row:1!important; width:100%!important; max-width:none!important; min-width:0!important; }
+      .league-status.ff-header-unified .header-league-selector { grid-column:2!important; grid-row:1!important; width:100%!important; max-width:none!important; min-width:0!important; }
+      .league-status.ff-header-unified .status-section { grid-column:1!important; grid-row:2!important; width:100%!important; max-width:none!important; min-width:0!important; height:34px!important; min-height:34px!important; max-height:34px!important; margin:0!important; padding:4px 10px!important; display:flex!important; align-items:center!important; justify-content:center!important; white-space:nowrap!important; overflow:hidden!important; text-overflow:ellipsis!important; border-radius:10px!important; clip-path:none!important; mask:none!important; transform:none!important; font-size:13px!important; line-height:1!important; }
+      .league-status.ff-header-unified .ff-header-score { grid-column:2!important; grid-row:2!important; width:100%!important; min-width:0!important; height:34px!important; display:grid!important; grid-template-columns:minmax(0,1fr) auto!important; align-items:stretch!important; border:1px solid rgba(24,209,146,.38)!important; border-radius:10px!important; overflow:hidden!important; background:rgba(8,66,57,.48)!important; box-shadow:inset 0 0 0 1px rgba(24,209,146,.05)!important; }
+      .league-status.ff-header-unified .ff-header-score .points { height:32px!important; min-height:32px!important; max-height:32px!important; margin:0!important; padding:3px 8px!important; border:0!important; border-radius:0!important; background:transparent!important; display:flex!important; align-items:center!important; justify-content:center!important; color:#1bd394!important; font-size:13px!important; font-weight:900!important; white-space:nowrap!important; }
+      .league-status.ff-header-unified .ff-header-rank { height:32px!important; min-height:32px!important; max-height:32px!important; min-width:72px!important; margin:0!important; padding:3px 9px!important; border:0!important; border-left:1px solid rgba(255,204,73,.32)!important; border-radius:0!important; background:linear-gradient(180deg,rgba(255,190,53,.27),rgba(255,155,32,.14))!important; display:flex!important; align-items:center!important; justify-content:center!important; color:#ffd45a!important; font-size:14px!important; font-weight:1000!important; white-space:nowrap!important; opacity:1!important; visibility:visible!important; }
+      .league-status.ff-header-unified .ff-header-rank::before { content:'Место '; margin-right:3px; color:#f3c96b!important; font-size:11px; font-weight:800; }
+      .league-status.ff-header-unified .divider { display:none!important; }
+      .header-admin-button { align-self:flex-start!important; }
+      @media (max-width:390px) {
+        .league-status.ff-header-unified { gap:7px!important; grid-template-rows:auto 32px!important; }
+        .league-status.ff-header-unified .status-section, .league-status.ff-header-unified .ff-header-score { height:32px!important; min-height:32px!important; max-height:32px!important; }
+        .league-status.ff-header-unified .ff-header-score .points, .league-status.ff-header-unified .ff-header-rank { height:30px!important; min-height:30px!important; max-height:30px!important; padding-left:6px!important; padding-right:6px!important; }
+        .league-status.ff-header-unified .ff-header-rank { min-width:62px!important; font-size:13px!important; }
+        .league-status.ff-header-unified .ff-header-rank::before { font-size:10px; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  let scheduled = false;
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      unifyHeader();
+    });
+  }
+
+  function boot() {
+    installStyles();
+    schedule();
+    new MutationObserver(schedule).observe(document.body, { childList:true, subtree:true });
+    document.addEventListener('click', () => setTimeout(schedule, 40), true);
+    window.addEventListener('storage', schedule);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true });
+  else boot();
+})();
