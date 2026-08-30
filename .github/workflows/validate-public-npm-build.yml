@@ -1,0 +1,80 @@
+name: Validate frontend with public npm lockfile
+
+on:
+  push:
+    branches:
+      - assistant/systemic-tournament-ui-fix
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assistant-systemic-tournament-ui-fix
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Sanitize package lock registry
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('app/miniapp_frontend')
+          package = json.loads((root / 'package.json').read_text(encoding='utf-8'))
+          lock_path = root / 'package-lock.json'
+          lock_text = lock_path.read_text(encoding='utf-8')
+          internal = 'https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/'
+          lock_text = lock_text.replace(internal, 'https://registry.npmjs.org/')
+          lock = json.loads(lock_text)
+          version = package['version']
+          lock['version'] = version
+          if '' in lock.get('packages', {}):
+              lock['packages']['']['version'] = version
+          lock_path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          sanitized = lock_path.read_text(encoding='utf-8')
+          if 'applied-caas-gateway' in sanitized or 'internal.api.openai.org' in sanitized:
+              raise SystemExit('Internal package registry URL is still present')
+          print(f'package-lock sanitized for public npm; version={version}')
+          PY
+
+      - name: Install frontend dependencies
+        working-directory: app/miniapp_frontend
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          NPM_CONFIG_FETCH_RETRIES: '2'
+          NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: '1000'
+          NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: '10000'
+        run: timeout --foreground --kill-after=10s 300s npm ci --no-audit --no-fund --loglevel=warn
+
+      - name: Build Mini App
+        working-directory: app/miniapp_frontend
+        run: timeout --foreground --kill-after=10s 180s npm run build
+
+      - name: Validate source diff
+        run: |
+          git diff --check
+          grep -R "applied-caas-gateway\|internal.api.openai.org" app/miniapp_frontend/package-lock.json && exit 1 || true
+
+      - name: Commit sanitized lockfile
+        shell: bash
+        run: |
+          rm -f .github/workflows/validate-public-npm-build.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/miniapp_frontend/package-lock.json .github/workflows/validate-public-npm-build.yml
+          git commit -m "fix: use public npm registry in frontend lockfile"
+          git push origin HEAD:${GITHUB_REF_NAME}
