@@ -1,0 +1,943 @@
+name: Apply systemic tournament UI fix
+
+on:
+  push:
+    branches:
+      - assistant/systemic-tournament-ui-fix
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/miniapp_frontend/package-lock.json
+
+      - name: Refactor tournament state, header and team identity
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          ROOT = Path('.')
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'Cannot find {label}')
+              return text.replace(old, new, 1)
+
+          def re_once(text, pattern, replacement, label):
+              result, count = re.subn(pattern, lambda _m: replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'Expected one {label}, got {count}')
+              return result
+
+          team_identity = r'''"""Canonical team identity for Mini App payloads.
+
+          UI code must not guess club logos or mutate API responses.  This module is the
+          single server-side place that translates known club aliases, resolves the
+          association flag, and constructs an API-Sports crest URL from the team id that
+          is already stored on the Match row.
+          """
+
+          from __future__ import annotations
+
+          import re
+          import unicodedata
+          from functools import lru_cache
+
+          from app.constants.teams import TEAM_FLAG_CODES, TEAM_FLAGS
+          from app.team_names import get_team_name_ru
+
+
+          # name_ru, association flag code, aliases used by imported/API fixtures.
+          # Logo ids intentionally do NOT live here: the real Match.external_team_id is
+          # the source of truth for crests.
+          CLUB_IDENTITIES = (
+              ("АЕК Афины", "gr", ("AEK Athens", "AEK", "AEK Athens FC", "АЕК Афины")),
+              ("Арсенал", "gb-eng", ("Arsenal", "Arsenal FC", "Арсенал")),
+              ("Астон Вилла", "gb-eng", ("Aston Villa", "Aston Villa FC", "Астон Вилла")),
+              ("Атлетико Мадрид", "es", ("Atletico Madrid", "Atlético Madrid", "Atleti", "Atl. Madrid", "Атлетико Мадрид")),
+              ("Барселона", "es", ("Barcelona", "FC Barcelona", "Барселона")),
+              ("Бавария", "de", ("Bayern Munich", "Bayern München", "FC Bayern Munich", "Bayern", "Бавария")),
+              ("Будё-Глимт", "no", ("Bodo/Glimt", "Bodø/Glimt", "Bodoe/Glimt", "Bodo Glimt", "Будё-Глимт")),
+              ("Боруссия Дортмунд", "de", ("Borussia Dortmund", "Dortmund", "B. Dortmund", "Боруссия Дортмунд")),
+              ("Брюгге", "be", ("Club Brugge", "Club Brugge KV", "Brugge", "Брюгге")),
+              ("Комо", "it", ("Como", "Como 1907", "Комо")),
+              ("Фенербахче", "tr", ("Fenerbahce", "Fenerbahçe", "Fenerbahce SK", "Фенербахче")),
+              ("Фейеноорд", "nl", ("Feyenoord", "Feyenoord Rotterdam", "Фейеноорд")),
+              ("Галатасарай", "tr", ("Galatasaray", "Galatasaray SK", "Галатасарай")),
+              ("Интер", "it", ("Inter", "Inter Milan", "Internazionale", "Интер")),
+              ("ЛАСК", "at", ("LASK", "Lask Linz", "LASK Linz", "ЛАСК")),
+              ("Ланс", "fr", ("Lens", "RC Lens", "Ланс")),
+              ("Лейпциг", "de", ("Leipzig", "RB Leipzig", "RasenBallsport Leipzig", "Лейпциг")),
+              ("Лилль", "fr", ("Lille", "LOSC Lille", "Лилль")),
+              ("Ливерпуль", "gb-eng", ("Liverpool", "Liverpool FC", "Ливерпуль")),
+              ("Манчестер Сити", "gb-eng", ("Manchester City", "Man City", "Манчестер Сити")),
+              ("Манчестер Юнайтед", "gb-eng", ("Manchester United", "Man Utd", "Manchester Utd", "Манчестер Юнайтед")),
+              ("Наполи", "it", ("Napoli", "SSC Napoli", "Наполи")),
+              ("Нанси", "fr", ("Nancy", "AS Nancy", "Nancy Lorraine", "Нанси")),
+              ("ПСЖ", "fr", ("Paris Saint-Germain", "Paris SG", "PSG", "Paris", "ПСЖ")),
+              ("Порту", "pt", ("Porto", "FC Porto", "Порту")),
+              ("ПСВ", "nl", ("PSV Eindhoven", "PSV", "ПСВ")),
+              ("Бетис", "es", ("Real Betis", "Betis", "Бетис")),
+              ("Реал Мадрид", "es", ("Real Madrid", "Real Madrid CF", "Реал Мадрид")),
+              ("Рома", "it", ("Roma", "AS Roma", "Рома")),
+              ("Сабах", "az", ("Sabah", "Sabah FA", "Sabah FK", "Сабах")),
+              ("Славия Прага", "cz", ("Slavia Praha", "Slavia Prague", "SK Slavia Praha", "Славия Прага")),
+              ("Спортинг", "pt", ("Sporting CP", "Sporting Lisbon", "Sporting", "Спортинг")),
+              ("Тоттенхэм", "gb-eng", ("Tottenham", "Tottenham Hotspur", "Spurs", "Тоттенхэм")),
+              ("Викинг", "no", ("Viking", "Viking FK", "Викинг")),
+              ("Вильярреал", "es", ("Villarreal", "Villarreal CF", "Вильярреал")),
+              ("Висла Краков", "pl", ("Wisla Krakow", "Wisła Kraków", "Wisla Kraków", "Wisla Krakow SA", "Висла Краков")),
+              ("Шахтёр", "ua", ("Shakhtar Donetsk", "Shakhtar", "FC Shakhtar Donetsk", "Шахтер", "Шахтёр")),
+              ("Штутгарт", "de", ("VfB Stuttgart", "Stuttgart", "Штутгарт")),
+              ("Слован Братислава", "sk", ("Slovan Bratislava", "ŠK Slovan Bratislava", "SK Slovan Bratislava", "Слован", "Слован Братислава")),
+              ("Карабах", "az", ("Qarabag", "Qarabağ", "Qarabag FK", "Карабах")),
+              ("Бенфика", "pt", ("Benfica", "SL Benfica", "Бенфика")),
+              ("Аякс", "nl", ("Ajax", "Ajax Amsterdam", "Аякс")),
+              ("Ювентус", "it", ("Juventus", "Juventus FC", "Ювентус")),
+              ("Аталанта", "it", ("Atalanta", "Atalanta BC", "Аталанта")),
+              ("Монако", "fr", ("Monaco", "AS Monaco", "Монако")),
+              ("Марсель", "fr", ("Marseille", "Olympique Marseille", "Olympique de Marseille", "Марсель")),
+              ("Олимпиакос", "gr", ("Olympiakos", "Olympiacos", "Olympiacos Piraeus", "Олимпиакос")),
+              ("Селтик", "gb-sct", ("Celtic", "Celtic FC", "Селтик")),
+              ("Ньюкасл", "gb-eng", ("Newcastle", "Newcastle United", "Ньюкасл")),
+              ("Челси", "gb-eng", ("Chelsea", "Chelsea FC", "Челси")),
+          )
+
+
+          def normalize_team_name(value: str | None) -> str:
+              text = unicodedata.normalize("NFKD", str(value or "")).casefold()
+              text = "".join(char for char in text if not unicodedata.combining(char))
+              text = text.replace("ё", "е")
+              text = re.sub(r"[«»\"'`]", "", text)
+              text = re.sub(r"\b(fc|cf|sc|sk|fk|kv|sa|club|football|team)\b", " ", text)
+              return re.sub(r"[^a-zа-я0-9]+", " ", text).strip()
+
+
+          _CLUB_BY_ALIAS: dict[str, dict] = {}
+          for _name_ru, _flag_code, _aliases in CLUB_IDENTITIES:
+              _meta = {"name": _name_ru, "flag_code": _flag_code}
+              for _alias in _aliases:
+                  _CLUB_BY_ALIAS[normalize_team_name(_alias)] = _meta
+
+
+          def _flag_emoji(flag_code: str) -> str:
+              code = (flag_code or "").lower()
+              if len(code) == 2 and code.isalpha():
+                  return "".join(chr(127397 + ord(char.upper())) for char in code)
+              # Subdivision flags are rendered from flagcdn in the client.  This is
+              # only an emoji fallback for clients where that image cannot load.
+              if code.startswith("gb-"):
+                  return "🏴"
+              return ""
+
+
+          def api_sports_team_logo(external_team_id: int | str | None) -> str:
+              try:
+                  team_id = int(external_team_id or 0)
+              except (TypeError, ValueError):
+                  return ""
+              if team_id <= 0:
+                  return ""
+              return f"https://media.api-sports.io/football/teams/{team_id}.png"
+
+
+          @lru_cache(maxsize=512)
+          def get_team_identity(
+              team_name: str | None,
+              api_name: str | None = None,
+              external_team_id: int | str | None = None,
+              tournament_code: str | None = None,
+          ) -> dict:
+              club = _CLUB_BY_ALIAS.get(normalize_team_name(api_name)) or _CLUB_BY_ALIAS.get(normalize_team_name(team_name))
+              if club:
+                  display_name = club["name"]
+                  flag_code = club["flag_code"]
+                  flag = _flag_emoji(flag_code)
+              else:
+                  display_name = get_team_name_ru(team_name)
+                  flag = TEAM_FLAGS.get(api_name or "") or TEAM_FLAGS.get(display_name) or TEAM_FLAGS.get(team_name or "") or ""
+                  flag_code = TEAM_FLAG_CODES.get(api_name or "") or TEAM_FLAG_CODES.get(display_name) or TEAM_FLAG_CODES.get(team_name or "") or ""
+
+              code = str(tournament_code or "").casefold()
+              is_club_tournament = bool(club) or code.startswith("ucl_") or code.startswith("ucl-")
+              logo = api_sports_team_logo(external_team_id) if is_club_tournament else ""
+
+              return {
+                  "name": display_name,
+                  "flag": flag,
+                  "flag_code": flag_code,
+                  "logo": logo,
+              }
+          '''
+          (ROOT / 'app/services/team_identity.py').write_text(textwrap.dedent(team_identity).lstrip(), encoding='utf-8')
+
+          webapp_path = ROOT / 'app/api/webapp.py'
+          webapp = webapp_path.read_text(encoding='utf-8')
+          webapp = replace_once(
+              webapp,
+              'from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code\n',
+              'from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code\nfrom app.services.team_identity import get_team_identity\n',
+              'team identity import',
+          )
+          old_serializer = '''def _serialize_match(match: Match, user_prediction: Prediction | None = None) -> dict:\n    """Serialize a match for the Mini App API."""\n    home_name = get_team_name_ru(match.home_team)\n    away_name = get_team_name_ru(match.away_team)\n\n    return {\n        "id": match.id,\n        "tournament_code": match.tournament_code,\n        "label": _match_label(match),\n        "home_team": home_name,\n        "away_team": away_name,\n        "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),\n        "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),\n        "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),\n        "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),\n        "home_team_id": match.home_external_team_id,\n        "away_team_id": match.away_external_team_id,\n'''
+          new_serializer = '''def _serialize_match(match: Match, user_prediction: Prediction | None = None) -> dict:\n    """Serialize a match for the Mini App API from canonical server-side team identity."""\n    home = get_team_identity(\n        match.home_team,\n        getattr(match, "home_team_api_name", None),\n        match.home_external_team_id,\n        match.tournament_code,\n    )\n    away = get_team_identity(\n        match.away_team,\n        getattr(match, "away_team_api_name", None),\n        match.away_external_team_id,\n        match.tournament_code,\n    )\n\n    return {\n        "id": match.id,\n        "tournament_code": match.tournament_code,\n        "label": _match_label(match),\n        "home_team": home["name"],\n        "away_team": away["name"],\n        "home_flag": home["flag"],\n        "away_flag": away["flag"],\n        "home_flag_code": home["flag_code"],\n        "away_flag_code": away["flag_code"],\n        "home_logo": home["logo"],\n        "away_logo": away["logo"],\n        "home_team_id": match.home_external_team_id,\n        "away_team_id": match.away_external_team_id,\n'''
+          webapp = replace_once(webapp, old_serializer, new_serializer, 'match serializer')
+          webapp_path.write_text(webapp, encoding='utf-8')
+
+          main_path = ROOT / 'app/miniapp_frontend/src/main.jsx'
+          main = main_path.read_text(encoding='utf-8')
+
+          team_flag_component = r'''function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '' }) {
+            const [logoFailed, setLogoFailed] = useState(false);
+            const normalizedCode = String(code || '').trim().toLowerCase();
+            const hasCode = /^[a-z0-9-]{2,10}$/.test(normalizedCode);
+            const className = `flag flag-img ${size === 'mini' ? 'mini' : ''}`.trim();
+
+            useEffect(() => {
+              setLogoFailed(false);
+            }, [logo]);
+
+            if (logo && !logoFailed) {
+              return (
+                <span className={`${className} club-mark`.trim()} title={name} aria-label={name ? `Эмблема: ${name}` : 'Эмблема клуба'}>
+                  <img
+                    className="club-mark-logo"
+                    src={logo}
+                    alt=""
+                    loading="lazy"
+                    onError={() => setLogoFailed(true)}
+                  />
+                  {(hasCode || emoji) && (
+                    <span className="club-mark-country" aria-label={name ? `Страна клуба: ${name}` : 'Страна клуба'}>
+                      {hasCode
+                        ? <img src={`https://flagcdn.com/${normalizedCode}.svg`} alt="" loading="lazy" />
+                        : <span>{emoji}</span>}
+                    </span>
+                  )}
+                </span>
+              );
+            }
+
+            if (hasCode) {
+              return (
+                <span className={className} title={name} aria-label={name ? `Флаг: ${name}` : 'Флаг'}>
+                  <img
+                    src={`https://flagcdn.com/${normalizedCode}.svg`}
+                    alt=""
+                    loading="lazy"
+                    onError={(event) => {
+                      const img = event.currentTarget;
+                      img.style.display = 'none';
+                      const parent = img.parentElement;
+                      if (parent) parent.classList.add('flag-fallback-visible');
+                    }}
+                  />
+                  <span className="flag-fallback">{emoji || normalizedCode.toUpperCase()}</span>
+                </span>
+              );
+            }
+
+            return <span className={`flag ${size === 'mini' ? 'mini' : ''}`.trim()} title={name}>{emoji || '🏳️'}</span>;
+          }
+
+          function Icon'''
+          main = re_once(
+              main,
+              r"function TeamFlag\(\{ code, emoji, name = '', size = 'normal' \}\) \{.*?\n\}\n\nfunction Icon",
+              team_flag_component,
+              'TeamFlag component',
+          )
+
+          header_component = r'''function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onLeagueChange, tournaments = [], activeTournamentCode, onTournamentChange }) {
+            const selectedTournament = tournaments.find((item) => item.code === activeTournamentCode) || null;
+            const dashboardTournamentCode = dashboard?.tournament?.code || null;
+            const dashboardMatchesSelection = !dashboardTournamentCode || dashboardTournamentCode === activeTournamentCode;
+            const currentDashboard = dashboardMatchesSelection ? dashboard : null;
+            const tournament = currentDashboard?.tournament || selectedTournament || {};
+            const stageText = currentDashboard
+              ? (tournament.current_stage_label || (tournament.is_started ? 'Турнир идет' : 'До старта'))
+              : 'Загружаю…';
+            const tournamentTitle = tournament.name || tournament.short_name || 'Турнир';
+            const tournamentHost = tournament.host || '';
+
+            return (
+              <header className="league-header">
+                <div className="league-main">
+                  <div className="league-logo"><Icon name="cup" /></div>
+                  <div className="league-text">
+                    <h1>Отец прогнозов</h1>
+                    <div className="league-subtitle">{tournamentTitle}{tournamentHost ? ` · ${tournamentHost}` : ''}</div>
+                  </div>
+                  {currentDashboard?.user?.is_admin && (
+                    <button className="header-admin-button" onClick={onAdmin} aria-label="Администрирование" title="Администрирование">
+                      <Icon name="shield" />
+                    </button>
+                  )}
+                  <button className="rules-button" onClick={onRules}>Правила</button>
+                </div>
+
+                <div className="league-status-row">
+                  <div className="league-status">
+                    <HeaderTournamentSelector tournaments={tournaments} activeTournamentCode={activeTournamentCode} onChange={onTournamentChange} />
+                    <HeaderLeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
+                    <span className="status-section live-countdown header-stat header-stage">{stageText}</span>
+                    <span className="points header-stat header-points">{currentDashboard ? pointsLabel(currentDashboard.points ?? 0) : '…'}</span>
+                    <span className="muted header-stat header-rank">#{currentDashboard?.rank || '—'}</span>
+                  </div>
+                </div>
+              </header>
+            );
+          }
+
+          function TournamentScorerAvatar'''
+          main = re_once(
+              main,
+              r"function Header\(\{ dashboard, onRules, onAdmin, leagues = \[\], activeLeagueId, onLeagueChange, tournaments = \[\], activeTournamentCode, onTournamentChange \}\) \{.*?\n\}\n\nfunction TournamentScorerAvatar",
+              header_component,
+              'Header component',
+          )
+
+          main = replace_once(
+              main,
+              "  const [rulesOpen, setRulesOpen] = useState(false);\n  const hasBrowserSession = Boolean(getWebSessionToken());",
+              "  const [rulesOpen, setRulesOpen] = useState(false);\n  const dashboardRequestRef = useRef({ requestId: 0, controller: null });\n  const hasBrowserSession = Boolean(getWebSessionToken());",
+              'dashboard request ref',
+          )
+
+          dashboard_loader = r'''  async function loadDashboard() {
+            const requestId = dashboardRequestRef.current.requestId + 1;
+            dashboardRequestRef.current.requestId = requestId;
+            dashboardRequestRef.current.controller?.abort();
+            const controller = new AbortController();
+            dashboardRequestRef.current.controller = controller;
+            const requestedLeagueId = activeLeagueId;
+            const requestedTournamentCode = activeTournamentCode;
+
+            try {
+              setDashboardError(null);
+              const dashboardParams = new URLSearchParams();
+              if (requestedLeagueId) dashboardParams.set('league_id', String(requestedLeagueId));
+              if (requestedTournamentCode) dashboardParams.set('tournament_code', requestedTournamentCode);
+              const dashboardQuery = dashboardParams.toString() ? `?${dashboardParams.toString()}` : '';
+              const [dashboardResult, tournamentPredictionResult] = await Promise.all([
+                api(`/api/webapp/dashboard${dashboardQuery}`, { signal: controller.signal }),
+                api(`/api/webapp/tournament-prediction/me${requestedTournamentCode ? `?tournament_code=${encodeURIComponent(requestedTournamentCode)}` : ''}`, { signal: controller.signal })
+                  .catch((error) => {
+                    if (error?.name === 'AbortError') throw error;
+                    return null;
+                  }),
+              ]);
+
+              if (controller.signal.aborted || dashboardRequestRef.current.requestId !== requestId) return;
+              if (requestedTournamentCode && dashboardResult?.tournament?.code && dashboardResult.tournament.code !== requestedTournamentCode) return;
+
+              setDashboard(dashboardResult);
+              setTournamentPrediction(tournamentPredictionResult);
+            } catch (err) {
+              if (err?.name === 'AbortError') return;
+              if (dashboardRequestRef.current.requestId === requestId) setDashboardError(err);
+            }
+          }
+
+          useEffect(() => {
+            if (!isTelegramMode() && !hasBrowserSession) return;
+            loadDashboard();
+          }, [refreshKey, hasBrowserSession, activeLeagueId, activeTournamentCode]);
+
+          useEffect(() => () => {
+            dashboardRequestRef.current.requestId += 1;
+            dashboardRequestRef.current.controller?.abort();
+          }, []);'''
+          main = re_once(
+              main,
+              r"  async function loadDashboard\(\) \{.*?\n  \}\n\n  useEffect\(\(\) => \{\n    if \(!isTelegramMode\(\) && !hasBrowserSession\) return;\n    loadDashboard\(\);\n  \}, \[refreshKey, hasBrowserSession, activeLeagueId, activeTournamentCode\]\);",
+              dashboard_loader,
+              'dashboard loader',
+          )
+
+          selection_functions = r'''  function invalidateDashboardSelection() {
+            dashboardRequestRef.current.requestId += 1;
+            dashboardRequestRef.current.controller?.abort();
+            dashboardRequestRef.current.controller = null;
+            setDashboard(null);
+            setTournamentPrediction(null);
+            setDashboardError(null);
+          }
+
+          function setActiveLeagueId(nextLeagueId) {
+            const normalized = Number(nextLeagueId) || null;
+            if (normalized !== activeLeagueId) invalidateDashboardSelection();
+            setActiveLeagueIdState(normalized);
+            if (normalized) {
+              localStorage.setItem('ff_active_league_id', String(normalized));
+            } else {
+              localStorage.removeItem('ff_active_league_id');
+            }
+          }
+
+          function setActiveTournamentCode(nextCode) {
+            const normalized = String(nextCode || 'wc2026');
+            if (normalized === activeTournamentCode) return;
+            invalidateDashboardSelection();
+            setActiveTournamentCodeState(normalized);
+            localStorage.setItem('ff_active_tournament_code', normalized);
+          }
+
+          async function loadTournaments()'''
+          main = re_once(
+              main,
+              r"  function setActiveLeagueId\(nextLeagueId\) \{.*?\n  \}\n\n  function setActiveTournamentCode\(nextCode\) \{.*?\n  \}\n\n  async function loadTournaments\(\)",
+              selection_functions,
+              'selection functions',
+          )
+
+          logo_replacements = {
+              '<TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team}': '<TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team}',
+              '<TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team}': '<TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team}',
+              '<TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} name={currentMatch.home_team}': '<TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} logo={currentMatch.home_logo} name={currentMatch.home_team}',
+              '<TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} name={currentMatch.away_team}': '<TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} logo={currentMatch.away_logo} name={currentMatch.away_team}',
+              '<TeamFlag code={team.flag_code} emoji={team.flag} name={team.name} size="mini"': '<TeamFlag code={team.flag_code} emoji={team.flag} logo={team.logo} name={team.name} size="mini"',
+          }
+          for old, new in logo_replacements.items():
+              main = main.replace(old, new)
+
+          main_path.write_text(main, encoding='utf-8')
+
+          css_path = ROOT / 'app/miniapp_frontend/src/styles.css'
+          css = css_path.read_text(encoding='utf-8')
+          marker = '/* Canonical tournament header and club identity (v3.9.15) */'
+          if marker in css:
+              raise SystemExit('Canonical CSS marker already present')
+          css += r'''
+
+          /* Canonical tournament header and club identity (v3.9.15) */
+          .league-header {
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+          }
+
+          .league-main {
+            grid-template-columns: 44px minmax(0, 1fr) 40px auto;
+            gap: 8px;
+          }
+
+          .league-main .rules-button,
+          .league-main .header-admin-button {
+            height: 40px;
+            min-height: 40px;
+            max-height: 40px;
+            border-radius: 13px;
+          }
+
+          .league-main .rules-button {
+            min-width: 0;
+            padding: 0 14px;
+          }
+
+          .league-main .header-admin-button {
+            width: 40px;
+            min-width: 40px;
+            max-width: 40px;
+            padding: 0;
+            display: grid;
+            place-items: center;
+            color: #70a2ff;
+            background: rgba(35, 53, 91, .88);
+            border: 1px solid rgba(90, 141, 255, .40);
+          }
+
+          .league-main .header-admin-button .svg-icon {
+            width: 21px;
+            height: 21px;
+          }
+
+          .league-status-row {
+            width: 100%;
+            margin-top: 10px;
+          }
+
+          .league-status {
+            width: 100%;
+            max-width: none;
+            min-width: 0;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-rows: 40px 40px;
+            gap: 7px;
+            background: transparent;
+            border: 0;
+            border-radius: 0;
+            box-shadow: none;
+            overflow: visible;
+          }
+
+          .league-status > .header-tournament-selector {
+            grid-column: 1 / 4;
+            grid-row: 1;
+          }
+
+          .league-status > .header-league-selector {
+            grid-column: 4 / 7;
+            grid-row: 1;
+          }
+
+          .league-status > .header-stage {
+            grid-column: 1 / 3;
+            grid-row: 2;
+          }
+
+          .league-status > .header-points {
+            grid-column: 3 / 5;
+            grid-row: 2;
+          }
+
+          .league-status > .header-rank {
+            grid-column: 5 / 7;
+            grid-row: 2;
+          }
+
+          .league-status > .header-tournament-selector,
+          .league-status > .header-league-selector,
+          .league-status > .header-stat {
+            width: 100%;
+            min-width: 0;
+            height: 40px;
+            min-height: 40px;
+            max-height: 40px;
+            margin: 0;
+            box-sizing: border-box;
+            border-radius: 13px;
+            overflow: hidden;
+          }
+
+          .league-status > .header-tournament-selector,
+          .league-status > .header-league-selector {
+            padding: 0 10px;
+            background: rgba(24, 35, 61, .92);
+            border: 1px solid rgba(116, 146, 209, .34);
+          }
+
+          .league-status > .header-stat {
+            padding: 0 7px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12.5px;
+            font-weight: 900;
+            line-height: 1;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+          }
+
+          .league-status > .header-stage {
+            color: #ffd047;
+            background: linear-gradient(180deg, rgba(92, 66, 18, .72), rgba(58, 43, 17, .72));
+            border: 1px solid rgba(255, 196, 58, .24);
+          }
+
+          .league-status > .header-points {
+            color: #1bd394;
+            background: rgba(8, 66, 57, .56);
+            border: 1px solid rgba(24, 209, 146, .36);
+          }
+
+          .league-status > .header-rank {
+            color: #f4f7ff;
+            background: linear-gradient(180deg, rgba(95, 108, 196, .40), rgba(44, 56, 120, .40));
+            border: 1px solid rgba(117, 151, 255, .38);
+          }
+
+          .league-status > .header-rank::before {
+            content: 'Место ';
+            margin-right: 3px;
+            color: #b9c7f3;
+            font-size: 10px;
+          }
+
+          .league-status .header-tournament-selector select,
+          .league-status .header-league-trigger,
+          .league-status .header-league-name {
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .club-mark {
+            position: relative;
+            display: grid;
+            place-items: center;
+            width: 88px;
+            height: 88px;
+            border-radius: 20px;
+            background: #f8fafc;
+            box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
+            overflow: visible;
+            font-size: 0;
+          }
+
+          .club-mark > .club-mark-logo {
+            display: block;
+            width: 100%;
+            height: 100%;
+            padding: 9px;
+            object-fit: contain;
+            border-radius: inherit;
+          }
+
+          .club-mark-country {
+            position: absolute;
+            left: 50%;
+            bottom: -9px;
+            transform: translateX(-50%);
+            width: 27px;
+            height: 23px;
+            padding: 3px;
+            display: grid;
+            place-items: center;
+            border-radius: 999px;
+            background: #172036;
+            border: 1px solid rgba(148, 163, 184, .24);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, .28);
+            font-size: 14px;
+            line-height: 1;
+            z-index: 2;
+          }
+
+          .club-mark-country > img {
+            display: block;
+            width: 19px;
+            height: 14px;
+            object-fit: cover;
+            border-radius: 3px;
+          }
+
+          .next-match-team .club-mark {
+            width: 92px;
+            height: 92px;
+            border-radius: 20px;
+          }
+
+          .match-card .team-side .club-mark {
+            width: 86px;
+            height: 86px;
+            border-radius: 18px;
+            margin-bottom: 4px;
+          }
+
+          .detail-team .club-mark,
+          .live-match-team .club-mark {
+            width: 70px;
+            height: 70px;
+            border-radius: 16px;
+          }
+
+          .club-mark.mini {
+            width: 30px;
+            height: 30px;
+            border-radius: 9px;
+          }
+
+          .club-mark.mini > .club-mark-logo {
+            padding: 3px;
+          }
+
+          .club-mark.mini .club-mark-country {
+            display: none;
+          }
+
+          @media (max-width: 390px) {
+            .league-main {
+              grid-template-columns: 44px minmax(0, 1fr) 38px auto;
+              gap: 7px;
+            }
+            .league-main .rules-button,
+            .league-main .header-admin-button {
+              height: 38px;
+              min-height: 38px;
+              max-height: 38px;
+            }
+            .league-main .header-admin-button {
+              width: 38px;
+              min-width: 38px;
+              max-width: 38px;
+            }
+            .league-main .rules-button {
+              padding: 0 12px;
+            }
+            .league-status {
+              grid-template-rows: 38px 38px;
+              gap: 6px;
+            }
+            .league-status > .header-tournament-selector,
+            .league-status > .header-league-selector,
+            .league-status > .header-stat {
+              height: 38px;
+              min-height: 38px;
+              max-height: 38px;
+              border-radius: 12px;
+            }
+            .league-status > .header-stat {
+              padding: 0 5px;
+              font-size: 11.5px;
+            }
+            .league-status > .header-rank::before {
+              content: '';
+              margin-right: 0;
+            }
+            .next-match-team .club-mark {
+              width: 82px;
+              height: 82px;
+            }
+            .match-card .team-side .club-mark {
+              width: 78px;
+              height: 78px;
+            }
+          }
+          '''
+          css_path.write_text(css, encoding='utf-8')
+
+          # Legacy header/fetch patches are no longer loaded.  Keep one UCL view
+          # module, rewritten below, solely for the league-phase table until that
+          # screen is moved into the React TournamentHub.
+          index_path = ROOT / 'app/miniapp_frontend/index.html'
+          index = index_path.read_text(encoding='utf-8')
+          for line in (
+              '    <script type="module" src="/src/ucl_ui_patch_v397.js"></script>\n',
+              '    <script type="module" src="/ui_compact_v3913.js"></script>\n',
+              '    <script type="module" src="/header_unified_v3914.js"></script>\n',
+          ):
+              index = index.replace(line, '')
+          index_path.write_text(index, encoding='utf-8')
+
+          ucl_view = r'''(() => {
+            if (window.__ffUclTournamentViewV400) return;
+            window.__ffUclTournamentViewV400 = true;
+
+            const UCL_CODE = 'ucl_2026_2027';
+            const ACTIVE_TOURNAMENT_KEY = 'ff_active_tournament_code';
+            const WEB_SESSION_KEY = 'ff-web-session-token';
+            let payloadPromise = null;
+            let scheduled = false;
+
+            function isUclActive() {
+              return localStorage.getItem(ACTIVE_TOURNAMENT_KEY) === UCL_CODE;
+            }
+
+            function getCookieValue(name) {
+              return document.cookie.split('; ').find((row) => row.startsWith(`${name}=`))?.split('=').slice(1).join('=') || '';
+            }
+
+            function authHeaders() {
+              const headers = {};
+              const initData = window.Telegram?.WebApp?.initData || '';
+              const webToken = localStorage.getItem(WEB_SESSION_KEY) || decodeURIComponent(getCookieValue('ff_web_session') || '');
+              if (initData) headers['X-Telegram-Init-Data'] = initData;
+              else if (webToken) headers['X-Web-Session-Token'] = webToken;
+              return headers;
+            }
+
+            async function loadMatches() {
+              if (!payloadPromise) {
+                payloadPromise = fetch(`/api/webapp/matches?scope=all&tournament_code=${encodeURIComponent(UCL_CODE)}`, {
+                  cache: 'no-store',
+                  headers: authHeaders(),
+                }).then(async (response) => {
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                  return response.json();
+                }).catch((error) => {
+                  payloadPromise = null;
+                  throw error;
+                });
+              }
+              return payloadPromise;
+            }
+
+            function teamKey(id, name) {
+              return id ? `id:${id}` : `name:${String(name || '').toLowerCase()}`;
+            }
+
+            function buildStandings(matches) {
+              const leagueMatches = (matches || []).filter((match) => {
+                const stage = String(match.stage || '').toLowerCase();
+                const round = String(match.match_round || '').toLowerCase();
+                return stage === 'league' || stage === 'group' || stage === 'league_phase' || round.includes('matchday');
+              });
+              const source = leagueMatches.length ? leagueMatches : (matches || []);
+              const rows = new Map();
+
+              function ensure(id, name, flag, flagCode) {
+                const key = teamKey(id, name);
+                if (!rows.has(key)) rows.set(key, { key, name, flag, flagCode, played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0 });
+                return rows.get(key);
+              }
+
+              source.forEach((match) => {
+                const home = ensure(match.home_team_id, match.home_team, match.home_flag, match.home_flag_code);
+                const away = ensure(match.away_team_id, match.away_team, match.away_flag, match.away_flag_code);
+                if (!match.is_finished || match.score_home === null || match.score_home === undefined || match.score_away === null || match.score_away === undefined) return;
+                const hs = Number(match.score_home);
+                const as = Number(match.score_away);
+                home.played += 1; away.played += 1;
+                home.gf += hs; home.ga += as; away.gf += as; away.ga += hs;
+                if (hs > as) { home.wins += 1; away.losses += 1; home.points += 3; }
+                else if (as > hs) { away.wins += 1; home.losses += 1; away.points += 3; }
+                else { home.draws += 1; away.draws += 1; home.points += 1; away.points += 1; }
+              });
+
+              return [...rows.values()].sort((a, b) =>
+                b.points - a.points ||
+                (b.gf - b.ga) - (a.gf - a.ga) ||
+                b.gf - a.gf ||
+                a.name.localeCompare(b.name, 'ru')
+              );
+            }
+
+            function flagMarkup(row) {
+              if (row.flagCode) return `<img src="https://flagcdn.com/${row.flagCode}.svg" alt="" loading="lazy">`;
+              return `<span>${row.flag || '⚽'}</span>`;
+            }
+
+            function panelMarkup(rows) {
+              const body = rows.map((row, index) => {
+                const gd = row.gf - row.ga;
+                const zone = index < 8 ? 'direct' : index < 24 ? 'playoff' : 'out';
+                return `<tr class="ucl-${zone}"><td>${index + 1}</td><td><span class="ucl-table-club"><i>${flagMarkup(row)}</i><strong>${row.name}</strong></span></td><td>${row.played}</td><td>${row.wins}</td><td>${row.draws}</td><td>${row.losses}</td><td>${row.gf}:${row.ga}</td><td>${gd > 0 ? '+' : ''}${gd}</td><td><b>${row.points}</b></td></tr>`;
+              }).join('');
+              return `<section id="ucl-league-phase-panel" class="ucl-league-phase-panel"><div class="ucl-phase-head"><div><span>Лига чемпионов 2026/27</span><h3>Общий этап</h3></div><small>${rows.length} клубов · 8 туров</small></div><p class="ucl-phase-note"><span class="ucl-legend direct"></span>1–8 — 1/8 <span class="ucl-legend playoff"></span>9–24 — стыки <span class="ucl-legend out"></span>25–36 — вылет</p><div class="ucl-table-scroll"><table class="ucl-phase-table"><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>М</th><th>±</th><th>О</th></tr></thead><tbody>${body}</tbody></table></div></section>`;
+            }
+
+            function textButton(label) {
+              return Array.from(document.querySelectorAll('button, [role="tab"]')).find((el) => String(el.textContent || '').trim() === label);
+            }
+
+            function cleanup() {
+              document.querySelectorAll('[data-ucl-native-hidden="1"]').forEach((node) => {
+                node.style.removeProperty('display');
+                delete node.dataset.uclNativeHidden;
+              });
+              document.getElementById('ucl-league-phase-panel')?.remove();
+            }
+
+            async function render() {
+              scheduled = false;
+              if (!isUclActive()) { cleanup(); return; }
+              const tournamentTab = textButton('Турнир');
+              if (!tournamentTab || !(tournamentTab.classList.contains('active') || tournamentTab.getAttribute('aria-selected') === 'true')) { cleanup(); return; }
+              const stageButton = textButton('Группы') || textButton('Общий этап');
+              const anchor = stageButton?.parentElement || tournamentTab.parentElement;
+              if (!anchor || document.getElementById('ucl-league-phase-panel')) return;
+              try {
+                const payload = await loadMatches();
+                if (!isUclActive()) return;
+                const rows = buildStandings(payload.matches || []);
+                anchor.insertAdjacentHTML('afterend', panelMarkup(rows));
+                let sibling = anchor.nextElementSibling;
+                while (sibling) {
+                  const next = sibling.nextElementSibling;
+                  if (sibling.id !== 'ucl-league-phase-panel' && !sibling.matches('nav, .bottom-nav')) {
+                    sibling.dataset.uclNativeHidden = '1';
+                    sibling.style.display = 'none';
+                  }
+                  sibling = next;
+                }
+              } catch (error) {
+                console.warn('UCL standings unavailable', error);
+              }
+            }
+
+            function schedule() {
+              if (scheduled) return;
+              scheduled = true;
+              requestAnimationFrame(render);
+            }
+
+            function installStyles() {
+              const style = document.createElement('style');
+              style.textContent = `.ucl-league-phase-panel{padding:12px;border:1px solid rgba(116,146,209,.25);border-radius:18px;background:#121a2c}.ucl-phase-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-end}.ucl-phase-head span,.ucl-phase-head small{color:#96a2bc;font-size:11px}.ucl-phase-head h3{margin:2px 0 0}.ucl-phase-note{display:flex;flex-wrap:wrap;gap:5px 8px;align-items:center;color:#96a2bc;font-size:10px}.ucl-legend{width:8px;height:8px;border-radius:50%}.ucl-legend.direct{background:#16d391}.ucl-legend.playoff{background:#ffbf35}.ucl-legend.out{background:#657089}.ucl-table-scroll{overflow-x:auto}.ucl-phase-table{width:100%;min-width:520px;border-collapse:collapse;font-size:11px}.ucl-phase-table th,.ucl-phase-table td{padding:7px 4px;text-align:center;border-bottom:1px solid rgba(148,163,184,.12)}.ucl-phase-table th:nth-child(2),.ucl-phase-table td:nth-child(2){text-align:left}.ucl-table-club{display:flex;align-items:center;gap:6px;min-width:0}.ucl-table-club i{width:21px;height:17px;display:grid;place-items:center;flex:0 0 21px}.ucl-table-club i img{width:21px;height:15px;object-fit:cover;border-radius:3px}.ucl-table-club strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ucl-phase-table tr.ucl-direct td:first-child{border-left:3px solid #16d391}.ucl-phase-table tr.ucl-playoff td:first-child{border-left:3px solid #ffbf35}.ucl-phase-table tr.ucl-out{opacity:.72}`;
+              document.head.appendChild(style);
+            }
+
+            installStyles();
+            new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+            document.addEventListener('click', () => setTimeout(schedule, 30), true);
+            window.addEventListener('storage', () => { payloadPromise = null; schedule(); });
+            schedule();
+          })();
+          '''
+          (ROOT / 'app/miniapp_frontend/src/ucl_ui_patch.js').write_text(textwrap.dedent(ucl_view).lstrip(), encoding='utf-8')
+
+          tests = r'''from app.services.team_identity import get_team_identity
+
+
+def test_sabah_crest_uses_match_external_id_not_name_mapping():
+    identity = get_team_identity("Sabah", "Sabah FK", 987654, "ucl_2026_2027")
+    assert identity["name"] == "Сабах"
+    assert identity["flag_code"] == "az"
+    assert identity["logo"].endswith("/987654.png")
+
+
+def test_missing_ucl_country_flags_are_resolved_centrally():
+    assert get_team_identity("Shakhtar Donetsk", None, 1, "ucl_2026_2027")["flag_code"] == "ua"
+    assert get_team_identity("VfB Stuttgart", None, 2, "ucl_2026_2027")["flag_code"] == "de"
+    assert get_team_identity("Slovan Bratislava", None, 3, "ucl_2026_2027")["flag_code"] == "sk"
+
+
+def test_world_cup_identity_keeps_flag_without_club_crest():
+    identity = get_team_identity("Germany", "Germany", 25, "wc2026")
+    assert identity["name"] == "Германия"
+    assert identity["flag_code"] == "de"
+    assert identity["logo"] == ""
+          '''
+          (ROOT / 'tests/test_team_identity.py').write_text(textwrap.dedent(tests).lstrip(), encoding='utf-8')
+
+          # Remove the one-shot workflow from the resulting product commit so it
+          # cannot run again on the bot-authored push.
+          Path('.github/workflows/apply-systemic-tournament-ui-fix.yml').unlink()
+          PY
+
+      - name: Python syntax and focused identity tests
+        run: |
+          python -m compileall -q app
+          python -m pip install -q pytest
+          python -m pytest -q tests/test_team_identity.py
+
+      - name: Build Mini App
+        working-directory: app/miniapp_frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit refactor
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make tournament UI state and team identity canonical"
+          git push origin HEAD:${GITHUB_REF_NAME}
