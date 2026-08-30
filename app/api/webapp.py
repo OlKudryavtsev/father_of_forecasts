@@ -2164,7 +2164,9 @@ def get_dashboard(
     current_points = 0
 
     for index, row in enumerate(table_rows, start=1):
-        if row["name"] == current_user.display_name:
+        # build_table_rows already exposes the stable User.id. Matching by id
+        # avoids a null/wrong rank when a display name changes or is duplicated.
+        if row.get("user_id") == current_user.id:
             current_rank = index
             current_points = row["points"]
             break
