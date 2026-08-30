@@ -14466,3 +14466,25 @@ body,
     height: 78px;
   }
 }
+
+
+/* Native UCL league-phase table (v3.9.15) */
+.ucl-league-phase-panel { padding: 12px; border: 1px solid rgba(116,146,209,.25); border-radius: 18px; background: #121a2c; }
+.ucl-phase-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-end; }
+.ucl-phase-head h2 { margin: 2px 0 0; }
+.ucl-phase-head small { color: #96a2bc; font-size: 11px; white-space: nowrap; }
+.ucl-phase-note { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; color: #96a2bc; font-size: 10px; }
+.ucl-legend { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.ucl-legend.direct { background: #16d391; }
+.ucl-legend.playoff { background: #ffbf35; }
+.ucl-legend.out { background: #657089; }
+.ucl-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ucl-phase-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 11px; }
+.ucl-phase-table th, .ucl-phase-table td { padding: 7px 4px; text-align: center; border-bottom: 1px solid rgba(148,163,184,.12); }
+.ucl-phase-table th:nth-child(2), .ucl-phase-table td:nth-child(2) { text-align: left; }
+.ucl-table-club { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ucl-table-club .flag { flex: 0 0 auto; }
+.ucl-table-club strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ucl-phase-table tr.ucl-direct td:first-child { border-left: 3px solid #16d391; }
+.ucl-phase-table tr.ucl-playoff td:first-child { border-left: 3px solid #ffbf35; }
+.ucl-phase-table tr.ucl-out { opacity: .72; }

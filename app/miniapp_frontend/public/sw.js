@@ -1,4 +1,4 @@
-const APP_VERSION = '3.9.14';
+const APP_VERSION = '3.9.15';
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });

@@ -2874,7 +2874,112 @@ function KnockoutBracket({ bracket, onOpenMatch }) {
 }
 
 
-function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenTeam, onOpenPlayer }) {
+function buildUclLeaguePhaseStandings(matches = []) {
+  const phaseMatches = (matches || []).filter((match) => {
+    const stage = String(match.stage || '').toLowerCase();
+    const round = String(match.match_round || '').toLowerCase();
+    const phase = `${stage} ${round}`;
+    return phase.includes('league') || phase.includes('group') || phase.includes('matchday') || phase.includes('regular season');
+  });
+  const source = phaseMatches.length ? phaseMatches : (matches || []).filter((match) => {
+    const phase = `${String(match.stage || '').toLowerCase()} ${String(match.match_round || '').toLowerCase()}`;
+    return !/(qualif|play.?off|round of|1\/8|1\/4|quarter|semi|final)/.test(phase);
+  });
+  const rows = new Map();
+
+  function ensure(id, name, flag, flagCode, logo) {
+    const key = id ? `id:${id}` : `name:${String(name || '').toLowerCase()}`;
+    if (!rows.has(key)) {
+      rows.set(key, {
+        key,
+        id,
+        name,
+        flag,
+        flag_code: flagCode,
+        logo,
+        played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        gf: 0,
+        ga: 0,
+        points: 0,
+      });
+    }
+    return rows.get(key);
+  }
+
+  source.forEach((match) => {
+    const home = ensure(match.home_team_id, match.home_team, match.home_flag, match.home_flag_code, match.home_logo);
+    const away = ensure(match.away_team_id, match.away_team, match.away_flag, match.away_flag_code, match.away_logo);
+    if (!match.is_finished || match.score_home === null || match.score_home === undefined || match.score_away === null || match.score_away === undefined) return;
+    const homeScore = Number(match.score_home);
+    const awayScore = Number(match.score_away);
+    if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return;
+    home.played += 1;
+    away.played += 1;
+    home.gf += homeScore;
+    home.ga += awayScore;
+    away.gf += awayScore;
+    away.ga += homeScore;
+    if (homeScore > awayScore) {
+      home.wins += 1;
+      away.losses += 1;
+      home.points += 3;
+    } else if (awayScore > homeScore) {
+      away.wins += 1;
+      home.losses += 1;
+      away.points += 3;
+    } else {
+      home.draws += 1;
+      away.draws += 1;
+      home.points += 1;
+      away.points += 1;
+    }
+  });
+
+  return [...rows.values()].sort((left, right) =>
+    right.points - left.points ||
+    (right.gf - right.ga) - (left.gf - left.ga) ||
+    right.gf - left.gf ||
+    String(left.name || '').localeCompare(String(right.name || ''), 'ru')
+  );
+}
+
+function UclLeaguePhaseTable({ matches = [] }) {
+  const rows = useMemo(() => buildUclLeaguePhaseStandings(matches), [matches]);
+  if (!rows.length) {
+    return <DetailEmpty title="Общий этап пока не заполнен" text="Матчи появятся здесь после синхронизации расписания Лиги чемпионов." />;
+  }
+
+  return (
+    <section className="ucl-league-phase-panel">
+      <header className="ucl-phase-head">
+        <div><span className="section-label">Лига чемпионов 2026/27</span><h2>Общий этап</h2></div>
+        <small>{rows.length} клубов · 8 туров</small>
+      </header>
+      <p className="ucl-phase-note"><span className="ucl-legend direct" />1–8 — 1/8 <span className="ucl-legend playoff" />9–24 — стыки <span className="ucl-legend out" />25–36 — вылет</p>
+      <div className="ucl-table-scroll">
+        <table className="ucl-phase-table">
+          <thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>М</th><th>±</th><th>О</th></tr></thead>
+          <tbody>
+            {rows.map((row, index) => {
+              const goalDifference = row.gf - row.ga;
+              const zone = index < 8 ? 'direct' : index < 24 ? 'playoff' : 'out';
+              return <tr key={row.key} className={`ucl-${zone}`}>
+                <td>{index + 1}</td>
+                <td><span className="ucl-table-club"><TeamFlag code={row.flag_code} emoji={row.flag} logo={row.logo} name={row.name} size="mini" /><strong>{row.name}</strong></span></td>
+                <td>{row.played}</td><td>{row.wins}</td><td>{row.draws}</td><td>{row.losses}</td><td>{row.gf}:{row.ga}</td><td>{goalDifference > 0 ? '+' : ''}{goalDifference}</td><td><b>{row.points}</b></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenTeam, onOpenPlayer, activeTournamentCode = 'wc2026' }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [selectedGroups, setSelectedGroups] = useState([]);
@@ -2882,10 +2987,27 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
   const [selectedKnockoutStage, setSelectedKnockoutStage] = useState(null);
   const [focusedKnockoutMatchId, setFocusedKnockoutMatchId] = useState(null);
 
+  const isUclTournament = String(activeTournamentCode || '').toLowerCase().startsWith('ucl_');
+
   useEffect(() => {
     let active = true;
-    api('/api/webapp/tournament/overview').then((result) => {
-      if (!active) return;
+    const controller = new AbortController();
+    setData(null);
+    setError(null);
+
+    const endpoint = isUclTournament
+      ? `/api/webapp/matches?scope=all&tournament_code=${encodeURIComponent(activeTournamentCode)}`
+      : '/api/webapp/tournament/overview';
+
+    api(endpoint, { signal: controller.signal }).then((result) => {
+      if (!active || controller.signal.aborted) return;
+      if (isUclTournament) {
+        const mismatchedMatch = (result.matches || []).find((match) => match.tournament_code && match.tournament_code !== activeTournamentCode);
+        if (mismatchedMatch) return;
+        setData({ league_phase_matches: result.matches || [], groups: [], knockout: { stages: [] }, top_scorers: { items: [] } });
+        return;
+      }
+
       setData(result);
       const available = (result.groups || []).map((group) => group.group_code);
       const defaults = (result.default_group_codes || []).filter((code) => available.includes(code));
@@ -2896,9 +3018,16 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
       });
       const knockoutStages = (result.knockout?.stages || []).filter((stage) => (stage.matches || []).length);
       setSelectedKnockoutStage((current) => knockoutStages.some((stage) => stage.key === current) ? current : (knockoutStages[0]?.key || null));
-    }).catch((err) => { if (active) setError(err); });
-    return () => { active = false; };
-  }, []);
+    }).catch((err) => {
+      if (!active || controller.signal.aborted || err?.name === 'AbortError') return;
+      setError(err);
+    });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [activeTournamentCode, isUclTournament]);
 
   useEffect(() => {
     if (!focusedKnockoutMatchId) return undefined;
@@ -2921,6 +3050,13 @@ function TournamentHub({ mode = 'tournament', onModeChange, onOpenMatch, onOpenT
 
   if (error) return <ErrorCard error={error} onRetry={() => window.location.reload()} />;
   if (!data) return <LoadingCard text="Загружаю турнирный центр..." />;
+
+  if (isUclTournament) {
+    if (mode !== 'tournament') {
+      return <div className="tournament-hub"><section className="hub-scorers-card"><DetailEmpty title="Бомбардиры Лиги чемпионов пока не подключены" text="Здесь не показываются данные другого турнира; раздел появится после подключения клубной статистики." /></section></div>;
+    }
+    return <div className="tournament-hub"><UclLeaguePhaseTable matches={data.league_phase_matches || []} /></div>;
+  }
 
   const groups = data.groups || [];
   const visibleGroups = groups.filter((item) => selectedGroups.includes(item.group_code));
@@ -3197,7 +3333,7 @@ function MatchCenter({ onPredict, onForecast, leagues = [], activeLeagueId, acti
     <div className="center-mode-tabs"><button className={centerMode === 'matches' ? 'active' : ''} onClick={() => changeCenterMode('matches')}>Матчи</button><button className={centerMode === 'tournament' ? 'active' : ''} onClick={() => changeCenterMode('tournament')}>Турнир</button><button className={centerMode === 'scorers' ? 'active' : ''} onClick={() => changeCenterMode('scorers')}>Бомбардиры</button></div>
     <TournamentChampionCard summary={data?.tournament_summary} />
     <section className="match-center-mode-content" aria-live="polite">
-    {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={changeCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} /> : <>
+    {centerMode !== 'matches' ? <TournamentHub mode={centerMode} onModeChange={changeCenterMode} onOpenMatch={openMatch} onOpenTeam={openTeam} onOpenPlayer={openPlayer} activeTournamentCode={activeTournamentCode} /> : <>
       <div className="filter-strip modern-filters">
         <button className={!group && scope === 'all' ? 'active' : ''} onClick={() => { setGroup(null); setScope('all'); }}><Icon name="star" /><span>Все</span></button>
         <button className={scope === 'upcoming' ? 'active future' : ''} onClick={() => { setGroup(null); setScope('upcoming'); }}><Icon name="ball" /><span>Будущие</span></button>
