@@ -1,0 +1,370 @@
+name: Build v3.9.19 UEFA ranking forecasts
+
+on:
+  push:
+    branches:
+      - assistant/v3.9.19-uefa-club-ranking
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assistant-v3919-uefa-ranking
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/miniapp_frontend/package-lock.json
+
+      - name: Apply tournament-aware ranking refactor
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('.')
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'Cannot find {label}')
+              return text.replace(old, new, 1)
+
+          # Forecast context: select national-team FIFA vs club UEFA ranking at source.
+          path = root / 'app/wc2026_forecast_context.py'
+          text = path.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              'from app.fifa_rankings import FifaRankingsStore\n',
+              'from app.fifa_rankings import FifaRankingsStore\nfrom app.uefa_club_rankings import UefaClubRankingsStore\n',
+              'UEFA ranking import',
+          )
+          old_start = '''def build_wc2026_openai_context(db, match) -> dict[str, Any]:
+              api_client = ApiFootballClient()
+              rankings = FifaRankingsStore()
+
+              before_date = match.starts_at
+
+              if before_date.tzinfo is None:
+                  before_date = before_date.replace(tzinfo=timezone.utc)
+
+              home_api_name = match.home_team_api_name or match.home_team
+              away_api_name = match.away_team_api_name or match.away_team
+
+              home_ranking = rankings.get_context(home_api_name)
+              away_ranking = rankings.get_context(away_api_name)
+'''.replace('              ', '')
+          new_start = '''def is_ucl_forecast_match(match) -> bool:
+              code = str(getattr(match, "tournament_code", "") or "").strip().lower()
+              return code.startswith("ucl_") or code.startswith("ucl-")
+
+
+          def build_team_strength_ranking_context(match, home_api_name: str, away_api_name: str) -> dict[str, Any]:
+              """Return the correct strength-ranking source for this tournament."""
+              if is_ucl_forecast_match(match):
+                  store = UefaClubRankingsStore()
+                  rankings = {
+                      home_api_name: store.get_context(home_api_name),
+                      away_api_name: store.get_context(away_api_name),
+                  }
+                  return {
+                      "type": "uefa_club_coefficient",
+                      "display_label": "Клубный рейтинг UEFA",
+                      "source": "UEFA.com",
+                      "source_url": store.data.get("source_url"),
+                      "reference_period": store.data.get("reference_period"),
+                      "lower_rank_is_stronger": True,
+                      "rankings": rankings,
+                      "note": (
+                          "Use the official UEFA club coefficient ranking snapshot at the end of 2025/26. "
+                          "Lower rank number means stronger club. If rank is null with ranking_status=not_ranked, "
+                          "the club is known but UEFA listed its coefficient ranking as N/A."
+                      ),
+                  }
+
+              store = FifaRankingsStore()
+              rankings = {
+                  home_api_name: store.get_context(home_api_name),
+                  away_api_name: store.get_context(away_api_name),
+              }
+              return {
+                  "type": "fifa_national_team",
+                  "display_label": "FIFA ranking",
+                  "source": "sofascore",
+                  "source_url": None,
+                  "reference_period": None,
+                  "lower_rank_is_stronger": True,
+                  "rankings": rankings,
+                  "note": (
+                      "For FIFA ranking, if total_points is null, use rank only. "
+                      "Lower rank number means stronger national team. "
+                      "Do not treat missing points as missing ranking if rank is available."
+                  ),
+              }
+
+
+          def build_openai_forecast_context(db, match) -> dict[str, Any]:
+              api_client = ApiFootballClient()
+
+              before_date = match.starts_at
+
+              if before_date.tzinfo is None:
+                  before_date = before_date.replace(tzinfo=timezone.utc)
+
+              home_api_name = match.home_team_api_name or match.home_team
+              away_api_name = match.away_team_api_name or match.away_team
+
+              ranking_context = build_team_strength_ranking_context(match, home_api_name, away_api_name)
+              home_ranking = ranking_context["rankings"].get(home_api_name)
+              away_ranking = ranking_context["rankings"].get(away_api_name)
+'''.replace('          ', '')
+          text = replace_once(text, old_start, new_start, 'forecast context function start')
+          old_ranking_payload = '''        "fifa_rankings_sofascore": {
+                      home_api_name: home_ranking,
+                      away_api_name: away_ranking,
+                  },'''.replace('                  ', '')
+          new_ranking_payload = '''        "ranking_context": ranking_context,
+                  "team_strength_rankings": ranking_context["rankings"],
+                  # Compatibility for older consumers. UCL must never receive FIFA values.
+                  "fifa_rankings_sofascore": (
+                      ranking_context["rankings"] if ranking_context["type"] == "fifa_national_team" else {}
+                  ),'''.replace('                  ', '')
+          text = replace_once(text, old_ranking_payload, new_ranking_payload, 'generic ranking payload')
+          old_note = '''        "note": (
+                      "For FIFA ranking, if total_points is null, use rank only. "
+                      "Lower rank number means stronger team. "
+                      "Do not treat missing points as missing ranking if rank is available."
+                  ),
+              }'''.replace('              ', '')
+          new_note = '''        "note": ranking_context["note"],
+              }
+
+
+          def build_wc2026_openai_context(db, match) -> dict[str, Any]:
+              """Backward-compatible alias for callers not yet renamed."""
+              return build_openai_forecast_context(db, match)'''.replace('          ', '')
+          text = replace_once(text, old_note, new_note, 'generic ranking note and compatibility alias')
+          path.write_text(text, encoding='utf-8')
+
+          # Prompt: use ranking_context instead of hard-coded FIFA instructions.
+          path = root / 'app/openai_forecaster.py'
+          text = path.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              '2. Сначала оцени базовую силу команд по FIFA ranking.',
+              '2. Сначала оцени базовую силу команд по ranking_context. Используй ровно указанный там тип рейтинга: FIFA для сборных и UEFA club coefficient для клубных турниров; не подменяй один рейтинг другим.',
+              'generic ranking prompt',
+          )
+          text = replace_once(
+              text,
+              '3. Затем оцени форму по последним матчам и H2H.',
+              '3. Если ranking_context.rankings содержит rank=null и ranking_status=not_ranked, считай клуб известным, но без числовой позиции; не выдумывай рейтинг. Затем оцени форму по последним матчам и H2H.',
+              'unranked club prompt',
+          )
+          path.write_text(text, encoding='utf-8')
+
+          # User-facing forecast text + source version for controlled UCL refresh.
+          path = root / 'app/services/forecast.py'
+          text = path.read_text(encoding='utf-8')
+          text = replace_once(text, 'from typing import Any\n', 'from datetime import datetime, timezone\nfrom typing import Any\n', 'forecast datetime import')
+          text = replace_once(
+              text,
+              'from app.runtime import Match, User, build_wc2026_openai_context, generate_openai_forecast\n',
+              'from app.runtime import Match, User, generate_openai_forecast\nfrom app.wc2026_forecast_context import build_openai_forecast_context\n',
+              'generic context import',
+          )
+          marker = 'from app.constants.categories import PLAYOFF_STAGES\n\n\n'
+          helpers = '''from app.constants.categories import PLAYOFF_STAGES
+
+
+          UCL_FORECAST_SOURCE = "ai-uefa-v1"
+
+
+          def _is_ucl_match(match: Match) -> bool:
+              code = str(getattr(match, "tournament_code", "") or "").strip().lower()
+              return code.startswith("ucl_") or code.startswith("ucl-")
+
+
+          def forecast_source_for_match(match: Match) -> str:
+              return UCL_FORECAST_SOURCE if _is_ucl_match(match) else "ai"
+
+
+          def should_refresh_father_forecast(existing, match: Match, now: datetime | None = None) -> bool:
+              """Refresh only stale, future UCL AI forecasts after ranking-method upgrades."""
+              if not _is_ucl_match(match) or getattr(match, "is_finished", False):
+                  return False
+              desired_source = forecast_source_for_match(match)
+              current_source = str(getattr(existing, "source", "") or "")
+              if current_source == desired_source:
+                  return False
+              if current_source != "ai" and not current_source.startswith("ai-"):
+                  return False
+
+              starts_at = getattr(match, "starts_at", None)
+              if starts_at is None:
+                  return False
+              if starts_at.tzinfo is None:
+                  starts_at = starts_at.replace(tzinfo=timezone.utc)
+              current_time = now or datetime.now(timezone.utc)
+              if current_time.tzinfo is None:
+                  current_time = current_time.replace(tzinfo=timezone.utc)
+              return starts_at > current_time
+
+
+'''.replace('          ', '')
+          text = replace_once(text, marker, helpers, 'forecast source helpers')
+          text = replace_once(text, '    context = build_wc2026_openai_context(db, match)', '    context = build_openai_forecast_context(db, match)', 'generic forecast builder')
+          text = replace_once(
+              text,
+              '    rankings = context.get("fifa_rankings_sofascore") or {}\n',
+              '    ranking_context = context.get("ranking_context") or {}\n    rankings = ranking_context.get("rankings") or context.get("fifa_rankings_sofascore") or {}\n    ranking_label = ranking_context.get("display_label") or "FIFA ranking"\n',
+              'ranking context reader',
+          )
+          text = replace_once(text, '        "FIFA ranking:\\n"\n', '        f"{ranking_label}:\\n"\n', 'dynamic ranking heading')
+          path.write_text(text, encoding='utf-8')
+
+          # Formatting: distinguish an official N/A ranking from an unknown club.
+          path = root / 'app/formatters/matches.py'
+          text = path.read_text(encoding='utf-8')
+          old = '''    rank = ranking.get("rank")
+              total_points = ranking.get("total_points")
+
+              if total_points is not None:
+                  return f"{team_name}: #{rank}, {total_points} очк."
+
+              return f"{team_name}: #{rank}"
+'''.replace('              ', '')
+          new = '''    rank = ranking.get("rank")
+              total_points = ranking.get("total_points")
+
+              if rank is None:
+                  if ranking.get("ranking_status") == "not_ranked":
+                      return f"{team_name}: позиция не присвоена (N/A)"
+                  return f"{team_name}: рейтинг не найден"
+
+              if total_points is not None:
+                  return f"{team_name}: #{rank}, {total_points} очк."
+
+              return f"{team_name}: #{rank}"
+'''.replace('              ', '')
+          text = replace_once(text, old, new, 'N/A ranking formatter')
+          path.write_text(text, encoding='utf-8')
+
+          # Persist the ranking method in FatherMatchPrediction.source and refresh
+          # already-generated future UCL forecasts exactly once.
+          path = root / 'app/api/webapp.py'
+          text = path.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              'from app.services.forecast import build_forecast_text\n',
+              'from app.services.forecast import build_forecast_text, forecast_source_for_match, should_refresh_father_forecast\n',
+              'forecast refresh imports',
+          )
+          old_existing = '''    existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
+              if existing:
+                  # Safety for databases where the schema migration is applied after this
+'''.replace('              ', '')
+          new_existing = '''    existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
+              if existing:
+                  if allow_ai and should_refresh_father_forecast(existing, match):
+                      try:
+                          refreshed_text = build_forecast_text(db, match)
+                          refreshed_score = _parse_father_score_from_text(refreshed_text)
+                          refreshed_home, refreshed_away = refreshed_score
+                          enabled, side = _father_advancement_from_text(
+                              refreshed_text, match, refreshed_home, refreshed_away
+                          )
+                          existing.pred_home = refreshed_home
+                          existing.pred_away = refreshed_away
+                          existing.outcome = _score_outcome(refreshed_home, refreshed_away)
+                          existing.advancement_bet_enabled = enabled
+                          existing.predicted_advancing_side = side
+                          existing.source = forecast_source_for_match(match)
+                          existing.forecast_text = refreshed_text
+                          db.commit()
+                          db.refresh(existing)
+                      except Exception as error:
+                          # Never destroy a previously frozen forecast because an external
+                          # provider or OpenAI is temporarily unavailable during migration.
+                          print(f"Failed to refresh UCL Father forecast {match.id}: {error}")
+
+                  # Safety for databases where the schema migration is applied after this
+'''.replace('              ', '')
+          text = replace_once(text, old_existing, new_existing, 'future UCL forecast refresh')
+          text = replace_once(
+              text,
+              '            source = "ai"\n        except Exception as error:',
+              '            source = forecast_source_for_match(match)\n        except Exception as error:',
+              'versioned AI forecast source',
+          )
+          path.write_text(text, encoding='utf-8')
+
+          # Add one pure selector regression test without invoking external APIs.
+          path = root / 'tests/test_uefa_forecast_ranking.py'
+          text = path.read_text(encoding='utf-8')
+          if 'test_ucl_context_selector_uses_uefa_not_fifa' not in text:
+              text += '''\n\ndef test_ucl_context_selector_uses_uefa_not_fifa():\n    from types import SimpleNamespace\n    from app.wc2026_forecast_context import build_team_strength_ranking_context\n\n    match = SimpleNamespace(tournament_code="ucl_2026_2027")\n    context = build_team_strength_ranking_context(match, "VfB Stuttgart", "Viking FK")\n    assert context["type"] == "uefa_club_coefficient"\n    assert context["display_label"] == "Клубный рейтинг UEFA"\n    assert context["rankings"]["VfB Stuttgart"]["rank"] == 80\n    assert context["rankings"]["Viking FK"]["rank"] == 202\n''' 
+          path.write_text(text, encoding='utf-8')
+
+          # Release version.
+          package_path = root / 'app/miniapp_frontend/package.json'
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          if package.get('version') != '3.9.18':
+              raise SystemExit(f"Unexpected package version {package.get('version')}")
+          package['version'] = '3.9.19'
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          lock_path = root / 'app/miniapp_frontend/package-lock.json'
+          lock = json.loads(lock_path.read_text(encoding='utf-8'))
+          lock['version'] = '3.9.19'
+          if '' in lock.get('packages', {}):
+              lock['packages']['']['version'] = '3.9.19'
+          lock_path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Sync app version assets
+        run: node app/miniapp_frontend/scripts/sync-version.mjs
+
+      - name: Python and regression tests
+        env:
+          BOT_TOKEN: '123456:TESTTOKEN'
+        run: |
+          python -m compileall -q app
+          python -m pip install -q pytest sqlalchemy aiogram requests openai
+          python -m pytest -q tests/test_uefa_forecast_ranking.py tests/test_team_identity.py tests/test_frontend_ui_contract.py
+
+      - name: Install frontend dependencies
+        working-directory: app/miniapp_frontend
+        run: npm ci --no-audit --no-fund --loglevel=warn
+
+      - name: Build Mini App
+        working-directory: app/miniapp_frontend
+        run: npm run build
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit validated v3.9.19
+        shell: bash
+        run: |
+          rm -f .github/workflows/assistant-v3919-uefa-ranking.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: use UEFA club ranking for UCL AI forecasts"
+          git push origin HEAD:${GITHUB_REF_NAME}
