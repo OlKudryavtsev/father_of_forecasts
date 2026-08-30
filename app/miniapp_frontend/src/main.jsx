@@ -87,10 +87,36 @@ function BottomNavigation({ tab, onChange }) {
 }
 
 
-function TeamFlag({ code, emoji, name = '', size = 'normal' }) {
+function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '' }) {
+  const [logoFailed, setLogoFailed] = useState(false);
   const normalizedCode = String(code || '').trim().toLowerCase();
   const hasCode = /^[a-z0-9-]{2,10}$/.test(normalizedCode);
   const className = `flag flag-img ${size === 'mini' ? 'mini' : ''}`.trim();
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logo]);
+
+  if (logo && !logoFailed) {
+    return (
+      <span className={`${className} club-mark`.trim()} title={name} aria-label={name ? `Эмблема: ${name}` : 'Эмблема клуба'}>
+        <img
+          className="club-mark-logo"
+          src={logo}
+          alt=""
+          loading="lazy"
+          onError={() => setLogoFailed(true)}
+        />
+        {(hasCode || emoji) && (
+          <span className="club-mark-country" aria-label={name ? `Страна клуба: ${name}` : 'Страна клуба'}>
+            {hasCode
+              ? <img src={`https://flagcdn.com/${normalizedCode}.svg`} alt="" loading="lazy" />
+              : <span>{emoji}</span>}
+          </span>
+        )}
+      </span>
+    );
+  }
 
   if (hasCode) {
     return (
@@ -1252,9 +1278,16 @@ function HeaderTournamentSelector({ tournaments = [], activeTournamentCode, onCh
 }
 
 function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onLeagueChange, tournaments = [], activeTournamentCode, onTournamentChange }) {
-  const stageText = dashboard?.tournament?.current_stage_label || (dashboard?.tournament?.is_started ? 'Турнир идет' : 'До старта');
-  const tournamentTitle = dashboard?.tournament?.name || dashboard?.tournament?.short_name || 'Турнир';
-  const tournamentHost = dashboard?.tournament?.host || '';
+  const selectedTournament = tournaments.find((item) => item.code === activeTournamentCode) || null;
+  const dashboardTournamentCode = dashboard?.tournament?.code || null;
+  const dashboardMatchesSelection = !dashboardTournamentCode || dashboardTournamentCode === activeTournamentCode;
+  const currentDashboard = dashboardMatchesSelection ? dashboard : null;
+  const tournament = currentDashboard?.tournament || selectedTournament || {};
+  const stageText = currentDashboard
+    ? (tournament.current_stage_label || (tournament.is_started ? 'Турнир идет' : 'До старта'))
+    : 'Загружаю…';
+  const tournamentTitle = tournament.name || tournament.short_name || 'Турнир';
+  const tournamentHost = tournament.host || '';
 
   return (
     <header className="league-header">
@@ -1264,20 +1297,21 @@ function Header({ dashboard, onRules, onAdmin, leagues = [], activeLeagueId, onL
           <h1>Отец прогнозов</h1>
           <div className="league-subtitle">{tournamentTitle}{tournamentHost ? ` · ${tournamentHost}` : ''}</div>
         </div>
+        {currentDashboard?.user?.is_admin && (
+          <button className="header-admin-button" onClick={onAdmin} aria-label="Администрирование" title="Администрирование">
+            <Icon name="shield" />
+          </button>
+        )}
         <button className="rules-button" onClick={onRules}>Правила</button>
       </div>
 
       <div className="league-status-row">
-        {dashboard?.user?.is_admin && <button className="header-admin-button" onClick={onAdmin}><Icon name="shield" /> Админ</button>}
         <div className="league-status">
           <HeaderTournamentSelector tournaments={tournaments} activeTournamentCode={activeTournamentCode} onChange={onTournamentChange} />
-          {tournaments.length > 0 && <span className="divider header-league-divider" />}
           <HeaderLeagueSelector leagues={leagues} activeLeagueId={activeLeagueId} onChange={onLeagueChange} />
-          {leagues.length > 0 && <span className="divider header-league-divider" />}
-          <span className="status-section live-countdown">{stageText}</span>
-          <span className="divider" />
-          <span className="points">{pointsLabel(dashboard?.points ?? 0)}</span>
-          <span className="muted">#{dashboard?.rank || '—'}</span>
+          <span className="status-section live-countdown header-stat header-stage">{stageText}</span>
+          <span className="points header-stat header-points">{currentDashboard ? pointsLabel(currentDashboard.points ?? 0) : '…'}</span>
+          <span className="muted header-stat header-rank">#{currentDashboard?.rank || '—'}</span>
         </div>
       </div>
     </header>
@@ -1366,7 +1400,7 @@ function NextMatchHero({ match, onPredict, onShowPredictions, kicker = 'След
 
       <div className="next-match-teams" aria-label={`${match.home_team} против ${match.away_team}`}>
         <div className="next-match-team home">
-          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} />
+          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} />
           <strong>{match.home_team}</strong>
         </div>
         <div className="next-match-versus">
@@ -1374,7 +1408,7 @@ function NextMatchHero({ match, onPredict, onShowPredictions, kicker = 'След
           <small>{formatDateTime(match.starts_at)}</small>
         </div>
         <div className="next-match-team away">
-          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} />
+          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} />
           <strong>{match.away_team}</strong>
         </div>
       </div>
@@ -1500,12 +1534,12 @@ function LiveMatchHero({ match, onOpenDetails, leagueId = null }) {
       </div>
       <div className="live-match-teams">
         <div className="live-match-team">
-          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} />
+          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} />
           <strong>{match.home_team}</strong>
         </div>
         <div className="live-match-score"><b>{score}</b><small>{match.status_long || 'Матч идет'}</small></div>
         <div className="live-match-team">
-          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} />
+          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} />
           <strong>{match.away_team}</strong>
         </div>
       </div>
@@ -2384,12 +2418,12 @@ function MatchDetailsModal({ match, onClose, onPredict, onOpenTeam, onOpenPlayer
         <div className="match-details-drag-handle" aria-hidden="true"><span /></div>
         <button type="button" className="modal-close" aria-label="Закрыть детали матча" onClick={onClose}>×</button>
         <header className="match-details-hero">
-          <button className="detail-team detail-team-button" onClick={() => currentMatch.home_team_id && onOpenTeam?.(currentMatch.home_team_id)} disabled={!currentMatch.home_team_id}><TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} name={currentMatch.home_team} /><strong>{currentMatch.home_team}</strong></button>
+          <button className="detail-team detail-team-button" onClick={() => currentMatch.home_team_id && onOpenTeam?.(currentMatch.home_team_id)} disabled={!currentMatch.home_team_id}><TeamFlag code={currentMatch.home_flag_code} emoji={currentMatch.home_flag} logo={currentMatch.home_logo} name={currentMatch.home_team} /><strong>{currentMatch.home_team}</strong></button>
           <div className="detail-score">
             <b>{detailScore}</b>
             <span>{detailStatusLabel(details, currentMatch)}</span>
           </div>
-          <button className="detail-team detail-team-button" onClick={() => currentMatch.away_team_id && onOpenTeam?.(currentMatch.away_team_id)} disabled={!currentMatch.away_team_id}><TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} name={currentMatch.away_team} /><strong>{currentMatch.away_team}</strong></button>
+          <button className="detail-team detail-team-button" onClick={() => currentMatch.away_team_id && onOpenTeam?.(currentMatch.away_team_id)} disabled={!currentMatch.away_team_id}><TeamFlag code={currentMatch.away_flag_code} emoji={currentMatch.away_flag} logo={currentMatch.away_logo} name={currentMatch.away_team} /><strong>{currentMatch.away_team}</strong></button>
         </header>
         <p className="match-details-date">{formatDateTime(currentMatch.starts_at)}{details.last_synced_at ? ' · данные обновлены' : ''}</p>
 
@@ -2438,7 +2472,7 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
 
       <div className={`match-teams ${onDetails ? 'match-teams-clickable' : ''}`} {...detailTriggerProps}>
         <div className="team-side">
-          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} />
+          <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} />
           <strong>{match.home_team}</strong>
         </div>
         <div className="score-block match-score-stack">
@@ -2463,7 +2497,7 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
           )}
         </div>
         <div className="team-side">
-          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} />
+          <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} />
           <strong>{match.away_team}</strong>
         </div>
       </div>
@@ -2543,9 +2577,9 @@ function TeamProfileModal({ teamId, onClose, onOpenMatch, onOpenPlayer }) {
         <button className="hub-team-match" key={match.id} onClick={() => onOpenMatch?.(match)}>
           <span className="hub-match-date">{formatDayTitle(match.starts_at)}</span>
           <span className="hub-match-line">
-            <span><TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" /> {match.home_team}</span>
+            <span><TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} size="mini" /> {match.home_team}</span>
             <b>{match.is_finished ? formatActualScore(match) : formatDateTime(match.starts_at).split(', ')[1] || '—'}</b>
-            <span>{match.away_team} <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" /></span>
+            <span>{match.away_team} <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} size="mini" /></span>
           </span>
           <small>{match.is_finished ? 'Открыть детали матча' : 'Скоро матч'}</small>
         </button>
@@ -3053,7 +3087,7 @@ function MatchCenterTeamFilterModal({ teams = [], selectedTeam = null, onSelect,
                 aria-selected={active}
                 onClick={() => { onSelect?.(team); onClose?.(); }}
               >
-                <TeamFlag code={team.flag_code} emoji={team.flag} name={team.name} size="mini" />
+                <TeamFlag code={team.flag_code} emoji={team.flag} logo={team.logo} name={team.name} size="mini" />
                 <span>{team.name}</span>
                 {active && <b aria-hidden="true">✓</b>}
               </button>
@@ -3291,7 +3325,7 @@ function ScorePicker({ match, onClose, onSaved }) {
 
         <div className="score-editor-compact">
           <div className="score-row">
-            <span className="score-team"><TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" /><strong>{match.home_team}</strong></span>
+            <span className="score-team"><TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} size="mini" /><strong>{match.home_team}</strong></span>
             <div className="counter compact-counter">
               <button onClick={() => dec(setHome, home)}>−</button>
               <b>{home}</b>
@@ -3299,7 +3333,7 @@ function ScorePicker({ match, onClose, onSaved }) {
             </div>
           </div>
           <div className="score-row">
-            <span className="score-team"><TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" /><strong>{match.away_team}</strong></span>
+            <span className="score-team"><TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} size="mini" /><strong>{match.away_team}</strong></span>
             <div className="counter compact-counter">
               <button onClick={() => dec(setAway, away)}>−</button>
               <b>{away}</b>
@@ -3336,7 +3370,7 @@ function ScorePicker({ match, onClose, onSaved }) {
                   onClick={() => setAdvancementChoice('home')}
                 >
                   <span className="advancement-option-check">{advancementChoice === 'home' ? '✓' : ''}</span>
-                  <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
+                  <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} size="mini" />
                   <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.home_team}</b></span>
                 </button>
                 <button
@@ -3346,7 +3380,7 @@ function ScorePicker({ match, onClose, onSaved }) {
                   onClick={() => setAdvancementChoice('away')}
                 >
                   <span className="advancement-option-check">{advancementChoice === 'away' ? '✓' : ''}</span>
-                  <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
+                  <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} size="mini" />
                   <span className="advancement-option-copy"><small>Пройдёт дальше</small><b>{match.away_team}</b></span>
                 </button>
                 <button
@@ -4941,12 +4975,12 @@ function RatingMatchAnalytics({ analytics, leagueName = '', onOpenPredictions })
                 <span className="rating-analytics-place">{index + 1}</span>
                 <div className="rating-analytics-teams">
                   <span className="rating-analytics-team">
-                    <TeamFlag code={match.home_flag_code} emoji={match.home_flag} name={match.home_team} size="mini" />
+                    <TeamFlag code={match.home_flag_code} emoji={match.home_flag} logo={match.home_logo} name={match.home_team} size="mini" />
                     <b>{match.home_team}</b>
                   </span>
                   <strong className="rating-analytics-score">{formatActualScore(match)}</strong>
                   <span className="rating-analytics-team away">
-                    <TeamFlag code={match.away_flag_code} emoji={match.away_flag} name={match.away_team} size="mini" />
+                    <TeamFlag code={match.away_flag_code} emoji={match.away_flag} logo={match.away_logo} name={match.away_team} size="mini" />
                     <b>{match.away_team}</b>
                   </span>
                 </div>
@@ -8732,6 +8766,7 @@ function App() {
   const [homeTournamentMatch, setHomeTournamentMatch] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const dashboardRequestRef = useRef({ requestId: 0, controller: null });
   const hasBrowserSession = Boolean(getWebSessionToken());
 
   useEffect(() => {
@@ -8765,26 +8800,49 @@ function App() {
   }, [appTheme]);
 
   async function loadDashboard() {
-    try {
-      const dashboardParams = new URLSearchParams();
-      if (activeLeagueId) dashboardParams.set('league_id', String(activeLeagueId));
-      if (activeTournamentCode) dashboardParams.set('tournament_code', activeTournamentCode);
-      const dashboardQuery = dashboardParams.toString() ? `?${dashboardParams.toString()}` : '';
-      const [dashboardResult, tournamentPredictionResult] = await Promise.all([
-        api(`/api/webapp/dashboard${dashboardQuery}`),
-        api(`/api/webapp/tournament-prediction/me${activeTournamentCode ? `?tournament_code=${encodeURIComponent(activeTournamentCode)}` : ''}`).catch(() => null),
-      ]);
-      setDashboard(dashboardResult);
-      setTournamentPrediction(tournamentPredictionResult);
-    } catch (err) {
-      setDashboardError(err);
-    }
-  }
+  const requestId = dashboardRequestRef.current.requestId + 1;
+  dashboardRequestRef.current.requestId = requestId;
+  dashboardRequestRef.current.controller?.abort();
+  const controller = new AbortController();
+  dashboardRequestRef.current.controller = controller;
+  const requestedLeagueId = activeLeagueId;
+  const requestedTournamentCode = activeTournamentCode;
 
-  useEffect(() => {
-    if (!isTelegramMode() && !hasBrowserSession) return;
-    loadDashboard();
-  }, [refreshKey, hasBrowserSession, activeLeagueId, activeTournamentCode]);
+  try {
+    setDashboardError(null);
+    const dashboardParams = new URLSearchParams();
+    if (requestedLeagueId) dashboardParams.set('league_id', String(requestedLeagueId));
+    if (requestedTournamentCode) dashboardParams.set('tournament_code', requestedTournamentCode);
+    const dashboardQuery = dashboardParams.toString() ? `?${dashboardParams.toString()}` : '';
+    const [dashboardResult, tournamentPredictionResult] = await Promise.all([
+      api(`/api/webapp/dashboard${dashboardQuery}`, { signal: controller.signal }),
+      api(`/api/webapp/tournament-prediction/me${requestedTournamentCode ? `?tournament_code=${encodeURIComponent(requestedTournamentCode)}` : ''}`, { signal: controller.signal })
+        .catch((error) => {
+          if (error?.name === 'AbortError') throw error;
+          return null;
+        }),
+    ]);
+
+    if (controller.signal.aborted || dashboardRequestRef.current.requestId !== requestId) return;
+    if (requestedTournamentCode && dashboardResult?.tournament?.code && dashboardResult.tournament.code !== requestedTournamentCode) return;
+
+    setDashboard(dashboardResult);
+    setTournamentPrediction(tournamentPredictionResult);
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    if (dashboardRequestRef.current.requestId === requestId) setDashboardError(err);
+  }
+}
+
+useEffect(() => {
+  if (!isTelegramMode() && !hasBrowserSession) return;
+  loadDashboard();
+}, [refreshKey, hasBrowserSession, activeLeagueId, activeTournamentCode]);
+
+useEffect(() => () => {
+  dashboardRequestRef.current.requestId += 1;
+  dashboardRequestRef.current.controller?.abort();
+}, []);
 
   useEffect(() => {
     if (tab !== 'matches' || (!isTelegramMode() && !hasBrowserSession)) return undefined;
@@ -8815,24 +8873,35 @@ function App() {
     setRefreshKey((value) => value + 1);
   }
 
-  function setActiveLeagueId(nextLeagueId) {
-    const normalized = Number(nextLeagueId) || null;
-    setActiveLeagueIdState(normalized);
-    if (normalized) {
-      localStorage.setItem('ff_active_league_id', String(normalized));
-    } else {
-      localStorage.removeItem('ff_active_league_id');
-    }
-  }
+  function invalidateDashboardSelection() {
+  dashboardRequestRef.current.requestId += 1;
+  dashboardRequestRef.current.controller?.abort();
+  dashboardRequestRef.current.controller = null;
+  setDashboard(null);
+  setTournamentPrediction(null);
+  setDashboardError(null);
+}
 
-  function setActiveTournamentCode(nextCode) {
-    const normalized = String(nextCode || 'wc2026');
-    setActiveTournamentCodeState(normalized);
-    localStorage.setItem('ff_active_tournament_code', normalized);
-    setRefreshKey((value) => value + 1);
+function setActiveLeagueId(nextLeagueId) {
+  const normalized = Number(nextLeagueId) || null;
+  if (normalized !== activeLeagueId) invalidateDashboardSelection();
+  setActiveLeagueIdState(normalized);
+  if (normalized) {
+    localStorage.setItem('ff_active_league_id', String(normalized));
+  } else {
+    localStorage.removeItem('ff_active_league_id');
   }
+}
 
-  async function loadTournaments() {
+function setActiveTournamentCode(nextCode) {
+  const normalized = String(nextCode || 'wc2026');
+  if (normalized === activeTournamentCode) return;
+  invalidateDashboardSelection();
+  setActiveTournamentCodeState(normalized);
+  localStorage.setItem('ff_active_tournament_code', normalized);
+}
+
+async function loadTournaments() {
     try {
       const result = await api('/api/webapp/tournaments');
       const tournaments = result.tournaments || [];

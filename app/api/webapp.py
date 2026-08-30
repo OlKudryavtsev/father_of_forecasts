@@ -55,6 +55,7 @@ from app.runtime import TOURNAMENT_CODE
 from app.scoring import score_match_prediction
 from app.services.matches import apply_match_result_from_admin, build_match_emotion_payload, get_all_available_matches, get_nearest_matchday_matches, is_playoff_match
 from app.services.misc import build_table_rows, get_team_flag, get_team_flag_code
+from app.services.team_identity import get_team_identity
 from app.services.rating_history import build_rating_history
 from app.services.standings import get_cached_league_win_probabilities, get_cached_standings_scenarios
 from app.services.gamification import (
@@ -524,20 +525,32 @@ def _ensure_utc(dt: datetime) -> datetime:
 
 
 def _serialize_match(match: Match, user_prediction: Prediction | None = None) -> dict:
-    """Serialize a match for the Mini App API."""
-    home_name = get_team_name_ru(match.home_team)
-    away_name = get_team_name_ru(match.away_team)
+    """Serialize a match for the Mini App API from canonical server-side team identity."""
+    home = get_team_identity(
+        match.home_team,
+        getattr(match, "home_team_api_name", None),
+        match.home_external_team_id,
+        match.tournament_code,
+    )
+    away = get_team_identity(
+        match.away_team,
+        getattr(match, "away_team_api_name", None),
+        match.away_external_team_id,
+        match.tournament_code,
+    )
 
     return {
         "id": match.id,
         "tournament_code": match.tournament_code,
         "label": _match_label(match),
-        "home_team": home_name,
-        "away_team": away_name,
-        "home_flag": get_team_flag(home_name, getattr(match, "home_team_api_name", None)),
-        "away_flag": get_team_flag(away_name, getattr(match, "away_team_api_name", None)),
-        "home_flag_code": get_team_flag_code(home_name, getattr(match, "home_team_api_name", None)),
-        "away_flag_code": get_team_flag_code(away_name, getattr(match, "away_team_api_name", None)),
+        "home_team": home["name"],
+        "away_team": away["name"],
+        "home_flag": home["flag"],
+        "away_flag": away["flag"],
+        "home_flag_code": home["flag_code"],
+        "away_flag_code": away["flag_code"],
+        "home_logo": home["logo"],
+        "away_logo": away["logo"],
         "home_team_id": match.home_external_team_id,
         "away_team_id": match.away_external_team_id,
         "stage": match.stage,
