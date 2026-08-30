@@ -78,6 +78,11 @@ def format_ranking_fact(team_name: str, ranking: dict | None) -> str:
     rank = ranking.get("rank")
     total_points = ranking.get("total_points")
 
+    if rank is None:
+        if ranking.get("ranking_status") == "not_ranked":
+            return f"{team_name}: позиция не присвоена (N/A)"
+        return f"{team_name}: рейтинг не найден"
+
     if total_points is not None:
         return f"{team_name}: #{rank}, {total_points} очк."
 

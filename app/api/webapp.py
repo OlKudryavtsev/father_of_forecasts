@@ -79,7 +79,7 @@ from app.services.tournaments import (
     tournament_payload,
     tournament_started_for_code,
 )
-from app.services.forecast import build_forecast_text
+from app.services.forecast import build_forecast_text, forecast_source_for_match, should_refresh_father_forecast
 from app.services.matchtv_videos import sync_matchtv_videos
 from app.services.news import get_news_usage_summary, serialize_news_item
 from app.services.match_details import build_match_details_payload, sync_match_details_cache
@@ -951,10 +951,39 @@ def _serialize_father_prediction(prediction: FatherMatchPrediction | None, match
 def _ensure_father_match_prediction(db: Session, match: Match, allow_ai: bool = True) -> FatherMatchPrediction:
     existing = db.query(FatherMatchPrediction).filter(FatherMatchPrediction.match_id == match.id).first()
     if existing:
+        if allow_ai and should_refresh_father_forecast(existing, match):
+            try:
+                refreshed_text = build_forecast_text(db, match)
+                refreshed_home, refreshed_away = _parse_father_score_from_text(refreshed_text)
+                enabled, side = _father_advancement_from_text(
+                    refreshed_text,
+                    match,
+                    refreshed_home,
+                    refreshed_away,
+                )
+                existing.pred_home = refreshed_home
+                existing.pred_away = refreshed_away
+                existing.outcome = _score_outcome(refreshed_home, refreshed_away)
+                existing.advancement_bet_enabled = enabled
+                existing.predicted_advancing_side = side
+                existing.source = forecast_source_for_match(match)
+                existing.forecast_text = refreshed_text
+                db.commit()
+                db.refresh(existing)
+            except Exception as error:
+                # Preserve the old frozen row if an external provider/OpenAI is
+                # temporarily unavailable during the one-time method migration.
+                print(f"Failed to refresh UCL Father forecast {match.id}: {error}")
+
         # Safety for databases where the schema migration is applied after this
         # code: infer a legacy pick only when no explicit playoff marker existed.
         if is_playoff_match(match) and not existing.advancement_bet_enabled and not existing.predicted_advancing_side:
-            enabled, side = _father_advancement_from_text(existing.forecast_text, match, existing.pred_home, existing.pred_away)
+            enabled, side = _father_advancement_from_text(
+                existing.forecast_text,
+                match,
+                existing.pred_home,
+                existing.pred_away,
+            )
             if enabled:
                 existing.advancement_bet_enabled = True
                 existing.predicted_advancing_side = side
@@ -970,7 +999,7 @@ def _ensure_father_match_prediction(db: Session, match: Match, allow_ai: bool = 
         try:
             text = build_forecast_text(db, match)
             score = _parse_father_score_from_text(text)
-            source = "ai"
+            source = forecast_source_for_match(match)
         except Exception as error:
             text = f"Прогноз Отца временно недоступен, использован осторожный fallback 1:1. Ошибка: {error}"
             score = (1, 1)
@@ -990,7 +1019,12 @@ def _ensure_father_match_prediction(db: Session, match: Match, allow_ai: bool = 
             "Зафиксировано автоматически и больше не меняется после старта матча."
         )
 
-    advancement_bet_enabled, predicted_advancing_side = _father_advancement_from_text(text, match, pred_home, pred_away)
+    advancement_bet_enabled, predicted_advancing_side = _father_advancement_from_text(
+        text,
+        match,
+        pred_home,
+        pred_away,
+    )
 
     prediction = FatherMatchPrediction(
         match_id=match.id,
