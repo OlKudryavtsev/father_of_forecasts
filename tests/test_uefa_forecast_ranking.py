@@ -48,3 +48,15 @@ def test_forecast_sources_use_generic_ranking_context_and_version_ucl_ai():
     assert 'UCL_FORECAST_SOURCE = "ai-uefa-v1"' in forecast_source
     assert "should_refresh_father_forecast" in webapp_source
     assert "forecast_source_for_match(match)" in webapp_source
+
+
+def test_ucl_context_selector_uses_uefa_not_fifa():
+    from types import SimpleNamespace
+    from app.wc2026_forecast_context import build_team_strength_ranking_context
+
+    match = SimpleNamespace(tournament_code="ucl_2026_2027")
+    context = build_team_strength_ranking_context(match, "VfB Stuttgart", "Viking FK")
+    assert context["type"] == "uefa_club_coefficient"
+    assert context["display_label"] == "Клубный рейтинг UEFA"
+    assert context["rankings"]["VfB Stuttgart"]["rank"] == 80
+    assert context["rankings"]["Viking FK"]["rank"] == 202

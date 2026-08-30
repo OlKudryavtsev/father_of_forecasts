@@ -4,6 +4,7 @@ from typing import Any
 
 from app.api_football import ApiFootballClient
 from app.fifa_rankings import FifaRankingsStore
+from app.uefa_club_rankings import UefaClubRankingsStore
 
 
 def normalize_api_fixture_for_history(api_fixture: dict) -> dict:
@@ -389,21 +390,69 @@ def build_optional_external_forecast_context(
     return context
 
 
-def build_wc2026_openai_context(db, match) -> dict[str, Any]:
+def is_ucl_forecast_match(match) -> bool:
+    code = str(getattr(match, "tournament_code", "") or "").strip().lower()
+    return code.startswith("ucl_") or code.startswith("ucl-")
+
+
+def build_team_strength_ranking_context(
+    match,
+    home_api_name: str,
+    away_api_name: str,
+) -> dict[str, Any]:
+    """Return the correct strength-ranking source for the tournament."""
+    if is_ucl_forecast_match(match):
+        store = UefaClubRankingsStore()
+        rankings = {
+            home_api_name: store.get_context(home_api_name),
+            away_api_name: store.get_context(away_api_name),
+        }
+        return {
+            "type": "uefa_club_coefficient",
+            "display_label": "Клубный рейтинг UEFA",
+            "source": "UEFA.com",
+            "source_url": store.data.get("source_url"),
+            "reference_period": store.data.get("reference_period"),
+            "lower_rank_is_stronger": True,
+            "rankings": rankings,
+            "note": (
+                "Use the official UEFA club coefficient ranking snapshot at the end of 2025/26. "
+                "Lower rank number means stronger club. If rank is null with ranking_status=not_ranked, "
+                "the club is known but UEFA listed its coefficient ranking as N/A."
+            ),
+        }
+
+    store = FifaRankingsStore()
+    rankings = {
+        home_api_name: store.get_context(home_api_name),
+        away_api_name: store.get_context(away_api_name),
+    }
+    return {
+        "type": "fifa_national_team",
+        "display_label": "FIFA ranking",
+        "source": "sofascore",
+        "source_url": None,
+        "reference_period": None,
+        "lower_rank_is_stronger": True,
+        "rankings": rankings,
+        "note": (
+            "For FIFA ranking, if total_points is null, use rank only. "
+            "Lower rank number means stronger national team. "
+            "Do not treat missing points as missing ranking if rank is available."
+        ),
+    }
+
+
+def build_openai_forecast_context(db, match) -> dict[str, Any]:
     api_client = ApiFootballClient()
-    rankings = FifaRankingsStore()
 
     before_date = match.starts_at
-
     if before_date.tzinfo is None:
         before_date = before_date.replace(tzinfo=timezone.utc)
 
     home_api_name = match.home_team_api_name or match.home_team
     away_api_name = match.away_team_api_name or match.away_team
-
-    home_ranking = rankings.get_context(home_api_name)
-    away_ranking = rankings.get_context(away_api_name)
-
+    ranking_context = build_team_strength_ranking_context(match, home_api_name, away_api_name)
 
     home_recent = []
     away_recent = []
@@ -448,10 +497,14 @@ def build_wc2026_openai_context(db, match) -> dict[str, Any]:
             "home_team_api_name": home_api_name,
             "away_team_api_name": away_api_name,
         },
-        "fifa_rankings_sofascore": {
-            home_api_name: home_ranking,
-            away_api_name: away_ranking,
-        },
+        "ranking_context": ranking_context,
+        "team_strength_rankings": ranking_context["rankings"],
+        # Compatibility for older consumers. UCL never receives FIFA values.
+        "fifa_rankings_sofascore": (
+            ranking_context["rankings"]
+            if ranking_context["type"] == "fifa_national_team"
+            else {}
+        ),
         "recent_matches_before_fixture": {
             home_api_name: home_recent,
             away_api_name: away_recent,
@@ -469,9 +522,10 @@ def build_wc2026_openai_context(db, match) -> dict[str, Any]:
             "matches_short": compact_match_rows(h2h_rows, limit=5),
         },
         "external_context": external_context,
-        "note": (
-            "For FIFA ranking, if total_points is null, use rank only. "
-            "Lower rank number means stronger team. "
-            "Do not treat missing points as missing ranking if rank is available."
-        ),
+        "note": ranking_context["note"],
     }
+
+
+def build_wc2026_openai_context(db, match) -> dict[str, Any]:
+    """Backward-compatible alias for legacy imports."""
+    return build_openai_forecast_context(db, match)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from app.formatters.matches import (
@@ -11,8 +12,45 @@ from app.formatters.matches import (
     format_ranking_fact,
     format_short_matches_fact,
 )
-from app.runtime import Match, User, build_wc2026_openai_context, generate_openai_forecast
+from app.runtime import Match, User, generate_openai_forecast
+from app.wc2026_forecast_context import build_openai_forecast_context
 from app.constants.categories import PLAYOFF_STAGES
+
+
+UCL_FORECAST_SOURCE = "ai-uefa-v1"
+
+
+def _is_ucl_match(match: Match) -> bool:
+    code = str(getattr(match, "tournament_code", "") or "").strip().lower()
+    return code.startswith("ucl_") or code.startswith("ucl-")
+
+
+def forecast_source_for_match(match: Match) -> str:
+    return UCL_FORECAST_SOURCE if _is_ucl_match(match) else "ai"
+
+
+def should_refresh_father_forecast(existing, match: Match, now: datetime | None = None) -> bool:
+    """Refresh stale future UCL AI forecasts exactly once after this method upgrade."""
+    if not _is_ucl_match(match) or getattr(match, "is_finished", False):
+        return False
+
+    desired_source = forecast_source_for_match(match)
+    current_source = str(getattr(existing, "source", "") or "")
+    if current_source == desired_source:
+        return False
+    if current_source != "ai" and not current_source.startswith("ai-"):
+        return False
+
+    starts_at = getattr(match, "starts_at", None)
+    if starts_at is None:
+        return False
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=timezone.utc)
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    return starts_at > current_time
 
 
 def is_forecast_bot_user(user: User) -> bool:
@@ -126,7 +164,7 @@ def _format_data_confidence(value: str | None) -> str:
 
 def build_forecast_text(db, match: Match) -> str:
     """Build a structured AI forecast text for Telegram and Mini App."""
-    context = build_wc2026_openai_context(db, match)
+    context = build_openai_forecast_context(db, match)
     forecast = generate_openai_forecast(context)
 
     pred_home = int(forecast["pred_home"])
@@ -162,7 +200,9 @@ def build_forecast_text(db, match: Match) -> str:
     home_api_name = fixture["home_team_api_name"]
     away_api_name = fixture["away_team_api_name"]
 
-    rankings = context.get("fifa_rankings_sofascore") or {}
+    ranking_context = context.get("ranking_context") or {}
+    rankings = ranking_context.get("rankings") or context.get("fifa_rankings_sofascore") or {}
+    ranking_label = ranking_context.get("display_label") or "FIFA ranking"
     recent_short = context.get("recent_matches_short") or {}
     h2h = context.get("head_to_head") or {}
     external_context = context.get("external_context") or {}
@@ -177,7 +217,7 @@ def build_forecast_text(db, match: Match) -> str:
 
     facts_text = (
         "📌 Факты перед матчем\n\n"
-        "FIFA ranking:\n"
+        f"{ranking_label}:\n"
         f"{format_ranking_fact(match.home_team, ranking_home)}\n"
         f"{format_ranking_fact(match.away_team, ranking_away)}\n\n"
         "Последние 3 матча:\n"
