@@ -38,6 +38,7 @@ jobs:
             | sed -n "/python - <<'PY'/,/^          PY$/p" \
             | sed '1d;$d;s/^          //' > /tmp/apply_systemic_fix.py
           test -s /tmp/apply_systemic_fix.py
+          sed -i "s#Path('.github/workflows/apply-systemic-tournament-ui-fix.yml').unlink()#Path('.github/workflows/apply-systemic-tournament-ui-fix.yml').unlink(missing_ok=True)#" /tmp/apply_systemic_fix.py
           mkdir -p tests
           python /tmp/apply_systemic_fix.py
           rm -f .github/workflows/assistant-branch-refactor.yml
