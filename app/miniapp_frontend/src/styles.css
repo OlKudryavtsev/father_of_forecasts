@@ -14177,3 +14177,466 @@ body,
     font-size: 11px;
   }
 }
+
+
+/* Canonical tournament header and club identity (v3.9.15) */
+.league-header {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.league-main {
+  grid-template-columns: 44px minmax(0, 1fr) 40px auto;
+  gap: 8px;
+}
+
+.league-main .rules-button,
+.league-main .header-admin-button {
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  border-radius: 13px;
+}
+
+.league-main .rules-button {
+  min-width: 0;
+  padding: 0 14px;
+}
+
+.league-main .header-admin-button {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: #70a2ff;
+  background: rgba(35, 53, 91, .88);
+  border: 1px solid rgba(90, 141, 255, .40);
+}
+
+.league-main .header-admin-button .svg-icon {
+  width: 21px;
+  height: 21px;
+}
+
+.league-status-row {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.league-status {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-rows: 40px 40px;
+  gap: 7px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.league-status > .header-tournament-selector {
+  grid-column: 1 / 4;
+  grid-row: 1;
+}
+
+.league-status > .header-league-selector {
+  grid-column: 4 / 7;
+  grid-row: 1;
+}
+
+.league-status > .header-stage {
+  grid-column: 1 / 3;
+  grid-row: 2;
+}
+
+.league-status > .header-points {
+  grid-column: 3 / 5;
+  grid-row: 2;
+}
+
+.league-status > .header-rank {
+  grid-column: 5 / 7;
+  grid-row: 2;
+}
+
+.league-status > .header-tournament-selector,
+.league-status > .header-league-selector,
+.league-status > .header-stat {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 13px;
+  overflow: hidden;
+}
+
+.league-status > .header-tournament-selector,
+.league-status > .header-league-selector {
+  padding: 0 10px;
+  background: rgba(24, 35, 61, .92);
+  border: 1px solid rgba(116, 146, 209, .34);
+}
+
+.league-status > .header-stat {
+  padding: 0 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.league-status > .header-stage {
+  color: #ffd047;
+  background: linear-gradient(180deg, rgba(92, 66, 18, .72), rgba(58, 43, 17, .72));
+  border: 1px solid rgba(255, 196, 58, .24);
+}
+
+.league-status > .header-points {
+  color: #1bd394;
+  background: rgba(8, 66, 57, .56);
+  border: 1px solid rgba(24, 209, 146, .36);
+}
+
+.league-status > .header-rank {
+  color: #f4f7ff;
+  background: linear-gradient(180deg, rgba(95, 108, 196, .40), rgba(44, 56, 120, .40));
+  border: 1px solid rgba(117, 151, 255, .38);
+}
+
+.league-status > .header-rank::before {
+  content: 'Место ';
+  margin-right: 3px;
+  color: #b9c7f3;
+  font-size: 10px;
+}
+
+.league-status .header-tournament-selector select,
+.league-status .header-league-trigger,
+.league-status .header-league-name {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.club-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 20px;
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
+  overflow: visible;
+  font-size: 0;
+}
+
+.club-mark > .club-mark-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 9px;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
+.club-mark-country {
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  transform: translateX(-50%);
+  width: 27px;
+  height: 23px;
+  padding: 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #172036;
+  border: 1px solid rgba(148, 163, 184, .24);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .28);
+  font-size: 14px;
+  line-height: 1;
+  z-index: 2;
+}
+
+.club-mark-country > img {
+  display: block;
+  width: 19px;
+  height: 14px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.next-match-team .club-mark {
+  width: 92px;
+  height: 92px;
+  border-radius: 20px;
+}
+
+.match-card .team-side .club-mark {
+  width: 86px;
+  height: 86px;
+  border-radius: 18px;
+  margin-bottom: 4px;
+}
+
+.detail-team .club-mark,
+.live-match-team .club-mark {
+  width: 70px;
+  height: 70px;
+  border-radius: 16px;
+}
+
+.club-mark.mini {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.club-mark.mini > .club-mark-logo {
+  padding: 3px;
+}
+
+.club-mark.mini .club-mark-country {
+  display: none;
+}
+
+@media (max-width: 390px) {
+  .league-main {
+    grid-template-columns: 44px minmax(0, 1fr) 38px auto;
+    gap: 7px;
+  }
+  .league-main .rules-button,
+  .league-main .header-admin-button {
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
+  }
+  .league-main .header-admin-button {
+    width: 38px;
+    min-width: 38px;
+    max-width: 38px;
+  }
+  .league-main .rules-button {
+    padding: 0 12px;
+  }
+  .league-status {
+    grid-template-rows: 38px 38px;
+    gap: 6px;
+  }
+  .league-status > .header-tournament-selector,
+  .league-status > .header-league-selector,
+  .league-status > .header-stat {
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    border-radius: 12px;
+  }
+  .league-status > .header-stat {
+    padding: 0 5px;
+    font-size: 11.5px;
+  }
+  .league-status > .header-rank::before {
+    content: '';
+    margin-right: 0;
+  }
+  .next-match-team .club-mark {
+    width: 82px;
+    height: 82px;
+  }
+  .match-card .team-side .club-mark {
+    width: 78px;
+    height: 78px;
+  }
+}
+
+
+/* Native UCL league-phase table (v3.9.15) */
+.ucl-league-phase-panel { padding: 12px; border: 1px solid rgba(116,146,209,.25); border-radius: 18px; background: #121a2c; }
+.ucl-phase-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-end; }
+.ucl-phase-head h2 { margin: 2px 0 0; }
+.ucl-phase-head small { color: #96a2bc; font-size: 11px; white-space: nowrap; }
+.ucl-phase-note { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; color: #96a2bc; font-size: 10px; }
+.ucl-legend { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.ucl-legend.direct { background: #16d391; }
+.ucl-legend.playoff { background: #ffbf35; }
+.ucl-legend.out { background: #657089; }
+.ucl-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ucl-phase-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 11px; }
+.ucl-phase-table th, .ucl-phase-table td { padding: 7px 4px; text-align: center; border-bottom: 1px solid rgba(148,163,184,.12); }
+.ucl-phase-table th:nth-child(2), .ucl-phase-table td:nth-child(2) { text-align: left; }
+.ucl-table-club { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ucl-table-club .flag { flex: 0 0 auto; }
+.ucl-table-club strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ucl-phase-table tr.ucl-direct td:first-child { border-left: 3px solid #16d391; }
+.ucl-phase-table tr.ucl-playoff td:first-child { border-left: 3px solid #ffbf35; }
+.ucl-phase-table tr.ucl-out { opacity: .72; }
+
+
+/* Native replacements for retired runtime UI patches (v3.9.16) */
+/* Keep the quick-prediction hero compact without mutating the DOM at runtime. */
+.next-match-hero {
+  padding: 11px;
+  border-radius: 20px;
+}
+.next-match-hero-top {
+  margin-bottom: 8px;
+  gap: 8px;
+}
+.next-match-kicker { font-size: 12px; }
+.next-match-countdown {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.next-match-teams {
+  margin-bottom: 8px;
+  gap: 6px;
+}
+.next-match-team { gap: 4px; }
+.next-match-team strong { font-size: 13px; }
+.next-match-team .flag:not(.club-mark) {
+  width: 44px;
+  height: 32px;
+}
+.next-match-team .club-mark {
+  width: 66px;
+  height: 66px;
+  border-radius: 14px;
+}
+.next-match-team .club-mark > .club-mark-logo { padding: 6px; }
+.next-match-team .club-mark-country {
+  bottom: -7px;
+  width: 24px;
+  height: 20px;
+}
+.next-match-versus { gap: 3px; }
+.next-match-versus b { font-size: 20px; }
+.next-match-versus small { font-size: 10px; }
+.next-match-status {
+  min-height: 34px;
+  margin-bottom: 8px;
+  padding: 6px 9px;
+  border-radius: 12px;
+  gap: 6px;
+}
+.next-match-status > span {
+  width: 18px;
+  height: 18px;
+}
+.next-match-status strong { font-size: 12.5px; }
+.next-match-status small {
+  font-size: 10px;
+  padding-left: 24px;
+}
+.next-match-cta {
+  min-height: 40px;
+  height: 40px;
+  border-radius: 13px;
+  font-size: 13px;
+}
+
+/* The UCL league-phase table should fit a phone viewport, as the previous
+   v3.9.7 patch did, but now through ordinary component CSS. */
+.ucl-league-phase-panel { padding: 10px; }
+.ucl-table-scroll {
+  width: 100%;
+  overflow: hidden;
+}
+.ucl-phase-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.ucl-phase-table th,
+.ucl-phase-table td {
+  padding: 6px 2px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ucl-phase-table th:nth-child(1),
+.ucl-phase-table td:nth-child(1) { width: 24px; }
+.ucl-phase-table th:nth-child(2),
+.ucl-phase-table td:nth-child(2) { width: 128px; text-align: left; }
+.ucl-phase-table th:nth-child(3),
+.ucl-phase-table td:nth-child(3),
+.ucl-phase-table th:nth-child(4),
+.ucl-phase-table td:nth-child(4),
+.ucl-phase-table th:nth-child(5),
+.ucl-phase-table td:nth-child(5),
+.ucl-phase-table th:nth-child(6),
+.ucl-phase-table td:nth-child(6) { width: 22px; }
+.ucl-phase-table th:nth-child(7),
+.ucl-phase-table td:nth-child(7) { width: 34px; }
+.ucl-phase-table th:nth-child(8),
+.ucl-phase-table td:nth-child(8),
+.ucl-phase-table th:nth-child(9),
+.ucl-phase-table td:nth-child(9) { width: 24px; }
+.ucl-table-club {
+  width: 100%;
+  gap: 4px;
+  overflow: hidden;
+}
+.ucl-table-club .club-mark.mini {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 6px;
+}
+.ucl-table-club .club-mark.mini > .club-mark-logo { padding: 2px; }
+.ucl-table-club strong {
+  min-width: 0;
+  display: block;
+  color: #f4f7ff;
+  font-size: 10px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ucl-phase-table tbody tr.ucl-direct { background: rgba(22,211,145,.035); }
+.ucl-phase-table tbody tr.ucl-playoff { background: rgba(255,191,53,.025); }
+.ucl-phase-table tbody tr.ucl-out { opacity: .74; }
+.ucl-phase-table tbody tr.ucl-direct td:first-child {
+  border-left: 4px solid #16d391;
+  background: rgba(22,211,145,.08);
+}
+.ucl-phase-table tbody tr.ucl-playoff td:first-child {
+  border-left: 4px solid #ffbf35;
+  background: rgba(255,191,53,.08);
+}
+.ucl-phase-table tbody tr.ucl-out td:first-child {
+  border-left: 4px solid #657089;
+  background: rgba(101,112,137,.08);
+}
+
+@media (max-width: 390px) {
+  .next-match-hero { padding: 10px; }
+  .next-match-team .club-mark {
+    width: 58px;
+    height: 58px;
+  }
+  .ucl-phase-table th:nth-child(2),
+  .ucl-phase-table td:nth-child(2) { width: 108px; }
+  .ucl-table-club strong { font-size: 9.5px; }
+}
