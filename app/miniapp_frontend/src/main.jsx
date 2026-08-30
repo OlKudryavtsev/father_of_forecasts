@@ -87,11 +87,11 @@ function BottomNavigation({ tab, onChange }) {
 }
 
 
-function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '' }) {
+function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '', flagClassName = '' }) {
   const [logoFailed, setLogoFailed] = useState(false);
   const normalizedCode = String(code || '').trim().toLowerCase();
   const hasCode = /^[a-z0-9-]{2,10}$/.test(normalizedCode);
-  const className = `flag flag-img ${size === 'mini' ? 'mini' : ''}`.trim();
+  const className = `flag flag-img ${size === 'mini' ? 'mini' : ''} ${flagClassName}`.trim();
 
   useEffect(() => {
     setLogoFailed(false);
@@ -130,14 +130,14 @@ function TeamFlag({ code, emoji, name = '', size = 'normal', logo = '' }) {
     );
   }
 
-  return <span className={`flag ${size === 'mini' ? 'mini' : ''}`.trim()} title={name}>{emoji || '🏳️'}</span>;
+  return <span className={`flag ${size === 'mini' ? 'mini' : ''} ${flagClassName}`.trim()} title={name}>{emoji || '🏳️'}</span>;
 }
 
 
 function TeamNameWithCountry({ code, emoji, name = '', showCountry = false, className = '' }) {
   return (
     <span className={`team-name-with-country ${className}`.trim()}>
-      {showCountry && <TeamFlag code={code} emoji={emoji} name={name} size="mini" />}
+      {showCountry && <TeamFlag code={code} emoji={emoji} name={name} size="mini" flagClassName="team-country-flag" />}
       <strong>{name}</strong>
     </span>
   );
@@ -1789,20 +1789,28 @@ function videoSourceLabel(source) {
   return source || 'Видео';
 }
 
-function MatchInlineSection({ title, meta, iconName, children, defaultOpen = false, className = '', onOpen }) {
-  const [open, setOpen] = useState(defaultOpen);
+function MatchInlineSection({ title, meta = '', iconName = '', className = '', children, onOpen, open: controlledOpen, onOpenChange, hideHead = false }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
 
-  useEffect(() => {
-    if (open && onOpen) onOpen();
-  }, [open]);
+  function toggleOpen() {
+    const next = !open;
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+    if (next) onOpen?.();
+  }
+
+  if (hideHead && !open) return null;
 
   return (
-    <section className={`match-inline-section ${className} ${open ? 'open' : 'closed'}`}>
-      <button type="button" className="match-inline-head" onClick={() => setOpen((value) => !value)}>
-        <span>{iconName && <Icon name={iconName} />} {title}</span>
-        <small>{meta}</small>
-        <b>{open ? '−' : '+'}</b>
-      </button>
+    <section className={`match-inline-section ${className} ${open ? 'open' : 'closed'} ${hideHead ? 'headless' : ''}`.trim()}>
+      {!hideHead && (
+        <button type="button" className="match-inline-head" onClick={toggleOpen}>
+          <span>{iconName && <Icon name={iconName} />} {title}</span>
+          <small>{meta}</small>
+          <b>{open ? '−' : '+'}</b>
+        </button>
+      )}
       {open && <div className="match-inline-body">{children}</div>}
     </section>
   );
@@ -1852,7 +1860,7 @@ function participantAdvancementLabel(participant, match) {
   return `Проход: ${team || 'не указан'}`;
 }
 
-function MatchParticipantsInline({ match, leagueId = null }) {
+function MatchParticipantsInline({ match, leagueId = null, open, onOpenChange, hideHead = false, onCountChange }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -1874,13 +1882,24 @@ function MatchParticipantsInline({ match, leagueId = null }) {
   const count = data?.participants_count ?? match.prediction_distribution?.total ?? 0;
   const participants = data?.participants || [];
 
+  useEffect(() => {
+    onCountChange?.(count);
+  }, [count, onCountChange]);
+
+  useEffect(() => {
+    if (open && !loaded && !error) load();
+  }, [open, loaded, error, match.id, leagueId]);
+
   return (
     <MatchInlineSection
       title="Прогнозы участников"
       meta={`${count} ${pluralRu(count, 'прогноз', 'прогноза', 'прогнозов')}`}
       iconName="target"
-      className="match-participants-block"
-      onOpen={() => { if (!loaded && !error) load(); }}
+      className={`match-participants-block ${hideHead ? 'compact-participants-block' : ''}`.trim()}
+    open={open}
+    onOpenChange={onOpenChange}
+    hideHead={hideHead}
+    onOpen={() => { if (!loaded && !error) load(); }}
     >
       {!loaded && !error && <LoadingCard text="Загружаю прогнозы..." />}
 
@@ -2444,6 +2463,13 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
   const predictionScoreClass = predictionResultClass(match);
   const activeVideos = visibleVideosForMatch(match);
   const hasVideos = activeVideos.length > 0;
+  const [participantsOpen, setParticipantsOpen] = useState(false);
+  const [participantCount, setParticipantCount] = useState(match.prediction_distribution?.total ?? 0);
+
+  useEffect(() => {
+    setParticipantsOpen(false);
+    setParticipantCount(match.prediction_distribution?.total ?? 0);
+  }, [match.id, match.prediction_distribution?.total]);
   const detailTriggerProps = onDetails ? {
     role: 'button',
     tabIndex: 0,
@@ -2505,20 +2531,39 @@ function MatchCard({ match, onPredict, onForecast, onDetails, showDistribution =
         </div>
       </div>
 
-      {onDetails && (
-        <button type="button" className="match-details-link" onClick={() => onDetails(match)}>
-          <Icon name="more" />
-          Детали матча
+      <div className={`match-compact-actions ${locked ? 'single-action' : ''}`}>
+      {!locked && (
+        <button type="button" className="match-compact-action predict" onClick={() => onPredict(match)}>
+          <Icon name="target" />
+          <span>{match.prediction ? 'Изменить' : 'Прогноз'}</span>
         </button>
       )}
+      {!locked && (
+        <button type="button" className="match-compact-action father" onClick={() => onForecast(match)}>
+          <Icon name="robot" />
+          <span>Отец</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className={`match-compact-action participants ${participantsOpen ? 'active' : ''}`}
+        aria-expanded={participantsOpen}
+        onClick={() => setParticipantsOpen((value) => !value)}
+      >
+        <Icon name="target" />
+        <span>Участ. {participantCount}</span>
+      </button>
+    </div>
 
-      <div className="match-actions">
-        {!locked && <button onClick={() => onPredict(match)}>{match.prediction ? 'Изменить прогноз' : 'Сделать прогноз'}</button>}
-        {!locked && <button onClick={() => onForecast(match)}><Icon name="robot" /> Прогноз Отца</button>}
-      </div>
-
-      <MatchVideoBlock match={match} />
-      <MatchParticipantsInline match={match} leagueId={leagueId} />
+    <MatchVideoBlock match={match} />
+    <MatchParticipantsInline
+      match={match}
+      leagueId={leagueId}
+      open={participantsOpen}
+      onOpenChange={setParticipantsOpen}
+      hideHead
+      onCountChange={setParticipantCount}
+    />
       {match.is_finished && <MatchEmotionInline match={match} leagueId={leagueId} leagueName={leagueName} />}
 
       {showDistribution && locked && <PredictionBars distribution={match.prediction_distribution} />}

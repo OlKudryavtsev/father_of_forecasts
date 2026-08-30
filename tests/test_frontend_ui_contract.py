@@ -32,3 +32,16 @@ def test_club_crest_is_contained_for_tall_and_wide_assets():
     assert "object-position: center;" in block
     assert "max-width: 100%;" in block
     assert "max-height: 100%;" in block
+
+
+def test_compact_match_card_actions_and_country_flag_geometry():
+    assert 'flagClassName="team-country-flag"' in MAIN
+    country = CSS.split('/* v3.9.18 — compact match actions and stable country-flag geometry */', 1)[1]
+    assert '.team-name-with-country > .flag.team-country-flag' in country
+    assert 'width: 22px;' in country
+    assert 'height: 16px;' in country
+    assert 'grid-template-columns: repeat(3, minmax(0, 1fr));' in country
+    assert 'className="match-details-link"' not in MAIN
+    assert '<span>Отец</span>' in MAIN
+    assert '<span>Участ. {participantCount}</span>' in MAIN
+    assert 'hideHead' in MAIN
