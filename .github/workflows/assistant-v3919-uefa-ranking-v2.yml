@@ -1,0 +1,58 @@
+name: Build v3.9.19 UEFA ranking forecasts v2
+
+on:
+  push:
+    branches:
+      - assistant/v3.9.19-uefa-club-ranking
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assistant-v3919-uefa-ranking-v2
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/miniapp_frontend/package-lock.json
+      - name: Apply source refactor
+        run: python scripts/apply_v3919_uefa_ranking.py
+      - name: Sync version assets
+        run: node app/miniapp_frontend/scripts/sync-version.mjs
+      - name: Python and regression tests
+        env:
+          BOT_TOKEN: '123456:TESTTOKEN'
+        run: |
+          python -m compileall -q app
+          python -m pip install -q pytest sqlalchemy aiogram requests openai
+          python -m pytest -q tests/test_uefa_forecast_ranking.py tests/test_team_identity.py tests/test_frontend_ui_contract.py
+      - name: Install frontend dependencies
+        working-directory: app/miniapp_frontend
+        run: npm ci --no-audit --no-fund --loglevel=warn
+      - name: Build Mini App
+        working-directory: app/miniapp_frontend
+        run: npm run build
+      - name: Validate diff
+        run: git diff --check
+      - name: Commit validated release
+        run: |
+          rm -f .github/workflows/assistant-v3919-uefa-ranking-v2.yml
+          rm -f scripts/apply_v3919_uefa_ranking.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: use UEFA club ranking for UCL AI forecasts"
+          git push origin HEAD:${GITHUB_REF_NAME}
