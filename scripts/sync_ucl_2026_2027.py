@@ -10,9 +10,9 @@ Optional environment:
     API_FOOTBALL_UCL_SEASON=2026
 
 The provider feed may include qualifying/play-off rounds.  After the provider
-sync, this script removes non-league-phase matches and normalizes the 144
-confirmed league-phase fixtures to the official UEFA dates and Russian club
-names.
+sync, this script normalizes provider aliases, removes non-league-phase matches
+and normalizes the 144 confirmed league-phase fixtures to the official UEFA
+dates and Russian club names.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 from app.db import SessionLocal, ensure_schema
 from app.services.tournaments import sync_ucl_2026_2027_fixtures
 from app.services.ucl_2026_2027 import apply_ucl_league_phase_cleanup
+from app.services.ucl_provider_aliases import apply_ucl_provider_aliases
 
 
 def main() -> None:
@@ -34,8 +35,13 @@ def main() -> None:
     db = SessionLocal()
     try:
         sync_result = sync_ucl_2026_2027_fixtures(db, force=True)
+        alias_result = apply_ucl_provider_aliases(db)
         cleanup_result = apply_ucl_league_phase_cleanup(db)
-        print({"sync": sync_result, "league_phase_cleanup": cleanup_result})
+        print({
+            "sync": sync_result,
+            "provider_aliases": alias_result,
+            "league_phase_cleanup": cleanup_result,
+        })
     finally:
         db.close()
 
