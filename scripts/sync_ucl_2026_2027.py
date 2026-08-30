@@ -1,4 +1,4 @@
-"""Sync UEFA Champions League 2026/27 fixtures from API-Football.
+"""Sync UEFA Champions League 2026/27 league-phase fixtures.
 
 Run from the application environment, for example:
     python scripts/sync_ucl_2026_2027.py
@@ -8,6 +8,11 @@ Required environment:
 Optional environment:
     API_FOOTBALL_UCL_LEAGUE_ID=2
     API_FOOTBALL_UCL_SEASON=2026
+
+The provider feed may include qualifying/play-off rounds.  After the provider
+sync, this script removes non-league-phase matches and normalizes the 144
+confirmed league-phase fixtures to the official UEFA dates and Russian club
+names.
 """
 
 from __future__ import annotations
@@ -21,14 +26,16 @@ if str(ROOT) not in sys.path:
 
 from app.db import SessionLocal, ensure_schema
 from app.services.tournaments import sync_ucl_2026_2027_fixtures
+from app.services.ucl_2026_2027 import apply_ucl_league_phase_cleanup
 
 
 def main() -> None:
     ensure_schema()
     db = SessionLocal()
     try:
-        result = sync_ucl_2026_2027_fixtures(db, force=True)
-        print(result)
+        sync_result = sync_ucl_2026_2027_fixtures(db, force=True)
+        cleanup_result = apply_ucl_league_phase_cleanup(db)
+        print({"sync": sync_result, "league_phase_cleanup": cleanup_result})
     finally:
         db.close()
 
