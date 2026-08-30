@@ -1,192 +1,392 @@
 const UCL_TOURNAMENT_CODE = 'ucl_2026_2027';
 const ACTIVE_TOURNAMENT_STORAGE_KEY = 'ff_active_tournament_code';
+const UCL_EMPTY_SCORERS = {
+  source: 'ucl-pending',
+  items: [],
+  message: 'Бомбардиры ЛЧ появятся после первых голов турнира.',
+};
+
+function apiSportsLogo(id) {
+  return id ? `https://media.api-sports.io/football/teams/${id}.png` : '';
+}
 
 const UCL_CLUBS = [
-  ['AEK Athens','АЕК Афины','🇬🇷','gr','https://logo.clearbit.com/aekfc.gr',['AEK Athens FC']],
-  ['Arsenal','Арсенал','🏴','gb-eng','https://logo.clearbit.com/arsenal.com',[]],
-  ['Aston Villa','Астон Вилла','🏴','gb-eng','https://logo.clearbit.com/avfc.co.uk',[]],
-  ['Atletico Madrid','Атлетико Мадрид','🇪🇸','es','https://logo.clearbit.com/atleticodemadrid.com',['Atlético de Madrid','Atleti','Atl. Madrid']],
-  ['Barcelona','Барселона','🇪🇸','es','https://logo.clearbit.com/fcbarcelona.com',['FC Barcelona']],
-  ['Bayern Munich','Бавария','🇩🇪','de','https://logo.clearbit.com/fcbayern.com',['Bayern München','FC Bayern Munich','Bayern']],
-  ['Bodo/Glimt','Будё-Глимт','🇳🇴','no','https://logo.clearbit.com/glimt.no',['Bodø/Glimt','Bodoe/Glimt','Bodo Glimt']],
-  ['Borussia Dortmund','Боруссия Дортмунд','🇩🇪','de','https://logo.clearbit.com/bvb.de',['B. Dortmund','Dortmund']],
-  ['Club Brugge','Брюгге','🇧🇪','be','https://logo.clearbit.com/clubbrugge.be',['Club Brugge KV']],
-  ['Como','Комо','🇮🇹','it','https://logo.clearbit.com/comofc.com',[]],
-  ['Fenerbahce','Фенербахче','🇹🇷','tr','https://logo.clearbit.com/fenerbahce.org',['Fenerbahçe']],
-  ['Feyenoord','Фейеноорд','🇳🇱','nl','https://logo.clearbit.com/feyenoord.com',[]],
-  ['Galatasaray','Галатасарай','🇹🇷','tr','https://logo.clearbit.com/galatasaray.org',[]],
-  ['Inter','Интер','🇮🇹','it','https://logo.clearbit.com/inter.it',['Inter Milan','Internazionale']],
-  ['LASK','ЛАСК','🇦🇹','at','https://logo.clearbit.com/lask.at',['Lask Linz','LASK Linz']],
-  ['Lens','Ланс','🇫🇷','fr','https://logo.clearbit.com/rclens.fr',['RC Lens']],
-  ['Leipzig','Лейпциг','🇩🇪','de','https://logo.clearbit.com/rbleipzig.com',['RB Leipzig','RasenBallsport Leipzig']],
-  ['Lille','Лилль','🇫🇷','fr','https://logo.clearbit.com/losc.fr',['LOSC Lille']],
-  ['Liverpool','Ливерпуль','🏴','gb-eng','https://logo.clearbit.com/liverpoolfc.com',[]],
-  ['Manchester City','Манчестер Сити','🏴','gb-eng','https://logo.clearbit.com/mancity.com',['Man City']],
-  ['Manchester United','Манчестер Юнайтед','🏴','gb-eng','https://logo.clearbit.com/manutd.com',['Man Utd','Manchester Utd']],
-  ['Napoli','Наполи','🇮🇹','it','https://logo.clearbit.com/sscnapoli.it',['SSC Napoli']],
-  ['Paris Saint-Germain','ПСЖ','🇫🇷','fr','https://logo.clearbit.com/psg.fr',['Paris SG','PSG','Paris']],
-  ['Porto','Порту','🇵🇹','pt','https://logo.clearbit.com/fcporto.pt',['FC Porto']],
-  ['PSV Eindhoven','ПСВ','🇳🇱','nl','https://logo.clearbit.com/psv.nl',['PSV']],
-  ['Real Betis','Бетис','🇪🇸','es','https://logo.clearbit.com/realbetisbalompie.es',['Betis']],
-  ['Real Madrid','Реал Мадрид','🇪🇸','es','https://logo.clearbit.com/realmadrid.com',[]],
-  ['Roma','Рома','🇮🇹','it','https://logo.clearbit.com/asroma.com',['AS Roma']],
-  ['Sabah','Сабах','🇦🇿','az','https://logo.clearbit.com/sabahfc.az',['Sabah FK','Sabah FA']],
-  ['Shakhtar Donetsk','Шахтёр','🇺🇦','ua','https://logo.clearbit.com/shakhtar.com',['Shakhtar']],
-  ['Slavia Praha','Славия Прага','🇨🇿','cz','https://logo.clearbit.com/slavia.cz',['Slavia Prague']],
-  ['Slovan Bratislava','Слован Братислава','🇸🇰','sk','https://logo.clearbit.com/skslovan.com',['S. Bratislava']],
-  ['Sporting CP','Спортинг','🇵🇹','pt','https://logo.clearbit.com/sporting.pt',['Sporting Lisbon','Sporting']],
-  ['Stuttgart','Штутгарт','🇩🇪','de','https://logo.clearbit.com/vfb.de',['VfB Stuttgart']],
-  ['Viking','Викинг','🇳🇴','no','https://logo.clearbit.com/vikingfotball.no',['Viking FK']],
-  ['Villarreal','Вильярреал','🇪🇸','es','https://logo.clearbit.com/villarrealcf.es',['Villarreal CF']],
-];
+  { canonical: 'AEK Athens', ru: 'АЕК Афины', flag: '🇬🇷', flagCode: 'gr', logoId: 338, aliases: ['AEK Athens FC', 'AEK'] },
+  { canonical: 'Arsenal', ru: 'Арсенал', flag: '🇬🇧', flagCode: 'gb', logoId: 42, aliases: ['Arsenal FC'] },
+  { canonical: 'Aston Villa', ru: 'Астон Вилла', flag: '🇬🇧', flagCode: 'gb', logoId: 66, aliases: ['Aston Villa FC'] },
+  { canonical: 'Atletico Madrid', ru: 'Атлетико Мадрид', flag: '🇪🇸', flagCode: 'es', logoId: 530, aliases: ['Atlético de Madrid', 'Atleti', 'Atl. Madrid'] },
+  { canonical: 'Barcelona', ru: 'Барселона', flag: '🇪🇸', flagCode: 'es', logoId: 529, aliases: ['FC Barcelona'] },
+  { canonical: 'Bayern Munich', ru: 'Бавария', flag: '🇩🇪', flagCode: 'de', logoId: 157, aliases: ['Bayern München', 'FC Bayern Munich', 'Bayern'] },
+  { canonical: 'Bodo/Glimt', ru: 'Будё-Глимт', flag: '🇳🇴', flagCode: 'no', logoId: 727, aliases: ['Bodø/Glimt', 'Bodoe/Glimt', 'Bodo Glimt'] },
+  { canonical: 'Borussia Dortmund', ru: 'Боруссия Дортмунд', flag: '🇩🇪', flagCode: 'de', logoId: 165, aliases: ['B. Dortmund', 'Dortmund'] },
+  { canonical: 'Club Brugge', ru: 'Брюгге', flag: '🇧🇪', flagCode: 'be', logoId: 569, aliases: ['Club Brugge KV', 'Brugge'] },
+  { canonical: 'Como', ru: 'Комо', flag: '🇮🇹', flagCode: 'it', logoId: 895, aliases: ['Como 1907'] },
+  { canonical: 'Fenerbahce', ru: 'Фенербахче', flag: '🇹🇷', flagCode: 'tr', logoId: 611, aliases: ['Fenerbahçe', 'Fenerbahce SK'] },
+  { canonical: 'Feyenoord', ru: 'Фейеноорд', flag: '🇳🇱', flagCode: 'nl', logoId: 209, aliases: ['Feyenoord Rotterdam'] },
+  { canonical: 'Galatasaray', ru: 'Галатасарай', flag: '🇹🇷', flagCode: 'tr', logoId: 645, aliases: ['Galatasaray SK'] },
+  { canonical: 'Inter', ru: 'Интер', flag: '🇮🇹', flagCode: 'it', logoId: 505, aliases: ['Inter Milan', 'Internazionale'] },
+  { canonical: 'LASK', ru: 'ЛАСК', flag: '🇦🇹', flagCode: 'at', logoId: 102, aliases: ['Lask Linz', 'LASK Linz'] },
+  { canonical: 'Lens', ru: 'Ланс', flag: '🇫🇷', flagCode: 'fr', logoId: 116, aliases: ['RC Lens'] },
+  { canonical: 'Leipzig', ru: 'Лейпциг', flag: '🇩🇪', flagCode: 'de', logoId: 173, aliases: ['RB Leipzig', 'RasenBallsport Leipzig'] },
+  { canonical: 'Lille', ru: 'Лилль', flag: '🇫🇷', flagCode: 'fr', logoId: 79, aliases: ['LOSC Lille'] },
+  { canonical: 'Liverpool', ru: 'Ливерпуль', flag: '🇬🇧', flagCode: 'gb', logoId: 40, aliases: ['Liverpool FC'] },
+  { canonical: 'Manchester City', ru: 'Манчестер Сити', flag: '🇬🇧', flagCode: 'gb', logoId: 50, aliases: ['Man City'] },
+  { canonical: 'Manchester United', ru: 'Манчестер Юнайтед', flag: '🇬🇧', flagCode: 'gb', logoId: 33, aliases: ['Man Utd', 'Manchester Utd'] },
+  { canonical: 'Napoli', ru: 'Наполи', flag: '🇮🇹', flagCode: 'it', logoId: 492, aliases: ['SSC Napoli'] },
+  { canonical: 'Paris Saint-Germain', ru: 'ПСЖ', flag: '🇫🇷', flagCode: 'fr', logoId: 85, aliases: ['Paris SG', 'PSG', 'Paris'] },
+  { canonical: 'Porto', ru: 'Порту', flag: '🇵🇹', flagCode: 'pt', logoId: 212, aliases: ['FC Porto'] },
+  { canonical: 'PSV Eindhoven', ru: 'ПСВ', flag: '🇳🇱', flagCode: 'nl', logoId: 197, aliases: ['PSV'] },
+  { canonical: 'Real Betis', ru: 'Бетис', flag: '🇪🇸', flagCode: 'es', logoId: 543, aliases: ['Betis'] },
+  { canonical: 'Real Madrid', ru: 'Реал Мадрид', flag: '🇪🇸', flagCode: 'es', logoId: 541, aliases: ['Real Madrid CF'] },
+  { canonical: 'Roma', ru: 'Рома', flag: '🇮🇹', flagCode: 'it', logoId: 497, aliases: ['AS Roma'] },
+  { canonical: 'Sabah', ru: 'Сабах', flag: '🇦🇿', flagCode: 'az', logoId: null, aliases: ['Sabah FK', 'Sabah FA'] },
+  { canonical: 'Shakhtar Donetsk', ru: 'Шахтёр', flag: '🇺🇦', flagCode: 'ua', logoId: 550, aliases: ['Shakhtar'] },
+  { canonical: 'Slavia Praha', ru: 'Славия Прага', flag: '🇨🇿', flagCode: 'cz', logoId: 558, aliases: ['Slavia Prague'] },
+  { canonical: 'Slovan Bratislava', ru: 'Слован Братислава', flag: '🇸🇰', flagCode: 'sk', logoId: 447, aliases: ['S. Bratislava'] },
+  { canonical: 'Sporting CP', ru: 'Спортинг', flag: '🇵🇹', flagCode: 'pt', logoId: 228, aliases: ['Sporting Lisbon', 'Sporting'] },
+  { canonical: 'Stuttgart', ru: 'Штутгарт', flag: '🇩🇪', flagCode: 'de', logoId: 172, aliases: ['VfB Stuttgart'] },
+  { canonical: 'Viking', ru: 'Викинг', flag: '🇳🇴', flagCode: 'no', logoId: null, aliases: ['Viking FK'] },
+  { canonical: 'Villarreal', ru: 'Вильярреал', flag: '🇪🇸', flagCode: 'es', logoId: 533, aliases: ['Villarreal CF'] },
+].map((club) => ({
+  ...club,
+  logo: club.logo || apiSportsLogo(club.logoId),
+  short: (club.ru || club.canonical).split(/\s+/).map((part) => part[0]).join('').slice(0, 3).toUpperCase(),
+}));
 
 function normalizeClubName(value) {
-  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, ' and ').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9]+/gi, '');
 }
 
 const UCL_CLUB_BY_KEY = new Map();
-const UCL_CLUB_BY_RU = new Map();
-const UCL_CLUB_ALIASES = [];
-for (const [canonical, ru, flag, flagCode, logo, aliases] of UCL_CLUBS) {
-  const meta = { canonical, ru, flag, flagCode, logo };
-  UCL_CLUB_BY_RU.set(ru, meta);
-  for (const name of [canonical, ru, ...(aliases || [])]) {
+for (const meta of UCL_CLUBS) {
+  [meta.canonical, meta.ru, ...(meta.aliases || [])].forEach((name) => {
     UCL_CLUB_BY_KEY.set(normalizeClubName(name), meta);
-    UCL_CLUB_ALIASES.push({ name, meta });
-  }
+  });
 }
-UCL_CLUB_ALIASES.sort((left, right) => right.name.length - left.name.length);
 
 function clubMeta(value) {
-  const raw = String(value || '').replace(/[\uD83C-\uDBFF\uDC00-\uDFFF]/g, '').replace(/\s+/g, ' ').trim();
-  return UCL_CLUB_BY_RU.get(raw) || UCL_CLUB_BY_KEY.get(normalizeClubName(raw));
-}
-
-function translateKnownClubText(value) {
-  if (typeof value !== 'string' || !value) return value;
-  const exact = clubMeta(value);
-  if (exact) return exact.ru;
-  let result = value;
-  for (const { name, meta } of UCL_CLUB_ALIASES) {
-    if (result.includes(name)) result = result.split(name).join(meta.ru);
-  }
-  return result;
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return null;
+  const exact = UCL_CLUB_BY_KEY.get(normalizeClubName(raw));
+  if (exact) return exact;
+  const normalized = normalizeClubName(raw);
+  return UCL_CLUBS.find((meta) => {
+    const values = [meta.canonical, meta.ru, ...(meta.aliases || [])].map(normalizeClubName);
+    return values.some((value) => value && normalized.includes(value));
+  }) || null;
 }
 
 function readActiveTournamentCode() {
   const selectorValue = document.querySelector('.header-tournament-selector select')?.value;
   return selectorValue || localStorage.getItem(ACTIVE_TOURNAMENT_STORAGE_KEY) || '';
 }
-function isUclActive() { return readActiveTournamentCode() === UCL_TOURNAMENT_CODE; }
+
+function isUclActive() {
+  return readActiveTournamentCode() === UCL_TOURNAMENT_CODE;
+}
+
 function isUclTournamentRequest(url) {
   try {
     const parsed = new URL(url, window.location.origin);
     return parsed.searchParams.get('tournament_code') === UCL_TOURNAMENT_CODE || isUclActive();
-  } catch (_) { return isUclActive(); }
+  } catch (_) {
+    return isUclActive();
+  }
 }
 
-function decorateTeamObject(target, prefix, value) {
+function decorateTeamObject(target, prefix, value, externalId) {
   const meta = clubMeta(value);
   if (!meta) return;
   target[`${prefix}_team`] = meta.ru;
   target[`${prefix}_flag`] = meta.flag;
   target[`${prefix}_flag_code`] = meta.flagCode;
-  target[`${prefix}_logo`] = meta.logo;
-}
-
-function uclOverviewPayload() {
-  const rows = [...UCL_CLUBS]
-    .map(([canonical, ru, flag, flagCode, logo], index) => ({
-      rank: index + 1, team: ru, flag, flag_code: flagCode, logo,
-      played: 0, wins: 0, draws: 0, losses: 0,
-      goals_for: 0, goals_against: 0, goal_difference: 0, points: 0,
-      qualification_zone: index < 8 ? 'direct' : index < 24 ? 'playoff' : 'out',
-    }));
-  return {
-    groups: [{ group_code: 'ЛЧ', rows }],
-    default_group_codes: ['ЛЧ'],
-    knockout: { stages: [], bracket: null },
-    top_scorers: { source: 'ucl-empty', items: [] },
-  };
+  target[`${prefix}_club_logo`] = externalId ? apiSportsLogo(externalId) : meta.logo;
+  target[`${prefix}_club_short`] = meta.short;
 }
 
 function transformUclPayload(value) {
   if (Array.isArray(value)) return value.map((item) => transformUclPayload(item));
-  if (value && typeof value === 'object') {
-    const next = {};
-    for (const [key, item] of Object.entries(value)) next[key] = transformUclPayload(item);
-    if (next.home_team) decorateTeamObject(next, 'home', next.home_team_api_name || next.home_team);
-    if (next.away_team) decorateTeamObject(next, 'away', next.away_team_api_name || next.away_team);
-    if (next.team?.name) {
-      const meta = clubMeta(next.team.api_name || next.team.name);
-      if (meta) next.team = { ...next.team, name: meta.ru, flag: meta.flag, flag_code: meta.flagCode, logo: meta.logo };
-    }
-    for (const key of ['name', 'team_name', 'champion', 'runner_up', 'third_place']) {
-      if (typeof next[key] === 'string') next[key] = translateKnownClubText(next[key]);
-    }
-    return next;
+  if (!value || typeof value !== 'object') return value;
+
+  const next = {};
+  for (const [key, item] of Object.entries(value)) {
+    next[key] = transformUclPayload(item);
   }
-  return typeof value === 'string' ? translateKnownClubText(value) : value;
+
+  if (next.home_team) {
+    decorateTeamObject(next, 'home', next.home_team_api_name || next.home_team, next.home_external_team_id);
+  }
+  if (next.away_team) {
+    decorateTeamObject(next, 'away', next.away_team_api_name || next.away_team, next.away_external_team_id);
+  }
+  if (next.team && typeof next.team === 'string') {
+    const meta = clubMeta(next.team);
+    if (meta) next.team = meta.ru;
+  }
+  if (next.team?.name) {
+    const meta = clubMeta(next.team.api_name || next.team.name);
+    if (meta) {
+      next.team = {
+        ...next.team,
+        name: meta.ru,
+        flag: meta.flag,
+        flag_code: meta.flagCode,
+        logo: next.team.logo || meta.logo,
+      };
+    }
+  }
+
+  return next;
 }
 
-async function jsonResponse(payload, status = 200) {
-  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
+function buildUclOverviewPayload() {
+  return {
+    ok: true,
+    tournament_code: UCL_TOURNAMENT_CODE,
+    groups: [
+      {
+        group_code: 'ЛЧ',
+        rows: UCL_CLUBS.map((meta, index) => ({
+          rank: index + 1,
+          team: meta.ru,
+          team_id: null,
+          flag: meta.flag,
+          flag_code: meta.flagCode,
+          played: 0,
+          wins: 0,
+          draws: 0,
+          losses: 0,
+          goals_for: 0,
+          goals_against: 0,
+          goal_difference: 0,
+          points: 0,
+          qualification_zone: index < 8 ? 'direct' : index < 24 ? 'playoff' : 'out',
+        })),
+      },
+    ],
+    default_group_codes: ['ЛЧ'],
+    knockout: { stages: [], bracket: null },
+    top_scorers: UCL_EMPTY_SCORERS,
+  };
 }
 
 async function maybeTransformUclResponse(response, url) {
-  if (!isUclTournamentRequest(url)) return response;
   const contentType = response.headers.get('Content-Type') || response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) return response;
+
   try {
+    const parsed = new URL(url, window.location.origin);
+    const isOverview = parsed.pathname === '/api/webapp/tournament/overview';
+    const isUcl = isUclTournamentRequest(url);
+    if (isOverview && isUcl) {
+      return new Response(JSON.stringify(buildUclOverviewPayload()), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (!isUcl) return response;
+
     const data = await response.clone().json();
+    const transformed = transformUclPayload(data);
     const headers = new Headers(response.headers);
     headers.set('Content-Type', 'application/json');
-    return new Response(JSON.stringify(transformUclPayload(data)), { status: response.status, statusText: response.statusText, headers });
-  } catch (_) { return response; }
+    return new Response(JSON.stringify(transformed), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (_) {
+    return response;
+  }
 }
 
 function installUclFetchPatch() {
   const originalFetch = window.fetch?.bind(window);
-  if (!originalFetch || window.__ffUclFetchPatchInstalled) return;
-  window.__ffUclFetchPatchInstalled = true;
+  if (!originalFetch || window.__ffUclFetchPatchInstalledV394) return;
+  window.__ffUclFetchPatchInstalledV394 = true;
+
   window.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input?.url || '';
     let parsed = null;
-    try { parsed = new URL(url, window.location.origin); } catch (_) { parsed = null; }
+    try {
+      parsed = new URL(url, window.location.origin);
+    } catch (_) {
+      parsed = null;
+    }
 
-    if (parsed?.pathname === '/api/webapp/tournament/overview' && isUclActive()) {
-      return jsonResponse(uclOverviewPayload());
-    }
     if (parsed?.pathname === '/api/webapp/top-scorer-candidates' && isUclActive()) {
-      return jsonResponse({ candidates: [], hint: 'Для ЛЧ 2026/27 выбери бомбардира вручную: начни вводить имя игрока.' });
+      return new Response(JSON.stringify({
+        candidates: [],
+        hint: 'Для ЛЧ 2026/27 выбери бомбардира вручную: начни вводить имя игрока.',
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
+
     if (parsed?.pathname === '/api/webapp/tournament-prediction' && isUclTournamentRequest(url)) {
       const nextInit = { ...(init || {}) };
       if (typeof nextInit.body === 'string') {
-        try { const payload = JSON.parse(nextInit.body); payload.third_place = ''; nextInit.body = JSON.stringify(payload); } catch (_) {}
+        try {
+          const payload = JSON.parse(nextInit.body);
+          payload.third_place = '';
+          nextInit.body = JSON.stringify(payload);
+        } catch (_) {
+          // Leave malformed or non-JSON bodies untouched.
+        }
       }
-      return maybeTransformUclResponse(await originalFetch(input, nextInit), url);
+      const response = await originalFetch(input, nextInit);
+      return maybeTransformUclResponse(response, url);
     }
-    return maybeTransformUclResponse(await originalFetch(input, init), url);
+
+    const response = await originalFetch(input, init);
+    return maybeTransformUclResponse(response, url);
   };
 }
 
 function installUclStyles() {
-  if (document.getElementById('ff-ucl-style-patch')) return;
+  if (document.getElementById('ff-ucl-style-patch-v394')) return;
   const style = document.createElement('style');
-  style.id = 'ff-ucl-style-patch';
+  style.id = 'ff-ucl-style-patch-v394';
   style.textContent = `
     .ff-ucl-tournament .next-match-hero.ff-ucl-hidden-simultaneous { display: none !important; }
-    .ff-ucl-schedule-note { margin: 16px 0; padding: 14px 16px; border-radius: 18px; background: rgba(96,165,250,.12); border: 1px solid rgba(96,165,250,.28); color: inherit; }
-    .ff-ucl-schedule-note strong { display: block; margin-bottom: 4px; }
-    .ff-ucl-tournament .tournament-mini-card, .ff-ucl-tournament .tournament-mini-card-main { min-width: 0; max-width: 100%; }
-    .ff-ucl-inline-flag { display:inline-flex; align-items:center; justify-content:center; width:1.45em; height:1.45em; margin-right:.35em; vertical-align:-.15em; border-radius:999px; background:rgba(255,255,255,.08); font-size:.95em; line-height:1; }
-    .ff-ucl-club-logo { display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:18px; background:#fff; overflow:hidden; box-shadow:0 8px 26px rgba(0,0,0,.28); }
-    .ff-ucl-club-logo img { width:82%; height:82%; object-fit:contain; display:block; }
-    .ff-ucl-club-logo .ff-ucl-logo-fallback { display:none; font-size:28px; }
-    .ff-ucl-club-logo.logo-failed img { display:none; }
-    .ff-ucl-club-logo.logo-failed .ff-ucl-logo-fallback { display:block; }
-    .ff-ucl-tournament .standings-table .headings span:nth-child(2)::after { content:' / клуб'; opacity:.65; font-size:.8em; }
+
+    .ff-ucl-inline-flag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.35em;
+      height: 1.35em;
+      margin-right: 0.35em;
+      vertical-align: -0.16em;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      font-size: 0.95em;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
+    .ff-ucl-club-logo {
+      width: 86px;
+      height: 86px;
+      border-radius: 24px;
+      background: rgba(255,255,255,0.96);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 14px 32px rgba(0,0,0,.24);
+      overflow: hidden;
+      flex: 0 0 auto;
+    }
+    .ff-ucl-club-logo img {
+      width: 72%;
+      height: 72%;
+      object-fit: contain;
+      display: block;
+    }
+    .ff-ucl-club-logo span {
+      color: #0f172a;
+      font-weight: 900;
+      font-size: 24px;
+      letter-spacing: -0.04em;
+    }
+    .ff-ucl-club-logo.logo-failed img { display: none; }
+    .ff-ucl-club-logo.logo-failed span { display: inline !important; }
+
+    .ff-ucl-tournament .match-teams .team-side > .flag,
+    .ff-ucl-tournament .detail-team > .flag,
+    .ff-ucl-tournament .live-match-team > .flag {
+      display: none !important;
+    }
+
+    .ff-ucl-tournament .group-table-card.group-ЛЧ {
+      overflow: hidden;
+      border-color: rgba(96, 165, 250, .55);
+    }
+    .ff-ucl-tournament .group-table-card.group-ЛЧ .group-header p {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .ff-ucl-tournament .group-table-card.group-ЛЧ .standings-table {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .ff-ucl-tournament .group-table-card.group-ЛЧ .standings-row {
+      display: grid !important;
+      grid-template-columns: 40px minmax(190px, 1.6fr) 40px 40px 40px 40px 58px 42px 42px !important;
+      min-width: 620px;
+      align-items: center;
+      column-gap: 8px;
+    }
+    .ff-ucl-tournament .group-table-card.group-ЛЧ .standings-row .team-name {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ff-ucl-tournament .group-table-card.group-ЛЧ .standings-row .team-name .ff-ucl-inline-flag {
+      display: none;
+    }
+
+    .league-status-row {
+      gap: 8px;
+    }
+    .league-status {
+      flex-wrap: wrap;
+      row-gap: 8px;
+      max-width: 100%;
+      align-items: center;
+    }
+    .header-tournament-selector,
+    .header-league-selector {
+      min-width: 0;
+      max-width: min(46vw, 220px);
+    }
+    .header-tournament-selector select,
+    .header-league-name {
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .league-status .divider {
+      opacity: .35;
+    }
+    @media (max-width: 720px) {
+      .league-status-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+      }
+      .league-status {
+        padding: 7px 9px;
+        border-radius: 22px;
+      }
+      .header-league-divider {
+        display: none !important;
+      }
+      .league-status .live-countdown {
+        order: 20;
+        flex-basis: auto;
+      }
+      .league-status .points {
+        order: 21;
+      }
+      .league-status .muted {
+        order: 22;
+      }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -195,108 +395,150 @@ function patchSimultaneousHeroForUcl() {
   const oldNote = document.querySelector('.ff-ucl-schedule-note');
   if (oldNote && !isUclActive()) oldNote.remove();
   if (!isUclActive()) return;
+
   const hero = document.querySelector('.next-match-hero');
   if (!hero) return;
   const text = (hero.textContent || '').replace(/\s+/g, ' ');
   const match = text.match(/(\d+)\s+матч[а-я]*\s+стартуют\s+одновременно/i);
   const count = match ? Number(match[1]) : 0;
   if (count <= 12) return;
+
   hero.classList.add('ff-ucl-hidden-simultaneous');
-  if (document.querySelector('.ff-ucl-schedule-note')) return;
-  const note = document.createElement('section');
-  note.className = 'ff-ucl-schedule-note';
-  note.innerHTML = '<strong>Календарь ЛЧ загружен</strong><small>Показываю матчи по турам. Блок массового прогноза скрыт, потому что провайдер сначала отдал общий placeholder для всех матчей.</small>';
-  hero.parentNode?.insertBefore(note, hero);
 }
 
-function addCountryFlag(element, meta) {
-  if (!element || element.querySelector?.('.ff-ucl-inline-flag')) return;
+function elementTextWithoutPatch(element) {
+  if (!element) return '';
+  const clone = element.cloneNode(true);
+  clone.querySelectorAll?.('.ff-ucl-inline-flag,.ff-ucl-club-logo').forEach((node) => node.remove());
+  return (clone.textContent || '')
+    .replace(/[🇦-🇿]{2}/gu, '')
+    .replace(/🏴/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function metaFromElement(element) {
+  const text = elementTextWithoutPatch(element);
+  return clubMeta(text);
+}
+
+function makeClubLogo(meta) {
+  const logo = document.createElement('span');
+  logo.className = 'ff-ucl-club-logo';
+  logo.title = meta.ru;
+  logo.setAttribute('aria-label', `Эмблема: ${meta.ru}`);
+
+  if (meta.logo) {
+    const img = document.createElement('img');
+    img.src = meta.logo;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => {
+      logo.classList.add('logo-failed');
+    };
+    logo.appendChild(img);
+  }
+
+  const fallback = document.createElement('span');
+  fallback.textContent = meta.short || meta.flag;
+  fallback.style.display = meta.logo ? 'none' : 'inline';
+  logo.appendChild(fallback);
+
+  return logo;
+}
+
+function addCountryFlagToLabel(label, meta) {
+  if (!label || label.querySelector?.('.ff-ucl-inline-flag')) return;
   const flag = document.createElement('span');
   flag.className = 'ff-ucl-inline-flag';
   flag.textContent = meta.flag;
   flag.setAttribute('aria-hidden', 'true');
-  element.prepend(flag);
+  label.prepend(flag);
 }
 
-function logoNode(meta) {
-  const logo = document.createElement('span');
-  logo.className = 'ff-ucl-club-logo';
-  logo.setAttribute('title', meta.ru);
-  logo.innerHTML = `<img src="${meta.logo}" alt="" loading="lazy"><span class="ff-ucl-logo-fallback">${meta.flag}</span>`;
-  logo.querySelector('img')?.addEventListener('error', () => logo.classList.add('logo-failed'));
-  return logo;
-}
+function decorateTeamSide(side) {
+  if (!side || side.dataset.ffUclLogoDecorated === '1') return;
+  const label = side.querySelector('strong') || side.querySelector('.team-name') || side;
+  const meta = metaFromElement(label);
+  if (!meta) return;
 
-function replaceBigFlagNear(element, meta) {
-  if (!element || element.dataset.ffUclLogoDone === '1') return;
-  let candidate = element.previousElementSibling;
-  if (!candidate || !candidate.className || !String(candidate.className).includes('flag')) {
-    const parent = element.parentElement;
-    candidate = parent ? Array.from(parent.children).find((child) => child !== element && String(child.className || '').includes('flag') && !String(child.className || '').includes('ff-ucl-inline-flag')) : null;
+  addCountryFlagToLabel(label, meta);
+
+  const directFlag = Array.from(side.children || []).find((node) => node.classList?.contains('flag'));
+  if (directFlag) {
+    directFlag.replaceWith(makeClubLogo(meta));
+  } else if (!side.querySelector('.ff-ucl-club-logo') && (side.classList.contains('team-side') || side.classList.contains('detail-team') || side.classList.contains('live-match-team'))) {
+    side.insertBefore(makeClubLogo(meta), side.firstChild);
   }
-  if (!candidate || candidate.classList.contains('ff-ucl-club-logo')) return;
-  candidate.replaceWith(logoNode(meta));
-  element.dataset.ffUclLogoDone = '1';
+
+  side.dataset.ffUclLogoDecorated = '1';
 }
 
-function decorateVisibleClubPresentation() {
+function decorateVisibleClubFlagsAndLogos() {
   if (!isUclActive()) return;
-  const selectors = ['.next-match-hero strong','.next-match-slide strong','.live-match-team strong','.match-card strong','.match-team strong','.match-row strong','.prediction-match strong','.modal-card strong','.team-name'].join(',');
-  document.querySelectorAll(selectors).forEach((element) => {
-    const meta = clubMeta(element.textContent);
-    if (!meta) return;
-    addCountryFlag(element, meta);
-    replaceBigFlagNear(element, meta);
+
+  document.querySelectorAll([
+    '.match-teams .team-side',
+    '.next-match-hero .team-side',
+    '.match-details-hero .detail-team',
+    '.live-match-team',
+  ].join(',')).forEach((side) => decorateTeamSide(side));
+
+  document.querySelectorAll([
+    '.team-name',
+    '.match-row strong',
+    '.prediction-match strong',
+    '.modal-card strong',
+  ].join(',')).forEach((element) => {
+    const meta = metaFromElement(element);
+    if (meta) addCountryFlagToLabel(element, meta);
   });
 }
 
-function replaceExactText(root, from, to) {
-  root.querySelectorAll('*').forEach((element) => {
-    for (const node of element.childNodes) {
-      if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim() === from) node.nodeValue = node.nodeValue.replace(from, to);
-    }
-  });
-}
-
-function patchUclTournamentHubText() {
+function patchUclTournamentTexts() {
   if (!isUclActive()) return;
-  const hub = document.querySelector('.tournament-hub');
-  if (!hub) return;
-  replaceExactText(hub, 'Группы', 'Общий этап');
-  replaceExactText(hub, 'Группа ЛЧ', 'Общий этап ЛЧ');
-  replaceExactText(hub, 'Сборная', 'Клуб');
-  hub.querySelectorAll('p, small, span').forEach((element) => {
-    if ((element.textContent || '').includes('1–2 место — 1/8 финала')) {
-      element.textContent = '1–8 — 1/8 финала · 9–24 — стыковые матчи · 25–36 — вылет';
-    }
-    if ((element.textContent || '').includes('По умолчанию выбраны группы')) {
-      element.textContent = 'Общий этап ЛЧ: 36 клубов, 8 туров. Таблица обновится после первых матчей.';
-    }
-    if ((element.textContent || '').includes('обновляется из статистики')) {
-      element.textContent = 'по матчам ЛЧ';
-    }
+  document.querySelectorAll('.group-table-card.group-ЛЧ .group-header h2').forEach((element) => {
+    if ((element.textContent || '').includes('Группа')) element.textContent = 'Общий этап ЛЧ';
+  });
+  document.querySelectorAll('.group-table-card.group-ЛЧ .group-header p').forEach((element) => {
+    element.textContent = '1–8 — 1/8 финала · 9–24 — стыковые матчи · 25–36 — вылет';
+  });
+  document.querySelectorAll('.group-table-card.group-ЛЧ .standings-row.headings span').forEach((element) => {
+    if ((element.textContent || '').trim().toLowerCase() === 'сборная') element.textContent = 'Клуб';
   });
 }
 
 function hideThirdPlaceElementsForUcl() {
   const active = isUclActive();
   document.documentElement.classList.toggle('ff-ucl-tournament', active);
-  const candidates = document.querySelectorAll(['.tournament-mini-card','.tournament-mini-card-edit','.modal-card article','.modal-card button','.modal-card label','.modal-card .form-row','.modal-card .field','.modal-card .picker-section'].join(','));
+  if (!active) return;
+
+  const candidates = document.querySelectorAll([
+    '.tournament-mini-card',
+    '.tournament-mini-card-edit',
+    '.modal-card article',
+    '.modal-card button',
+    '.modal-card label',
+    '.modal-card .form-row',
+    '.modal-card .field',
+    '.modal-card .picker-section',
+  ].join(','));
+
   candidates.forEach((element) => {
     const text = (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const aria = (element.getAttribute('aria-label') || '').toLowerCase();
     const isThirdPlace = text.includes('3-е место') || text.includes('3 место') || aria.includes('third_place') || aria.includes('3-е место');
     if (!isThirdPlace) return;
-    if (active) { element.dataset.ffUclHiddenThirdPlace = '1'; element.setAttribute('hidden', ''); }
-    else if (element.dataset.ffUclHiddenThirdPlace === '1') { element.removeAttribute('hidden'); delete element.dataset.ffUclHiddenThirdPlace; }
+    element.dataset.ffUclHiddenThirdPlace = '1';
+    element.setAttribute('hidden', '');
   });
-  if (active) {
-    document.querySelectorAll('.tournament-mini-actions span').forEach((element) => {
-      const match = String(element.textContent || '').trim().match(/^(\d+)\/4$/);
-      if (!match) return;
-      element.textContent = `${Math.min(Number(match[1] || 0), 3)}/3`;
-    });
-  }
+
+  document.querySelectorAll('.tournament-mini-actions span').forEach((element) => {
+    const match = String(element.textContent || '').trim().match(/^(\d+)\/4$/);
+    if (!match) return;
+    const value = Math.min(Number(match[1] || 0), 3);
+    element.textContent = `${value}/3`;
+  });
 }
 
 function installUclDomPatch() {
@@ -304,17 +546,21 @@ function installUclDomPatch() {
   const run = () => {
     hideThirdPlaceElementsForUcl();
     patchSimultaneousHeroForUcl();
-    decorateVisibleClubPresentation();
-    patchUclTournamentHubText();
+    decorateVisibleClubFlagsAndLogos();
+    patchUclTournamentTexts();
   };
   run();
+
   document.addEventListener('change', (event) => {
     if (event.target?.matches?.('.header-tournament-selector select')) {
       window.setTimeout(run, 0);
       window.setTimeout(run, 250);
+      window.setTimeout(run, 900);
     }
   }, true);
-  new MutationObserver(() => run()).observe(document.documentElement, { childList: true, subtree: true });
+
+  const observer = new MutationObserver(() => run());
+  observer.observe(document.documentElement, { childList: true, subtree: true });
 }
 
 installUclFetchPatch();
