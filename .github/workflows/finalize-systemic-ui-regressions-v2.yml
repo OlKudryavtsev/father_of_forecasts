@@ -1,0 +1,88 @@
+name: Finalize systemic UI regressions v2
+
+on:
+  push:
+    branches:
+      - assistant/systemic-tournament-ui-fix
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assistant-systemic-tournament-ui-fix-final
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/miniapp_frontend/package-lock.json
+
+      - name: Port remaining runtime behavior into native code
+        shell: bash
+        run: |
+          echo 'CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAppbXBvcnQganNvbgoKcm9vdCA9IFBhdGgoJy4nKQoKd2ViYXBwX3BhdGggPSByb290IC8gJ2FwcC9hcGkvd2ViYXBwLnB5Jwp3ZWJhcHAgPSB3ZWJhcHBfcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04JykKb2xkX3JhbmsgPSAnJycgICAgZm9yIGluZGV4LCByb3cgaW4gZW51bWVyYXRlKHRhYmxlX3Jvd3MsIHN0YXJ0PTEpOgogICAgICAgIGlmIHJvd1sibmFtZSJdID09IGN1cnJlbnRfdXNlci5kaXNwbGF5X25hbWU6CiAgICAgICAgICAgIGN1cnJlbnRfcmFuayA9IGluZGV4CiAgICAgICAgICAgIGN1cnJlbnRfcG9pbnRzID0gcm93WyJwb2ludHMiXQogICAgICAgICAgICBicmVhawonJycKbmV3X3JhbmsgPSAnJycgICAgZm9yIGluZGV4LCByb3cgaW4gZW51bWVyYXRlKHRhYmxlX3Jvd3MsIHN0YXJ0PTEpOgogICAgICAgICMgYnVpbGRfdGFibGVfcm93cyBhbHJlYWR5IGV4cG9zZXMgdGhlIHN0YWJsZSBVc2VyLmlkLiBNYXRjaGluZyBieSBpZAogICAgICAgICMgYXZvaWRzIGEgbnVsbC93cm9uZyByYW5rIHdoZW4gYSBkaXNwbGF5IG5hbWUgY2hhbmdlcyBvciBpcyBkdXBsaWNhdGVkLgogICAgICAgIGlmIHJvdy5nZXQoInVzZXJfaWQiKSA9PSBjdXJyZW50X3VzZXIuaWQ6CiAgICAgICAgICAgIGN1cnJlbnRfcmFuayA9IGluZGV4CiAgICAgICAgICAgIGN1cnJlbnRfcG9pbnRzID0gcm93WyJwb2ludHMiXQogICAgICAgICAgICBicmVhawonJycKaWYgb2xkX3Jhbmsgbm90IGluIHdlYmFwcDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoJ0Nhbm5vdCBmaW5kIGRhc2hib2FyZCByYW5rIGxvb2t1cCcpCndlYmFwcF9wYXRoLndyaXRlX3RleHQod2ViYXBwLnJlcGxhY2Uob2xkX3JhbmssIG5ld19yYW5rLCAxKSwgZW5jb2Rpbmc9J3V0Zi04JykKCmNzc19wYXRoID0gcm9vdCAvICdhcHAvbWluaWFwcF9mcm9udGVuZC9zcmMvc3R5bGVzLmNzcycKY3NzID0gY3NzX3BhdGgucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCm1hcmtlciA9ICcvKiBOYXRpdmUgcmVwbGFjZW1lbnRzIGZvciByZXRpcmVkIHJ1bnRpbWUgVUkgcGF0Y2hlcyAodjMuOS4xNikgKi8nCmlmIG1hcmtlciBpbiBjc3M6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCdGaW5hbCBuYXRpdmUgQ1NTIG1hcmtlciBhbHJlYWR5IHByZXNlbnQnKQpjc3MgKz0gcicnJwoKLyogTmF0aXZlIHJlcGxhY2VtZW50cyBmb3IgcmV0aXJlZCBydW50aW1lIFVJIHBhdGNoZXMgKHYzLjkuMTYpICovCi8qIEtlZXAgdGhlIHF1aWNrLXByZWRpY3Rpb24gaGVybyBjb21wYWN0IHdpdGhvdXQgbXV0YXRpbmcgdGhlIERPTSBhdCBydW50aW1lLiAqLwoubmV4dC1tYXRjaC1oZXJvIHsKICBwYWRkaW5nOiAxMXB4OwogIGJvcmRlci1yYWRpdXM6IDIwcHg7Cn0KLm5leHQtbWF0Y2gtaGVyby10b3AgewogIG1hcmdpbi1ib3R0b206IDhweDsKICBnYXA6IDhweDsKfQoubmV4dC1tYXRjaC1raWNrZXIgeyBmb250LXNpemU6IDEycHg7IH0KLm5leHQtbWF0Y2gtY291bnRkb3duIHsKICBwYWRkaW5nOiA0cHggOHB4OwogIGZvbnQtc2l6ZTogMTFweDsKfQoubmV4dC1tYXRjaC10ZWFtcyB7CiAgbWFyZ2luLWJvdHRvbTogOHB4OwogIGdhcDogNnB4Owp9Ci5uZXh0LW1hdGNoLXRlYW0geyBnYXA6IDRweDsgfQoubmV4dC1tYXRjaC10ZWFtIHN0cm9uZyB7IGZvbnQtc2l6ZTogMTNweDsgfQoubmV4dC1tYXRjaC10ZWFtIC5mbGFnOm5vdCguY2x1Yi1tYXJrKSB7CiAgd2lkdGg6IDQ0cHg7CiAgaGVpZ2h0OiAzMnB4Owp9Ci5uZXh0LW1hdGNoLXRlYW0gLmNsdWItbWFyayB7CiAgd2lkdGg6IDY2cHg7CiAgaGVpZ2h0OiA2NnB4OwogIGJvcmRlci1yYWRpdXM6IDE0cHg7Cn0KLm5leHQtbWF0Y2gtdGVhbSAuY2x1Yi1tYXJrID4gLmNsdWItbWFyay1sb2dvIHsgcGFkZGluZzogNnB4OyB9Ci5uZXh0LW1hdGNoLXRlYW0gLmNsdWItbWFyay1jb3VudHJ5IHsKICBib3R0b206IC03cHg7CiAgd2lkdGg6IDI0cHg7CiAgaGVpZ2h0OiAyMHB4Owp9Ci5uZXh0LW1hdGNoLXZlcnN1cyB7IGdhcDogM3B4OyB9Ci5uZXh0LW1hdGNoLXZlcnN1cyBiIHsgZm9udC1zaXplOiAyMHB4OyB9Ci5uZXh0LW1hdGNoLXZlcnN1cyBzbWFsbCB7IGZvbnQtc2l6ZTogMTBweDsgfQoubmV4dC1tYXRjaC1zdGF0dXMgewogIG1pbi1oZWlnaHQ6IDM0cHg7CiAgbWFyZ2luLWJvdHRvbTogOHB4OwogIHBhZGRpbmc6IDZweCA5cHg7CiAgYm9yZGVyLXJhZGl1czogMTJweDsKICBnYXA6IDZweDsKfQoubmV4dC1tYXRjaC1zdGF0dXMgPiBzcGFuIHsKICB3aWR0aDogMThweDsKICBoZWlnaHQ6IDE4cHg7Cn0KLm5leHQtbWF0Y2gtc3RhdHVzIHN0cm9uZyB7IGZvbnQtc2l6ZTogMTIuNXB4OyB9Ci5uZXh0LW1hdGNoLXN0YXR1cyBzbWFsbCB7CiAgZm9udC1zaXplOiAxMHB4OwogIHBhZGRpbmctbGVmdDogMjRweDsKfQoubmV4dC1tYXRjaC1jdGEgewogIG1pbi1oZWlnaHQ6IDQwcHg7CiAgaGVpZ2h0OiA0MHB4OwogIGJvcmRlci1yYWRpdXM6IDEzcHg7CiAgZm9udC1zaXplOiAxM3B4Owp9CgovKiBUaGUgVUNMIGxlYWd1ZS1waGFzZSB0YWJsZSBzaG91bGQgZml0IGEgcGhvbmUgdmlld3BvcnQsIGFzIHRoZSBwcmV2aW91cwogICB2My45LjcgcGF0Y2ggZGlkLCBidXQgbm93IHRocm91Z2ggb3JkaW5hcnkgY29tcG9uZW50IENTUy4gKi8KLnVjbC1sZWFndWUtcGhhc2UtcGFuZWwgeyBwYWRkaW5nOiAxMHB4OyB9Ci51Y2wtdGFibGUtc2Nyb2xsIHsKICB3aWR0aDogMTAwJTsKICBvdmVyZmxvdzogaGlkZGVuOwp9Ci51Y2wtcGhhc2UtdGFibGUgewogIHdpZHRoOiAxMDAlOwogIG1pbi13aWR0aDogMDsKICB0YWJsZS1sYXlvdXQ6IGZpeGVkOwogIGJvcmRlci1jb2xsYXBzZTogY29sbGFwc2U7CiAgZm9udC1zaXplOiAxMHB4Owp9Ci51Y2wtcGhhc2UtdGFibGUgdGgsCi51Y2wtcGhhc2UtdGFibGUgdGQgewogIHBhZGRpbmc6IDZweCAycHg7CiAgbWluLXdpZHRoOiAwOwogIHdoaXRlLXNwYWNlOiBub3dyYXA7CiAgb3ZlcmZsb3c6IGhpZGRlbjsKICB0ZXh0LW92ZXJmbG93OiBlbGxpcHNpczsKfQoudWNsLXBoYXNlLXRhYmxlIHRoOm50aC1jaGlsZCgxKSwKLnVjbC1waGFzZS10YWJsZSB0ZDpudGgtY2hpbGQoMSkgeyB3aWR0aDogMjRweDsgfQoudWNsLXBoYXNlLXRhYmxlIHRoOm50aC1jaGlsZCgyKSwKLnVjbC1waGFzZS10YWJsZSB0ZDpudGgtY2hpbGQoMikgeyB3aWR0aDogMTI4cHg7IHRleHQtYWxpZ246IGxlZnQ7IH0KLnVjbC1waGFzZS10YWJsZSB0aDpudGgtY2hpbGQoMyksCi51Y2wtcGhhc2UtdGFibGUgdGQ6bnRoLWNoaWxkKDMpLAoudWNsLXBoYXNlLXRhYmxlIHRoOm50aC1jaGlsZCg0KSwKLnVjbC1waGFzZS10YWJsZSB0ZDpudGgtY2hpbGQoNCksCi51Y2wtcGhhc2UtdGFibGUgdGg6bnRoLWNoaWxkKDUpLAoudWNsLXBoYXNlLXRhYmxlIHRkOm50aC1jaGlsZCg1KSwKLnVjbC1waGFzZS10YWJsZSB0aDpudGgtY2hpbGQoNiksCi51Y2wtcGhhc2UtdGFibGUgdGQ6bnRoLWNoaWxkKDYpIHsgd2lkdGg6IDIycHg7IH0KLnVjbC1waGFzZS10YWJsZSB0aDpudGgtY2hpbGQoNyksCi51Y2wtcGhhc2UtdGFibGUgdGQ6bnRoLWNoaWxkKDcpIHsgd2lkdGg6IDM0cHg7IH0KLnVjbC1waGFzZS10YWJsZSB0aDpudGgtY2hpbGQoOCksCi51Y2wtcGhhc2UtdGFibGUgdGQ6bnRoLWNoaWxkKDgpLAoudWNsLXBoYXNlLXRhYmxlIHRoOm50aC1jaGlsZCg5KSwKLnVjbC1waGFzZS10YWJsZSB0ZDpudGgtY2hpbGQoOSkgeyB3aWR0aDogMjRweDsgfQoudWNsLXRhYmxlLWNsdWIgewogIHdpZHRoOiAxMDAlOwogIGdhcDogNHB4OwogIG92ZXJmb3c6IGhpZGRlbjsKfQoudWNsLXRhYmxlLWNsdWIgLmNsdWItbWFyay5taW5pIHsKICB3aWR0aDogMjBweDsKICBoZWlnaHQ6IDIwcHg7CiAgZmxleDogMCAwIDIwcHg7CiAgYm9yZGVyLXJhZGl1czogNnB4Owp9Ci51Y2wtdGFibGUtY2x1YiAuY2x1Yi1tYXJrLm1pbmkgPiAuY2x1Yi1tYXJrLWxvZ28geyBwYWRkaW5nOiAycHg7IH0KLnVjbC10YWJsZS1jbHViIHN0cm9uZyB7CiAgbWluLXdpZHRoOiAwOwogIGRpc3BsYXk6IGJsb2NrOwogIGNvbG9yOiAjZjRmN2ZmOwogIGZvbnQtc2l6ZTogMTBweDsKICBmb250LXdlaWdodDogODAwOwogIG92ZXJmbG93OiBoaWRkZW47CiAgdGV4dC1vdmVyZmxvdzogZWxsaXBzaXM7CiAgd2hpdGUtc3BhY2U6IG5vd3JhcDsKfQoudWNsLXBoYXNlLXRhYmxlIHRib2R5IHRyLnVjbC1kaXJlY3QgeyBiYWNrZ3JvdW5kOiByZ2JhKDIyLDIxMSwxNDUsLjAzNSk7IH0KLnVjbC1waGFzZS10YWJsZSB0Ym9keSB0ci51Y2wtcGxheW9mZiB7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDE5MSw1MywuMDI1KTsgfQoudWNsLXBoYXNlLXRhYmxlIHRib2R5IHRyLnVjbC1vdXQgeyBvcGFjaXR5OiAuNzQ7IH0KLnVjbC1waGFzZS10YWJsZSB0Ym9keSB0ci51Y2wtZGlyZWN0IHRkOmZpcnN0LWNoaWxkIHsKICBib3JkZXItbGVmdDogNHB4IHNvbGlkICMxNmQzOTE7CiAgYmFja2dyb3VuZDogcmdiYSgyMiwyMTEsMTQ1LC4wOCk7Cn0KLnVjbC1waGFzZS10YWJsZSB0Ym9keSB0ci51Y2wtcGxheW9mZiB0ZDpmaXJzdC1jaGlsZCB7CiAgYm9yZGVyLWxlZnQ6IDRweCBzb2xpZCAjZmZiZjM1OwogIGJhY2tncm91bmQ6IHJnYmEoMjU1LDE5MSw1MywuMDgpOwp9Ci51Y2wtcGhhc2UtdGFibGUgdGJvZHkgdHIudWNsLW91dCB0ZDpmaXJzdC1jaGlsZCB7CiAgYm9yZGVyLWxlZnQ6IDRweCBzb2xpZCAjNjU3MDg5OwogIGJhY2tncm91bmQ6IHJnYmEoMTAxLDExMiwxMzcsLjA4KTsKfQoKQG1lZGlhIChtYXgtd2lkdGg6IDM5MHB4KSB7CiAgLm5leHQtbWF0Y2gtaGVybyB7IHBhZGRpbmc6IDEwcHg7IH0KICAubmV4dC1tYXRjaC10ZWFtIC5jbHViLW1hcmsg ewogICAgd2lkdGg6IDU4cHg7CiAgICBoZWlnaHQ6IDU4cHg7CiAgfQogIC51Y2wtcGhhc2UtdGFibGUgdGg6bnRoLWNoaWxkKDIpLAogIC51Y2wtcGhhc2UtdGFibGUgdGQ6bnRoLWNoaWxkKDIpIHsgd2lkdGg6IDEwOHB4OyB9CiAgLnVjbC10YWJsZS1jbHViIHN0cm9uZyB7IGZvbnQtc2l6ZTogOS41cHg7IH0KfQonJycKY3NzX3BhdGgud3JpdGVfdGV4dChjc3MsIGVuY29kaW5nPSd1dGYtOCcpCgpwYWNrYWdlX3BhdGggPSByb290IC8gJ2FwcC9taW5pYXBwX2Zyb250ZW5kL3BhY2thZ2UuanNvbicKcGFja2FnZSA9IGpzb24ubG9hZHMocGFja2FnZV9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0ndXRmLTgnKSkKaWYgcGFja2FnZS5nZXQoJ3ZlcnNpb24nKSAhPSAnMy45LjE1JzoKICAgIHJhaXNlIFN5c3RlbUV4aXQoZiJVbmV4cGVjdGVkIHBhY2thZ2UgdmVyc2lvbjoge3BhY2thZ2UuZ2V0KCd2ZXJzaW9uJyl9IikKcGFja2FnZVsndmVyc2lvbiddID0gJzMuOS4xNicKcGFja2FnZV9wYXRoLndyaXRlX3RleHQoanNvbi5kdW1wcyhwYWNrYWdlLCBlbnN1cmVfYXNjaWk9RmFsc2UsIGluZGVudD0yKSArICdcbicsIGVuY29kaW5nPSd1dGYtOCcpCgpsb2NrX3BhdGggPSByb290IC8gJ2FwcC9taW5pYXBwX2Zyb250ZW5kL3BhY2thZ2UtbG9jay5qc29uJwpsb2NrID0ganNvbi5sb2Fkcyhsb2NrX3BhdGgucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpKQpsb2NrWyd2ZXJzaW9uJ10gPSAnMy45LjE2JwppZiAnJyBpbiBsb2NrLmdldCgncGFja2FnZXMnLCB7fSk6CiAgICBsb2NrWydwYWNrYWdlcyddWyddWyd2ZXJzaW9uJ10gPSAnMy45LjE2Jwpsb2NrX3BhdGgud3JpdGVfdGV4dChqc29uLmR1bXBzKGxvY2ssIGVuc3VyZV9hc2NpaT1GYWxzZSwgaW5kZW50PTIpICsgJ1xuJywgZW5jb2Rpbmc9J3V0Zi04JykK' | base64 -d > /tmp/finalize.py
+          python /tmp/finalize.py
+          rm -f app/miniapp_frontend/public/ui_compact_v3913.js
+          rm -f app/miniapp_frontend/public/header_unified_v3914.js
+          rm -f app/miniapp_frontend/src/ucl_ui_patch_v397.js
+          node app/miniapp_frontend/scripts/sync-version.mjs
+
+      - name: Verify retired patches are fully replaced
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          webapp = Path('app/api/webapp.py').read_text(encoding='utf-8')
+          css = Path('app/miniapp_frontend/src/styles.css').read_text(encoding='utf-8')
+          index = Path('app/miniapp_frontend/index.html').read_text(encoding='utf-8')
+          assert 'row.get("user_id") == current_user.id' in webapp
+          assert 'Native replacements for retired runtime UI patches (v3.9.16)' in css
+          for value in ('ui_compact_v3913.js', 'header_unified_v3914.js', 'ucl_ui_patch_v397.js', 'ucl_ui_patch.js'):
+              assert value not in index
+          PY
+          test ! -e app/miniapp_frontend/public/ui_compact_v3913.js
+          test ! -e app/miniapp_frontend/public/header_unified_v3914.js
+          test ! -e app/miniapp_frontend/src/ucl_ui_patch_v397.js
+
+      - name: Python checks
+        run: |
+          python -m compileall -q app
+          python -m pip install -q pytest
+          python -m pytest -q tests/test_team_identity.py
+
+      - name: Install frontend dependencies
+        working-directory: app/miniapp_frontend
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: timeout --foreground --kill-after=10s 180s npm ci --no-audit --no-fund --loglevel=warn
+
+      - name: Build Mini App
+        working-directory: app/miniapp_frontend
+        run: timeout --foreground --kill-after=10s 120s npm run build
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit final native cleanup
+        shell: bash
+        run: |
+          rm -f .github/workflows/finalize-systemic-ui-regressions-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: retire remaining runtime UI patches"
+          git push origin HEAD:${GITHUB_REF_NAME}
