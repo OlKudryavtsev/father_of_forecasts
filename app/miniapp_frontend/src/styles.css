@@ -6971,7 +6971,7 @@ button.danger.wide {
   letter-spacing: 0.02em;
 }
 
-.flag.flag-img img {
+.flag.flag-img:not(.club-mark) img {
   width: 100%;
   height: 100%;
   display: block;
@@ -14272,6 +14272,7 @@ body,
 .league-status > .header-stat {
   width: 100%;
   min-width: 0;
+  max-width: none;
   height: 40px;
   min-height: 40px;
   max-height: 40px;
@@ -14279,6 +14280,10 @@ body,
   box-sizing: border-box;
   border-radius: 13px;
   overflow: hidden;
+  justify-self: stretch;
+  align-self: stretch;
+  flex: 0 0 auto;
+  flex-basis: auto;
 }
 
 .league-status > .header-tournament-selector,
@@ -14335,6 +14340,13 @@ body,
   white-space: nowrap;
 }
 
+.league-status > .header-tournament-selector select,
+.league-status > .header-league-selector .header-league-trigger {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .club-mark {
   position: relative;
   display: grid;
@@ -14344,7 +14356,7 @@ body,
   border-radius: 20px;
   background: #f8fafc;
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
-  overflow: visible;
+  overflow: hidden;
   font-size: 0;
 }
 
@@ -14352,37 +14364,15 @@ body,
   display: block;
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   padding: 9px;
   object-fit: contain;
+  object-position: center;
   border-radius: inherit;
 }
 
-.club-mark-country {
-  position: absolute;
-  left: 50%;
-  bottom: -9px;
-  transform: translateX(-50%);
-  width: 27px;
-  height: 23px;
-  padding: 3px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: #172036;
-  border: 1px solid rgba(148, 163, 184, .24);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .28);
-  font-size: 14px;
-  line-height: 1;
-  z-index: 2;
-}
 
-.club-mark-country > img {
-  display: block;
-  width: 19px;
-  height: 14px;
-  object-fit: cover;
-  border-radius: 3px;
-}
 
 .next-match-team .club-mark {
   width: 92px;
@@ -14414,9 +14404,62 @@ body,
   padding: 3px;
 }
 
-.club-mark.mini .club-mark-country {
-  display: none;
+
+.team-name-with-country {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
 }
+
+.team-name-with-country > .flag.mini {
+  width: 20px;
+  min-width: 20px;
+  height: 15px;
+  flex: 0 0 20px;
+  border-radius: 3px;
+  overflow: hidden;
+  font-size: 14px;
+}
+
+.team-name-with-country > .flag.mini > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.team-name-with-country > strong {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.team-side .team-name-with-country,
+.next-match-team .team-name-with-country {
+  width: 100%;
+}
+
+.ucl-table-club .team-name-with-country,
+.hub-club-line .team-name-with-country {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.hub-club-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.match-center-team-options .filter-team-name {
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
 
 @media (max-width: 390px) {
   .league-main {
@@ -14521,11 +14564,6 @@ body,
   border-radius: 14px;
 }
 .next-match-team .club-mark > .club-mark-logo { padding: 6px; }
-.next-match-team .club-mark-country {
-  bottom: -7px;
-  width: 24px;
-  height: 20px;
-}
 .next-match-versus { gap: 3px; }
 .next-match-versus b { font-size: 20px; }
 .next-match-versus small { font-size: 10px; }
